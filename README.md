@@ -79,6 +79,16 @@ settings          wall_exterior (0.24), wall_interior (0.12), energy {…}
 
 ### Energie-Entitäten
 
+In `settings.energy` (Startwerte):
+
+| Schlüssel | Entität |
+|---|---|
+| `solar` | `sensor.pv_leistung` |
+| `einspeisung` | `sensor.pv_einspeisung` |
+| `akku_ladestand` | `sensor.akku_ladestand` |
+| `akku_leistung` | `sensor.akku_leistung` |
+| `ertrag_heute` | `sensor.pv_ertrag_heute` |
+
 Leistungen in kW und Energien in Wh werden automatisch umgerechnet.
 
 ## Korrektur Wohnzimmer (Werkzeug)
@@ -89,10 +99,13 @@ rechts, öffnet nach außen). Weil `offset` im Format die Mitte meint, muss ange
 0,55 / 2,1 / 4,9 gemeint sind:
 
 ```bash
-python3 tools/wohnzimmer_korrektur.py --offset rand  haus-daten.json   # Werte = linker Rand
-python3 tools/wohnzimmer_korrektur.py --offset mitte haus-daten.json   # Werte = Mitte
+# 1. im Panel: ⋮ → Exportieren (ergibt z. B. haus3d-2026-10-02.json)
+python3 tools/wohnzimmer_korrektur.py --offset rand  haus3d-2026-10-02.json   # Werte = linker Rand
+python3 tools/wohnzimmer_korrektur.py --offset mitte haus3d-2026-10-02.json   # Werte = Mitte
 ```
 
+Ragt eine neue Öffnung über die Kante hinaus, bricht das Skript ab, ohne die Datei zu ändern
+(`--force` schreibt trotzdem).
 Danach die Datei über **⋮ → Importieren** einlesen.
 
 ## Entwicklung und Tests
