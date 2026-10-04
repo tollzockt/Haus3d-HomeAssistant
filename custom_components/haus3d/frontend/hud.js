@@ -1,5 +1,7 @@
 // Bedienelemente über der 3D-Ansicht ohne DOM (mit node testbar): Rad-Menüs, Kurzwahl, Karten.
 
+import { entityAction } from "./actions.js";
+
 /** Höchstens so viele Zusatzkarten neben „Energie“. */
 export const MAX_CARDS = 5;
 /** Sichtbare Einträge je Rad-Menü; mehr lassen sich durchdrehen. Dahinter sitzt fest der „+“-Knopf. */
@@ -47,36 +49,38 @@ export function labelPlace(angle) {
   return "diag";
 }
 
+/** Eingebaute Funktionen bis 0.13 (wer sie ausgeblendet hat, soll sie nicht wiederbekommen). */
+export const LEGACY_FUNCTION_KEYS = ["flow", "temp", "style", "roof", "grid", "weather", "labels", "devices", "furniture", "fit"];
 /** Eingebaute Funktionen des Funktionsrads (Reihenfolge = Standard). */
-export const FUNCTION_KEYS = ["flow", "temp", "style", "roof", "grid", "weather", "labels", "devices", "furniture", "fit"];
+export const FUNCTION_KEYS = [...LEGACY_FUNCTION_KEYS, "presence", "security", "goodnight", "view", "fullscreen"];
 
-/** Einträge des Funktionsrads aus den Einstellungen: eingebaute (key) und eigene (entity), ohne Doppelte. */
-export function normalizeFunctions(list) {
+/**
+ * Einträge des Funktionsrads aus den Einstellungen: eingebaute (key) und eigene (entity), ohne Doppelte.
+ * seen: eingebaute Schlüssel, die der Nutzer beim Speichern schon kannte (settings.functions_seen).
+ * Neue Schlüssel, die er noch nicht gesehen hat, kommen einmal ans Ende.
+ */
+export function normalizeFunctions(list, seen = FUNCTION_KEYS) {
   if (!Array.isArray(list)) return FUNCTION_KEYS.map((key) => ({ key }));
-  const seen = new Set();
+  const seen_ = new Set();
   const out = [];
   for (const f of list) {
     if (!f || typeof f !== "object") continue;
     if (FUNCTION_KEYS.includes(f.key)) {
-      if (seen.has(f.key)) continue;
-      seen.add(f.key);
+      if (seen_.has(f.key)) continue;
+      seen_.add(f.key);
       out.push({ key: f.key });
     } else if (typeof f.entity === "string" && f.entity.includes(".")) {
-      out.push({ entity: f.entity, ...(f.name ? { name: String(f.name) } : {}) });
+      out.push({ entity: f.entity, ...(f.name ? { name: String(f.name) } : {}), ...(f.confirm ? { confirm: true } : {}) });
     }
   }
+  const known = new Set(Array.isArray(seen) ? seen : FUNCTION_KEYS);
+  for (const key of FUNCTION_KEYS) if (!known.has(key) && !seen_.has(key)) out.push({ key });
   return out;
 }
 
-/** Dienst für einen Kurzwahl-Eintrag: Automation auslösen, Skript/Szene starten, Taster drücken, sonst umschalten. */
+/** Dienst für einen Kurzwahl-Eintrag (siehe actions.js): Automation auslösen, Skript/Szene starten, Taster drücken, sonst umschalten. */
 export function quickService(entityId, stateObj) {
-  const domain = entityId.split(".")[0];
-  if (domain === "automation") return ["automation", "trigger"];
-  if (domain === "script" || domain === "scene") return [domain, "turn_on"];
-  if (domain === "button" || domain === "input_button") return [domain, "press"];
-  if (domain === "lock") return ["lock", stateObj?.state === "locked" ? "unlock" : "lock"];
-  if (domain === "cover") return ["cover", "toggle"];
-  return [domain, "toggle"];
+  return entityAction(entityId, stateObj, { source: "wheel", safety: false }).call ?? [entityId.split(".")[0], "toggle"];
 }
 
 /** Zusatzkarten aus den Einstellungen (höchstens MAX_CARDS, Einträge bereinigt). */
@@ -99,4 +103,16 @@ export function normalizeCards(cards) {
 export function nextStyle(style) {
   const order = ["auto", "day", "night", "cyber"];
   return order[(order.indexOf(style) + 1) % order.length];
+}
+
+/** Bodenfarbe durchschalten: aus → Temperatur → Feuchte → Leistung → aus. */
+export function nextView(view) {
+  const order = ["none", "temp", "humidity", "power"];
+  return order[(order.indexOf(view) + 1) % order.length] ?? "temp";
+}
+
+/** Gespeicherte Bodenfarbe lesen; alte Einstellung haus3d.temp ("1") = Temperatur. */
+export function migrateView(viewRaw, tempRaw) {
+  if (["none", "temp", "humidity", "power"].includes(viewRaw)) return viewRaw;
+  return tempRaw === "1" ? "temp" : "none";
 }

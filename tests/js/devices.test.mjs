@@ -5,6 +5,7 @@ import { test } from "node:test";
 import {
   buildingIcons,
   buildingLinks,
+  iconKind,
   coverClosedFraction,
   energyKWh,
   isOpen,
@@ -117,7 +118,7 @@ test("Import: rohes Gebäude, NeonPlan-Export und -Backup; Export im NeonPlan-Fo
     const parsed = parseImport(text);
     assert.equal(parsed.floors[0].id, "eg");
     assert.deepEqual(parsed.floors[0].openings, []);
-    assert.equal(parsed.settings.energy.einspeisung, "sensor.pv_einspeisung");
+    assert.equal(parsed.settings.energy.einspeisung, null); // keine Standard-IDs (Datenschutz)
   }
   assert.throws(() => parseImport("{kein json"), /JSON/);
   assert.throws(() => parseImport(JSON.stringify({ version: 2, floors: [] })), /NeonPlan/);
@@ -212,4 +213,87 @@ test("Geräte anpassen: ausgeblendet (auch fest platziert) und hinzugefügt", ()
   const f = { id: "eg", rooms: [r], openings: [], placements: [{ entity_id: "light.stehlampe", x: 1, z: 1, y: null }], furniture: [] };
   const icons = buildingIcons({ floors: [f] }, h).get("eg");
   assert.deepEqual(icons.map((i) => [i.entity_id, i.kind]), [["media_player.tv", "other"]]);
+});
+
+test("Watch-Liste: Energie-Zusatzzeilen, Karten, Kurzwahl, eigene Funktionen, Links", async () => {
+  const { watchedEntities } = await import("../../custom_components/haus3d/frontend/devices.js");
+  const building = {
+    floors: [],
+    settings: {
+      energy: { solar: "sensor.pv", kurz: "akku", extra: ["sensor.a", { entity: "sensor.b", name: "B" }] },
+      cards: [{ entities: [{ entity: "sensor.c" }, "sensor.d"] }],
+      quick: [{ entity: "script.e" }],
+      functions: [{ key: "flow" }, { entity: "switch.f" }],
+    },
+  };
+  const links = new Map([["eg", new Map([["o1", { contact: "binary_sensor.g", cover: null }]])]]);
+  const ids = watchedEntities(building, { states: {} }, new Map(), { links, extra: ["light.h"] });
+  assert.deepEqual(ids, ["binary_sensor.g", "light.h", "script.e", "sensor.a", "sensor.b", "sensor.c", "sensor.d", "sensor.pv", "switch.f"]);
+});
+
+test("Raumfenster: Gruppen und Schnellaktionen", async () => {
+  const { groupRoomEntities, roomActions, stepTarget } = await import("../../custom_components/haus3d/frontend/devices.js");
+  const s = (entity_id, state, attributes = {}) => [entity_id, { entity_id, state, attributes }];
+  const hass = { states: Object.fromEntries([
+    s("light.a", "on"), s("light.b", "off"), s("light.gruppe", "on", { entity_id: ["light.a", "light.b"] }),
+    s("cover.rollo", "open", { device_class: "shutter" }), s("cover.garage", "open", { device_class: "garage" }),
+    s("binary_sensor.fenster", "off", { device_class: "window" }), s("sensor.temp", "21", { device_class: "temperature" }),
+    s("climate.hk", "heat", { temperature: 21, current_temperature: 20.5, target_temp_step: 0.5, min_temp: 7, max_temp: 22, hvac_action: "heating" }),
+    s("scene.kino", "scening"), s("sensor.strom", "5", { device_class: "power" }),
+  ]) };
+  const ids = Object.keys(hass.states);
+  const groups = groupRoomEntities(ids, hass);
+  assert.deepEqual(groups.map((g) => g.key), ["light", "cover", "opening", "climate", "scene", "sensor"]);
+  assert.deepEqual(groups.find((g) => g.key === "opening").ids, ["cover.garage", "binary_sensor.fenster"]);
+  const a = roomActions(ids, hass);
+  assert.deepEqual(a.lights, { all: ["light.a", "light.b"], on: ["light.a"] });
+  assert.deepEqual(a.covers, ["cover.rollo"]);
+  assert.equal(a.climate.entity, "climate.hk");
+  assert.equal(a.climate.action, "heating");
+  assert.deepEqual(a.scenes, ["scene.kino"]);
+  assert.equal(stepTarget(a.climate, null, 1), 21.5);
+  assert.equal(stepTarget(a.climate, 21.8, 2), 22); // Grenze
+  assert.equal(stepTarget(a.climate, 8, -4), 7);
+});
+
+test("Raumklima: Taupunkt, absolute Feuchte, Lüften-Rat, Thermostat, Bodenfarbe, Raumleistung", async () => {
+  const d = await import("../../custom_components/haus3d/frontend/devices.js");
+  assert.ok(Math.abs(d.dewPoint(20, 50) - 9.26) < 0.05);
+  assert.ok(Math.abs(d.absHumidity(20, 50) - 8.64) < 0.05);
+  assert.equal(d.ventAdvice({ temperature: 20, humidity: 60 }, { temperature: 5, humidity: 80 }).level, "good");
+  assert.equal(d.ventAdvice({ temperature: 18, humidity: 50 }, { temperature: 25, humidity: 80 }).level, "bad");
+  assert.equal(d.ventAdvice({ temperature: 18, humidity: 70 }, null).level, "mold");
+  assert.equal(d.ventAdvice({ temperature: 18, humidity: 50 }, null), null);
+  const s = (entity_id, state, attributes = {}) => [entity_id, { entity_id, state, attributes }];
+  const hass = { states: Object.fromEntries([
+    s("climate.hk", "heat", { temperature: 21, current_temperature: 19.5, current_humidity: 55, hvac_action: "heating" }),
+    s("sensor.plug", "320", { device_class: "power", unit_of_measurement: "W" }), s("sensor.tv", "0.1", { device_class: "power", unit_of_measurement: "kW" }),
+    s("sensor.pv", "800", { device_class: "power", unit_of_measurement: "W" }),
+  ]) };
+  const byArea = new Map([["r", ["climate.hk", "sensor.plug", "sensor.tv", "sensor.pv"]]]);
+  const h = d.roomHeating({ area_id: "r" }, hass, byArea);
+  assert.deepEqual([h.entity, h.target, h.current, h.action, h.readOnly], ["climate.hk", 21, 19.5, "heating", false]);
+  assert.equal(d.roomHeating({ area_id: "r", climate: { thermostat: "none" } }, hass, byArea), null);
+  // ohne Sensoren: Ist-Werte des Thermostats
+  assert.deepEqual(d.roomClimate({ area_id: "r" }, hass, byArea), { temperature: 19.5, humidity: 55 });
+  assert.equal(d.roomPower({ area_id: "r" }, hass, byArea, new Set(["sensor.pv"])), 420);
+  assert.equal(d.roomPower({ area_id: "r", power: "none" }, hass, byArea), null);
+  assert.equal(d.roomPower({ area_id: "r", power: "sensor.plug" }, hass, byArea), 320);
+  assert.deepEqual(d.viewColor("temp", 18), d.temperatureColor(18));
+  assert.equal(d.viewColor("humidity", null), null);
+  assert.notDeepEqual(d.viewColor("humidity", 70), d.viewColor("humidity", 50));
+  assert.ok(d.viewColor("power", 2000)[0] > d.viewColor("power", 10)[0]); // rot bei viel Leistung
+});
+
+test("Schloss als Symbol; Kippsensor nur ausdrücklich verknüpft und nicht doppelt automatisch", () => {
+  assert.equal(iconKind({ entity_id: "lock.haustuer", state: "locked", attributes: {} }), "lock");
+  const h = makeHass([
+    [st("binary_sensor.wz_fenster", "on", { device_class: "window" }), { area_id: "wohnzimmer" }],
+    [st("binary_sensor.wz_kipp", "on", { device_class: "window" }), { area_id: "wohnzimmer" }],
+  ]);
+  const f = { id: "eg", rooms: [room], openings: [{ id: "f1", room_id: room.id, edge: 0, type: "window", contact: null, cover: null, tilt: "binary_sensor.wz_kipp" }, { id: "f2", room_id: room.id, edge: 1, type: "window", contact: null, cover: null }] };
+  const links = buildingLinks({ floors: [f] }, h, entitiesByArea(h)).get("eg");
+  assert.equal(links.get("f1").tilt, "binary_sensor.wz_kipp");
+  assert.equal(links.get("f2").tilt, null);
+  assert.ok(![links.get("f1").contact, links.get("f2").contact].includes("binary_sensor.wz_kipp"));
 });

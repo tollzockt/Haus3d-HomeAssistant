@@ -3,7 +3,7 @@
 import { labelPoint, pointInPolygon } from "./walls.js";
 
 export const CONTACT_CLASSES = ["window", "door", "opening", "garage_door"];
-const ICON_DOMAINS = ["light", "switch", "fan", "cover", "climate"];
+const ICON_DOMAINS = ["light", "switch", "fan", "cover", "climate", "lock"];
 const TOGGLE_DOMAINS = ["light", "switch", "fan", "cover"];
 // Rollläden vor Fenstern/Glastüren bzw. Tore vor Garagenöffnungen (wie bei NeonPlan)
 const BLIND_CLASSES = [undefined, null, "shutter", "blind", "awning", "shade", "curtain", "window"];
@@ -190,7 +190,16 @@ export function roomClimate(room, hass, byArea) {
         .filter((v) => v !== null),
     );
   };
-  return { temperature: pick("temperature"), humidity: pick("humidity") };
+  let temperature = pick("temperature");
+  let humidity = pick("humidity");
+  // ohne eigene Sensoren: Werte des Thermostats im Raum
+  if (temperature === null || humidity === null) {
+    const th = roomHeating(room, hass, { get: () => ids });
+    const a = th ? hass.states[th.entity]?.attributes ?? {} : {};
+    if (temperature === null && room.climate?.temperature !== "none" && Number.isFinite(Number(a.current_temperature)) && a.current_temperature !== null) temperature = Number(a.current_temperature);
+    if (humidity === null && room.climate?.humidity !== "none" && Number.isFinite(Number(a.current_humidity)) && a.current_humidity !== null) humidity = Number(a.current_humidity);
+  }
+  return { temperature, humidity };
 }
 
 /** Ist mindestens ein Licht im Bereich des Raums an? */
@@ -225,7 +234,8 @@ export function buildingLinks(building, hass, byArea) {
     const rooms = new Map((floor.rooms ?? []).map((r) => [r.id, r]));
     const sorted = [...(floor.openings ?? [])].sort((a, b) => a.id.localeCompare(b.id));
     for (const o of sorted) {
-      const link = { contact: null, cover: null };
+      // Kippsensor nur ausdrücklich (o.tilt), nie automatisch zugeordnet
+      const link = { contact: null, cover: null, tilt: o.tilt && o.tilt !== "none" ? o.tilt : null };
       links.set(o.id, link);
       const ids = byArea.get(rooms.get(o.room_id)?.area_id) ?? [];
       if (o.contact && o.contact !== "none") link.contact = o.contact;
@@ -306,6 +316,9 @@ export function energyValues(settings, hass) {
     akku_ladestand: num(st("akku_ladestand")),
     akku_leistung: powerW(st("akku_leistung")),
     ertrag_heute: energyKWh(st("ertrag_heute")),
+    haus_pv: powerW(st("haus_pv")),
+    netz: powerW(st("netz")),
+    verbrauch: powerW(st("verbrauch")),
   };
 }
 
@@ -335,8 +348,11 @@ function hsl(h, s, l) {
  * Alle Entitäten, deren Zustand das Modell betrifft. Nur wenn sich einer davon ändert (oder
  * erscheint/verschwindet), wird neu gezeichnet – hass ändert sich bei jedem Zustandswechsel.
  */
-export function watchedEntities(building, hass, byArea) {
+export function watchedEntities(building, hass, byArea, { links = null, extra = [], power = false } = {}) {
   const ids = new Set();
+  const put = (id) => {
+    if (typeof id === "string" && id.includes(".") && id !== "none") ids.add(id);
+  };
   for (const floor of building.floors ?? []) {
     for (const room of placesOf(floor)) {
       for (const id of byArea.get(room.area_id) ?? []) {
@@ -345,7 +361,17 @@ export function watchedEntities(building, hass, byArea) {
           const cls = hass.states[id]?.attributes?.device_class;
           if (cls === "temperature" || cls === "humidity") ids.add(id);
         } else if (iconKind(hass.states[id])) ids.add(id);
+        else if (d === "lock" || d === "alarm_control_panel") ids.add(id); // Statusleiste
+        else if (d === "binary_sensor" && ["moisture", "smoke", "gas", "carbon_monoxide", "heat", "safety"].includes(hass.states[id]?.attributes?.device_class)) ids.add(id); // Hinweise
       }
+      for (const id of presenceSensors(room, hass, byArea)) ids.add(id); // Anwesenheit
+      if (power) {
+        // Bodenfarbe „Leistung“: Leistungssensoren nur in dieser Ansicht beobachten
+        if (room.power && room.power !== "none") ids.add(room.power);
+        else for (const id of byArea.get(room.area_id) ?? []) if (domainOf(id) === "sensor" && hass.states[id]?.attributes?.device_class === "power") ids.add(id);
+      }
+      const th = room.climate?.thermostat;
+      if (th && th !== "none") ids.add(th);
       for (const id of room.panel ?? []) ids.add(id);
       for (const key of ["temperature", "humidity"]) {
         const fixed = room.climate?.[key];
@@ -355,6 +381,247 @@ export function watchedEntities(building, hass, byArea) {
     for (const o of floor.openings ?? []) for (const key of ["contact", "cover"]) if (o[key] && o[key] !== "none") ids.add(o[key]);
   }
   for (const id of manualPositions(building).keys()) ids.add(id);
-  for (const id of Object.values(building.settings?.energy ?? {})) if (typeof id === "string") ids.add(id);
+  const s = building.settings ?? {};
+  // Energie: feste Werte und Zusatzzeilen (Text oder {entity})
+  for (const [key, id] of Object.entries(s.energy ?? {})) if (key !== "extra") put(id);
+  for (const e of Array.isArray(s.energy?.extra) ? s.energy.extra : []) put(typeof e === "string" ? e : e?.entity);
+  // Karten, Kurzwahl, eigene Einträge im Funktionsrad
+  for (const c of Array.isArray(s.cards) ? s.cards : []) for (const e of Array.isArray(c?.entities) ? c.entities : []) put(typeof e === "string" ? e : e?.entity);
+  for (const q of Array.isArray(s.quick) ? s.quick : []) put(q?.entity);
+  for (const f of Array.isArray(s.functions) ? s.functions : []) put(f?.entity);
+  // verknüpfte Kontakte und Rollläden der Öffnungen
+  if (links) for (const per of links.values()) for (const l of per.values()) for (const id of [l.contact, l.cover, l.tilt]) put(id);
+  for (const id of Array.isArray(s.security?.locks) ? s.security.locks : []) put(id);
+  for (const id of extra) put(id);
+  for (const id of Object.keys(hass?.states ?? {})) if (id.startsWith("person.")) ids.add(id);
   return [...ids].sort();
+}
+
+// ------------------------------------------------------------------ Raumfenster: Gruppen und Aktionen
+
+const GROUPS = [
+  ["light", "Licht"],
+  ["switch", "Schalter"],
+  ["cover", "Beschattung"],
+  ["opening", "Fenster & Türen"],
+  ["climate", "Klima"],
+  ["media", "Medien"],
+  ["scene", "Szenen & Abläufe"],
+  ["sensor", "Sensoren"],
+  ["other", "Weitere"],
+];
+
+function groupOf(id, st) {
+  const d = domainOf(id);
+  const cls = st?.attributes?.device_class;
+  if (d === "light") return "light";
+  if (d === "switch" || d === "input_boolean" || d === "fan" || d === "humidifier") return "switch";
+  if (d === "cover") return cls === "garage" || cls === "gate" ? "opening" : "cover";
+  if (d === "lock" || (d === "binary_sensor" && CONTACT_CLASSES.includes(cls))) return "opening";
+  if (d === "climate" || d === "water_heater" || (d === "sensor" && (cls === "temperature" || cls === "humidity"))) return "climate";
+  if (d === "media_player") return "media";
+  if (d === "scene" || d === "script" || d === "automation" || d === "button" || d === "input_button") return "scene";
+  if (d === "sensor" || d === "binary_sensor") return "sensor";
+  return "other";
+}
+
+/** Geräte eines Raums in feste Gruppen mit Überschrift sortieren (nur nicht leere). */
+export function groupRoomEntities(ids, hass) {
+  const by = new Map(GROUPS.map(([k]) => [k, []]));
+  for (const id of ids) by.get(groupOf(id, hass.states[id])).push(id);
+  return GROUPS.filter(([k]) => by.get(k).length).map(([key, title]) => ({ key, title, ids: by.get(key) }));
+}
+
+/**
+ * Schnellaktionen eines Raums (aus den angezeigten Geräten): Lichter an/aus, Rollläden (ohne Garagen-
+ * und Hoftore), erstes Thermostat mit Schrittweite und Grenzen, Szenen.
+ */
+export function roomActions(ids, hass) {
+  const st = (id) => hass.states[id];
+  // Lichtgruppen (attributes.entity_id) nicht doppelt zählen
+  const lights = ids.filter((id) => domainOf(id) === "light" && !Array.isArray(st(id)?.attributes?.entity_id) && st(id)?.state !== "unavailable");
+  const covers = ids.filter((id) => domainOf(id) === "cover" && !["garage", "gate"].includes(st(id)?.attributes?.device_class));
+  const cid = ids.find((id) => domainOf(id) === "climate" && st(id) && st(id).state !== "unavailable");
+  let climate = null;
+  if (cid) {
+    const a = st(cid).attributes ?? {};
+    const num = (v) => (v === undefined || v === null || v === "" || Number.isNaN(Number(v)) ? null : Number(v));
+    climate = {
+      entity: cid,
+      target: num(a.temperature),
+      current: num(a.current_temperature),
+      step: num(a.target_temp_step) ?? 0.5,
+      min: num(a.min_temp) ?? 5,
+      max: num(a.max_temp) ?? 30,
+      action: a.hvac_action ?? null,
+      mode: st(cid).state,
+    };
+  }
+  return {
+    lights: { all: lights, on: lights.filter((id) => st(id)?.state === "on") },
+    covers,
+    climate,
+    scenes: ids.filter((id) => domainOf(id) === "scene"),
+  };
+}
+
+/** Solltemperatur um n Schritte ändern, auf Schrittweite runden und begrenzen. */
+export function stepTarget(climate, current, n) {
+  const base = current ?? climate.target ?? climate.current ?? 20;
+  const step = climate.step || 0.5;
+  const v = Math.round((base + n * step) / step) * step;
+  return Math.min(climate.max, Math.max(climate.min, Math.round(v * 100) / 100));
+}
+
+// ------------------------------------------------------------------ Anwesenheit
+
+/** Bewegungs- und Anwesenheitsmelder. */
+export const PRESENCE_CLASSES = ["motion", "occupancy", "presence"];
+
+/** Melder eines Raums: room.presence (eigene Wahl) oder die passenden binary_sensors im Bereich. */
+export function presenceSensors(room, hass, byArea) {
+  if (Array.isArray(room?.presence) && room.presence.length) return room.presence.filter((id) => typeof id === "string");
+  return (byArea.get(room?.area_id) ?? []).filter((id) => domainOf(id) === "binary_sensor" && PRESENCE_CLASSES.includes(hass.states[id]?.attributes?.device_class) && isShown(hass, id));
+}
+
+/**
+ * Anwesenheit im Raum: "occupied" (Melder an), "recent" (vor weniger als holdMs aus), sonst null.
+ * since: Zeitpunkt der letzten Änderung des jüngsten Melders (ms).
+ */
+export function roomPresence(room, hass, byArea, now = Date.now(), holdMs = 5 * 60000) {
+  let best = { level: null, since: null };
+  for (const id of presenceSensors(room, hass, byArea)) {
+    const st = hass.states[id];
+    if (!st || st.state === "unavailable" || st.state === "unknown") continue;
+    const t = Date.parse(st.last_changed ?? st.last_updated ?? "") || null;
+    if (st.state === "on") {
+      if (best.level !== "occupied" || (t && t > (best.since ?? 0))) best = { level: "occupied", since: t };
+    } else if (best.level !== "occupied" && t && now - t < holdMs && t > (best.since ?? 0)) best = { level: "recent", since: t };
+  }
+  return best;
+}
+
+/** „gerade eben“, „vor 3 min“, „vor 2 h“. */
+export function agoText(ms) {
+  if (ms == null || !Number.isFinite(ms) || ms < 60000) return "gerade eben";
+  if (ms < 3600000) return `vor ${Math.floor(ms / 60000)} min`;
+  return `vor ${Math.floor(ms / 3600000)} h`;
+}
+
+/** Personen (person.*): Name (erstes Wort), Bild, zu Hause, Ort. */
+export function persons(hass) {
+  return Object.keys(hass?.states ?? {})
+    .filter((id) => id.startsWith("person."))
+    .sort()
+    .map((id) => {
+      const st = hass.states[id];
+      const full = st.attributes?.friendly_name ?? id.slice(7);
+      const zone = st.state === "home" ? "zu Hause" : st.state === "not_home" ? "unterwegs" : st.state;
+      return { entity_id: id, name: String(full).split(/\s+/)[0], full, picture: st.attributes?.entity_picture ?? null, home: st.state === "home", zone };
+    });
+}
+
+// ------------------------------------------------------------------ Raumklima
+
+const numOrNull = (v) => (v === undefined || v === null || v === "" || Number.isNaN(Number(v)) ? null : Number(v));
+
+/** Thermostat eines Raums: room.climate.thermostat (Entität oder "none") oder das erste climate im Bereich. */
+export function roomHeating(room, hass, byArea) {
+  const fixed = room?.climate?.thermostat;
+  if (fixed === "none") return null;
+  const id = fixed || (byArea.get(room?.area_id) ?? []).find((x) => domainOf(x) === "climate" && hass.states[x] && hass.states[x].state !== "unavailable");
+  const st = id ? hass.states[id] : null;
+  if (!st) return null;
+  const a = st.attributes ?? {};
+  const target = numOrNull(a.temperature);
+  return {
+    entity: id,
+    current: numOrNull(a.current_temperature),
+    target,
+    low: numOrNull(a.target_temp_low),
+    high: numOrNull(a.target_temp_high),
+    step: numOrNull(a.target_temp_step) ?? 0.5,
+    min: numOrNull(a.min_temp) ?? 5,
+    max: numOrNull(a.max_temp) ?? 30,
+    action: a.hvac_action ?? null,
+    mode: st.state,
+    readOnly: target === null,
+  };
+}
+
+/** Taupunkt in °C (Magnus-Formel). */
+export function dewPoint(t, rh) {
+  if (t == null || rh == null || rh <= 0) return null;
+  const g = Math.log(rh / 100) + (17.62 * t) / (243.12 + t);
+  return Math.round(((243.12 * g) / (17.62 - g)) * 100) / 100;
+}
+
+/** Absolute Feuchte in g/m³. */
+export function absHumidity(t, rh) {
+  if (t == null || rh == null) return null;
+  const sat = 6.112 * Math.exp((17.62 * t) / (243.12 + t)); // hPa
+  return Math.round(((216.7 * (rh / 100) * sat) / (273.15 + t)) * 100) / 100;
+}
+
+/**
+ * Lüften? Vergleicht die absolute Feuchte drinnen und draußen.
+ * @returns {{level: "good"|"bad"|"neutral"|"mold", text: string}|null}
+ */
+export function ventAdvice(inside, outside, { margin = 1, moldRh = 65 } = {}) {
+  if (!inside || inside.temperature == null || inside.humidity == null) return null;
+  const mold = inside.humidity >= moldRh;
+  if (!outside || outside.temperature == null || outside.humidity == null) {
+    return mold ? { level: "mold", text: `Feuchte über ${moldRh} % – lüften` } : null;
+  }
+  const ai = absHumidity(inside.temperature, inside.humidity);
+  const ao = absHumidity(outside.temperature, outside.humidity);
+  if (ai - ao >= margin) return { level: mold ? "mold" : "good", text: mold ? `Feuchte über ${moldRh} % – jetzt lüften` : "Lüften lohnt sich (draußen trockener)" };
+  if (ao - ai >= margin) return { level: "bad", text: "Lieber geschlossen lassen – draußen feuchter" };
+  return { level: mold ? "mold" : "neutral", text: mold ? `Feuchte über ${moldRh} % – Lüften bringt wenig` : "Lüften ändert kaum etwas" };
+}
+
+// ------------------------------------------------------------------ Bodenfarbe nach Messwert
+
+/** Ansichten der Bodenfarbe. */
+export const VIEW_MODES = {
+  temp: { label: "Temperatur", unit: "°C", range: [18, 26], icon: "mdi:thermometer", digits: 1 },
+  humidity: { label: "Feuchte", unit: "%", range: [30, 70], warn: 65, icon: "mdi:water-percent", digits: 0 },
+  power: { label: "Leistung", unit: "W", range: [0, 2000], icon: "mdi:flash", digits: 0 },
+};
+
+/** Farbe [r, g, b] (0..1) für einen Wert in einer Ansicht; null ohne Wert. */
+export function viewColor(mode, v) {
+  if (v == null || !Number.isFinite(v)) return null;
+  if (mode === "temp") return temperatureColor(v);
+  if (mode === "humidity") {
+    // trocken (orange) → gut (grün) → feucht (blau); ab Warnwert violett
+    if (v >= (VIEW_MODES.humidity.warn ?? 65)) return hsl(280 / 360, 0.6, 0.5);
+    const f = Math.min(1, Math.max(0, (v - 30) / 35));
+    return hsl((30 + f * 180) / 360, 0.7, 0.5);
+  }
+  if (mode === "power") {
+    // logarithmisch: 10 W grün … 2 kW rot
+    const f = Math.min(1, Math.max(0, Math.log10(Math.max(1, v)) / Math.log10(2000)));
+    return hsl(((1 - f) * 120) / 360, 0.8, 0.48);
+  }
+  return null;
+}
+
+/**
+ * Leistung eines Raums in W: room.power (Entität oder "none") oder Summe der Leistungssensoren im Bereich.
+ * exclude: IDs, die nicht zählen (z. B. die Energie-Anzeige: PV, Einspeisung, Akku).
+ */
+export function roomPower(room, hass, byArea, exclude = new Set()) {
+  if (room?.power === "none") return null;
+  if (room?.power) return powerW(hass.states[room.power]);
+  let sum = null;
+  for (const id of byArea.get(room?.area_id) ?? []) {
+    if (exclude.has(id) || domainOf(id) !== "sensor") continue;
+    const st = hass.states[id];
+    if (st?.attributes?.device_class !== "power") continue;
+    const w = powerW(st);
+    if (w === null) continue;
+    sum = (sum ?? 0) + w;
+  }
+  return sum;
 }

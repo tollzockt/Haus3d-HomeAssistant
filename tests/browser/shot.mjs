@@ -21,13 +21,15 @@ const server = createServer(async (req, res) => {
   }
 }).listen(0);
 const port = server.address().port;
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium", args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM ?? "/opt/pw-browsers/chromium", args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const errors = [];
 async function shot(name, query, viewport, deviceScaleFactor = 1) {
   const page = await browser.newPage({ viewport, deviceScaleFactor });
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
   page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") errors.push(`${name} [${m.type()}]: ${m.text()}`); });
-  await page.goto(`http://localhost:${port}/tests/browser/harness.html${query}${process.env.HARNESS_DATA ? (query ? "&" : "?") + "data=" + process.env.HARNESS_DATA : ""}`);
+  // Qualität festlegen (SwiftShader würde „auto“ sonst herunterregeln)
+  if (!/quality=/.test(query)) query = `${query}${query ? "&" : "?"}quality=schoen`;
+  await page.goto(`http://localhost:${port}/tests/browser/harness.html${query}${process.env.HARNESS_DATA ? "&data=" + process.env.HARNESS_DATA : ""}`);
   await page.waitForTimeout(2500);
   await page.screenshot({ path: `${out}/${name}.png` });
   return page;
@@ -36,9 +38,9 @@ async function shot(name, query, viewport, deviceScaleFactor = 1) {
 async function fnToggle(page, name) {
   await page.locator("haus3d-panel .wheel.right .fab").click();
   // ggf. durchdrehen, bis der Eintrag sichtbar ist
-  for (let k = 0; k < 12 && !(await page.locator(`haus3d-panel .wheel.right .bub.vis[title="${name}"]`).count()); k++) await page.locator("haus3d-panel .wheel.right .spin.down").click();
+  for (let k = 0; k < 12 && !(await page.locator(`haus3d-panel .wheel.right .bub.vis[title^="${name}"]`).count()); k++) await page.locator("haus3d-panel .wheel.right .spin.down").click();
   await page.waitForTimeout(300);
-  await page.locator(`haus3d-panel .wheel.right .bub[title="${name}"]`).click();
+  await page.locator(`haus3d-panel .wheel.right .bub.vis[title^="${name}"]`).click();
   await page.locator("haus3d-panel .wheel.right .fab").click();
 }
 const desk = await shot("desktop-hell", "", { width: 1280, height: 800 });
@@ -54,12 +56,12 @@ await dev.click({ button: "middle" });
 await desk.waitForTimeout(200);
 const calls = await desk.evaluate(() => ({ calls: window.calls.filter((c) => c.service), events: window.events }));
 // Temperaturansicht + Etage EG
-await fnToggle(desk, "Temperatur");
+await fnToggle(desk, "Bodenfarbe");
 await desk.locator("haus3d-panel .floorbar button[data-floor]", { hasText: "EG" }).click();
 await desk.waitForTimeout(1500);
 await desk.screenshot({ path: `${out}/desktop-temperatur-eg.png` });
 await desk.locator("haus3d-panel .floorbar button[data-floor]", { hasText: "KG" }).click();
-await fnToggle(desk, "Temperatur");
+for (let k = 0; k < 3; k++) await fnToggle(desk, "Bodenfarbe"); // Temperatur → Feuchte → Leistung → aus
 await desk.waitForTimeout(1500);
 await desk.screenshot({ path: `${out}/desktop-kg.png` });
 const phone = await shot("handy-dunkel", "?dark&narrow", { width: 390, height: 844 }, 2);
@@ -342,7 +344,7 @@ await sm.waitForTimeout(300);
 const simDialog = await sm.evaluate(() => !!window.panel.shadowRoot.querySelector(".simdlg"));
 await sm.locator("haus3d-panel .simdlg button[data-set=on]").click();
 await sm.locator("haus3d-panel .simbar select[data-sim=weather]").selectOption("snowy");
-await sm.locator("haus3d-panel .simbar select[data-sim=daytime]").selectOption("night");
+await sm.locator("haus3d-panel .simbar input[data-sim=time]").fill("0");
 await sm.locator("haus3d-panel .simbar input[data-sim=demo]").check();
 await sm.waitForTimeout(1500);
 await sm.screenshot({ path: `${out}/simulation.png` });
@@ -381,7 +383,7 @@ await hud.waitForTimeout(600);
 // Kurzwahl mit 7 Einträgen anlegen (mehr als 5: Rad dreht)
 await hud.evaluate(async () => {
   const p = window.panel;
-  await p._saveBuildingSettings({ quick: ["automation.abend", "script.garage", "scene.kino", "button.klingel", "light.bar", "switch.kaffeemaschine", "light.kueche"].map((entity) => ({ entity })) }, "ok");
+  await p._saveBuildingSettings({ quick: ["automation.abend", "script.garage", "scene.kino", "button.klingel", "light.hobbyraum", "switch.kaffeemaschine", "light.kueche"].map((entity) => ({ entity })) }, "ok");
 });
 await hud.waitForTimeout(500);
 await hud.locator("haus3d-panel .wheel.left .fab").click();
@@ -432,7 +434,7 @@ await hud.evaluate(async () => {
   await p._saveBuildingSettings({ north: 180, roof: { type: "gable", pitch: 35, overhang: 0.4, wing_end: "hip", solar_arrays: [{ dir: "S", cols: 3, rows: 2, orient: "landscape", left: 0.3, row: 0 }, { dir: "W", cols: 2, rows: 2, orient: "portrait", left: 0.5, row: 0 }] } }, "ok");
 });
 await hud.waitForTimeout(1200);
-const pv = await hud.evaluate(() => { let n = 0; window.panel._scene.roofHolder?.traverse((o) => { if (o.isMesh && o.geometry?.parameters?.depth !== undefined && o.geometry.parameters.height === 0.04) n++; }); return n; });
+const pv = await hud.evaluate(() => { let n = 0; window.panel._scene.roofHolder?.traverse((o) => { if (o.isMesh && o.geometry?.parameters?.depth !== undefined && o.geometry.parameters.height === 0.04) n += o.isInstancedMesh ? o.count : 1; }); return n; });
 await hud.screenshot({ path: `${out}/hud-pv.png` });
 const cardTxt = await hud.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".cards .card")].map((c) => c.innerText.replace(/\s+/g, " ")));
 console.log(JSON.stringify({ hud: { cardTxt, wheel1, wheel2, wheelR, fnCustom, leftClosed, quickCall, gridOff, styleNow, floorNow, pv } }));
@@ -515,7 +517,7 @@ await rf.screenshot({ path: `${out}/dach-kante.png` });
 await rf.locator("haus3d-panel .ed-bar button[data-act=save]").click();
 await rf.waitForTimeout(1200);
 const savedItems = await rf.evaluate(() => (window.panel._building.settings.roof.items ?? []).length);
-const roof3d = await rf.evaluate(() => { let pv = 0; let n = 0; window.panel._scene.roofHolder?.traverse((o) => { if (!o.isMesh) return; n++; if (o.geometry?.parameters?.height === 0.04) pv++; }); return { pv, n }; });
+const roof3d = await rf.evaluate(() => { let pv = 0; let n = 0; window.panel._scene.roofHolder?.traverse((o) => { if (!o.isMesh) return; n++; if (o.geometry?.parameters?.height === 0.04) pv += o.isInstancedMesh ? o.count : 1; }); return { pv, n }; });
 await rf.screenshot({ path: `${out}/dach-3d.png` });
 // Raumdach (Schuppen) verschwindet mit der Etagenwahl samt Modulen
 await rf.locator("haus3d-panel .floorbar button[data-floor='eg']").click();
@@ -533,3 +535,4 @@ if (!texMats.some((k) => k.startsWith("wall:brick"))) errors.push(`Klinker fehlt
 console.log(JSON.stringify({ info, calls, hidpi, roomPanel, saved, moved: { x: Math.round(moved.x), y: Math.round(moved.y) }, hiddenSaved, anim, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
 await browser.close();
 server.close();
+if (errors.filter((e) => !e.includes("404")).length) process.exitCode = 1;

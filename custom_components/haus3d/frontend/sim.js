@@ -1,5 +1,6 @@
 // Simulationsmodus: legt eine Schicht über das echte hass-Objekt. Zustände werden nur hier geändert,
 // Dienstaufrufe gehen nie an Home Assistant, Grundriss-Speichern bleibt lokal. Ohne DOM, mit node testbar.
+import { sunPosition } from "./sun.js";
 
 const now = () => new Date().toISOString();
 
@@ -21,6 +22,7 @@ export class Simulator {
     this.demo = { states: {}, entities: {} };
     this.weather = ""; // "" = wie echt
     this.daytime = ""; // "" = wie echt, "day", "night"
+    this.time = null; // Uhrzeit in Minuten (0..1440) oder null = wie echt
     this.solar = null; // Watt oder null = wie echt
     this.building = null; // lokale Kopie beim Speichern in der Simulation
     this.revision = 0;
@@ -46,13 +48,14 @@ export class Simulator {
     this.overrides.clear();
     this.weather = "";
     this.daytime = "";
+    this.time = null;
     this.solar = null;
     this.log = [];
     this._cache = null;
   }
 
   /**
-   * Beispielgeräte für Räume ohne eigene Geräte: Licht, Temperatur und Fensterkontakt je Raum.
+   * Beispielgeräte für Räume ohne eigene Geräte: Licht, Temperatur, Fensterkontakt und Bewegungsmelder je Raum.
    * Sie hängen am Bereich des Raums (oder einem eigenen Sim-Bereich, wenn der Raum keinen hat).
    */
   makeDemo(building, real) {
@@ -73,6 +76,7 @@ export class Simulator {
         add(`light.sim_${slug}`, k % 3 === 0 ? "on" : "off", { friendly_name: `${name} Licht (Sim)` });
         add(`sensor.sim_${slug}_temperatur`, (19.5 + ((k * 1.7) % 5)).toFixed(1), { friendly_name: `${name} Temperatur (Sim)`, device_class: "temperature", unit_of_measurement: "°C" });
         add(`binary_sensor.sim_${slug}_fenster`, "off", { friendly_name: `${name} Fenster (Sim)`, device_class: "window" });
+        add(`binary_sensor.sim_${slug}_bewegung`, k % 4 === 1 ? "on" : "off", { friendly_name: `${name} Bewegung (Sim)`, device_class: "motion" });
         if (!room.area_id) room.area_id = area; // nur in der Sim-Kopie des Gebäudes
         k++;
       }
@@ -99,7 +103,19 @@ export class Simulator {
     const states = { ...real.states, ...this.demo.states };
     for (const [id, st] of this.overrides) states[id] = st;
     // Tageszeit
-    if (this.daytime) states["sun.sun"] = { ...(real.states["sun.sun"] ?? { entity_id: "sun.sun", attributes: {} }), state: this.daytime === "night" ? "below_horizon" : "above_horizon" };
+    const sunBase = real.states["sun.sun"] ?? { entity_id: "sun.sun", attributes: {} };
+    if (this.time !== null) {
+      // Uhrzeit: Sonnenstand heute um diese Zeit am Ort aus hass.config
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      const lat = Number(real.config?.latitude ?? 51);
+      const lon = Number(real.config?.longitude ?? 10);
+      const p = sunPosition(d.getTime() + this.time * 60000, Number.isFinite(lat) ? lat : 51, Number.isFinite(lon) ? lon : 10);
+      states["sun.sun"] = { ...sunBase, state: p.elevation > -0.83 ? "above_horizon" : "below_horizon", attributes: { ...sunBase.attributes, azimuth: Math.round(p.azimuth * 10) / 10, elevation: Math.round(p.elevation * 10) / 10 } };
+    } else if (this.daytime) {
+      const night = this.daytime === "night";
+      states["sun.sun"] = { ...sunBase, state: night ? "below_horizon" : "above_horizon", attributes: { ...sunBase.attributes, azimuth: night ? 0 : 180, elevation: night ? -20 : 45 } };
+    }
     // Wetter: eingestellte bzw. erste Wetter-Entität, sonst eine simulierte
     if (this.weather) {
       const wid = building?.settings?.weather && building.settings.weather !== "none" ? building.settings.weather : Object.keys(real.states).sort().find((e) => e.startsWith("weather.")) ?? "weather.simulation";
@@ -113,6 +129,8 @@ export class Simulator {
       };
       put(e.solar, Math.round(this.solar));
       put(e.einspeisung, Math.round(this.solar * 0.92));
+      // Netz: Einspeisung als negativer Bezug (bzw. umgekehrt, wenn das Vorzeichen gedreht ist)
+      put(e.netz, Math.round(this.solar * 0.92) * (e.netz_invert ? 1 : -1));
     }
     const entities = Object.keys(this.demo.entities).length ? { ...real.entities, ...this.demo.entities } : real.entities;
     const sim = this;
@@ -141,6 +159,8 @@ export class Simulator {
           sim.revision = (msg.revision ?? sim.revision) + 1;
           return { building: structuredClone(sim.building), revision: sim.revision };
         }
+        // nur lesende Abfragen gehen an Home Assistant
+        if (["energy/get_prefs", "recorder/statistics_during_period", "history/history_during_period"].includes(msg.type)) return real.callWS(msg);
         if (String(msg.type).startsWith("haus3d/history")) throw new Error("In der Simulation gibt es keinen Verlauf.");
         throw new Error(`Simulation: ${msg.type} ist gesperrt.`);
       },
@@ -170,7 +190,13 @@ export class Simulator {
     if (service === "lock") return this.set(entityId, "locked", {}, base);
     if (service === "unlock") return this.set(entityId, "unlocked", {}, base);
     if (service === "media_play_pause") return toggle("playing", "paused");
-    if (service === "set_temperature") return this.set(entityId, state ?? "heat", { temperature: Number(data.temperature) }, base);
+    if (service === "set_temperature") {
+      // heizt, solange das Soll über dem Ist liegt
+      const target = Number(data.temperature);
+      const cur = Number(st?.attributes?.current_temperature);
+      const action = Number.isFinite(cur) ? (target > cur + 0.2 ? "heating" : "idle") : st?.attributes?.hvac_action;
+      return this.set(entityId, state ?? "heat", { temperature: target, ...(action ? { hvac_action: action } : {}) }, base);
+    }
     // press, scene/script turn_on usw.: nur protokollieren
     return null;
   }

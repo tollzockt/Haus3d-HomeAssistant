@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "haus3d"
-VERSION = "0.13.1"
+VERSION = "0.14.0"
 
 STORAGE_VERSION = 1
 STORAGE_KEY_BUILDING = f"{DOMAIN}.building"
@@ -28,10 +28,14 @@ STATIC_URL = "/haus3d_static"
 NEONPLAN_EXPORT_FORMAT = "neonplan3d"
 NEONPLAN_BACKUP_FORMAT = "neonplan3d-backup"
 
+# Energie-Anzeige: Entitäten werden in den Einstellungen gewählt (bewusst keine Standard-IDs)
 DEFAULT_ENERGY = {
-    "solar": "sensor.pv_leistung",
-    "einspeisung": "sensor.pv_einspeisung",
-    "akku_ladestand": "sensor.akku_ladestand",
-    "akku_leistung": "sensor.akku_leistung",
-    "ertrag_heute": "sensor.pv_ertrag_heute",
+    "solar": None,
+    "einspeisung": None,
+    "akku_ladestand": None,
+    "akku_leistung": None,
+    "ertrag_heute": None,
+    "haus_pv": None,
+    "netz": None,
+    "verbrauch": None,
 }

@@ -4,9 +4,14 @@
 import * as THREE from "./vendor/three.module.min.js";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
+import { angleBetween, sunLook, sunVector } from "./sun.js";
+import { presetPose, roundPose } from "./camera.js";
+import { roomHole, slabOpenings } from "./stairs.js";
+import { colorKey } from "./light.js";
 import { floorColor, textureFor } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
-import { ROOF_ITEMS, adjustRoofParts, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded } from "./exterior.js";
+import { ambientInterval, lodState, resolveQuality, shouldRender } from "./perf.js";
+import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded, panelBasis, roofObstacles } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
 const OUTDOOR = {
@@ -26,15 +31,46 @@ const OUTDOOR = {
 
 const SLAB = 0.15;
 const WARM = new THREE.Color(0xffb347);
+/**
+ * Sammelt PV-Module (je eine Matrix) und macht daraus ein InstancedMesh: 2 statt etwa 6
+ * Zeichenaufrufe je Modul. Einheitsmodul 1 × 0,04 × 1 m, die Matrix skaliert auf Breite/Länge.
+ */
+class PanelBatch {
+  constructor(mats, data = {}) {
+    this.mats = mats;
+    this.data = data;
+    this.list = [];
+  }
+
+  push(matrix) {
+    this.list.push(matrix.clone());
+  }
+
+  mesh() {
+    if (!this.list.length) return null;
+    const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.04, 1), this.mats, this.list.length);
+    this.list.forEach((m, i) => inst.setMatrixAt(i, m));
+    inst.instanceMatrix.needsUpdate = true;
+    inst.computeBoundingSphere();
+    inst.computeBoundingBox();
+    Object.assign(inst.userData, this.data);
+    return inst;
+  }
+}
+
+// Grund-Deckkraft des Licht-Glühens je Stil (nie mats.glow.opacity lesen: Blitze verändern es)
+const STYLE_GLOW = { night: 0.32, cyber: 0.22, standard: 0.16 };
 const ALERT = 0xe53935;
 
 /** Plan [x, z] -> Shape in der XY-Ebene, die nach rotateX(-PI/2) wieder bei (x, 0, z) liegt. */
-function shapeOf(points) {
-  return new THREE.Shape(points.map(([x, z]) => new THREE.Vector2(x, -z)));
+function shapeOf(points, holes = []) {
+  const shape = new THREE.Shape(points.map(([x, z]) => new THREE.Vector2(x, -z)));
+  for (const h of holes) shape.holes.push(new THREE.Path(h.map(([x, z]) => new THREE.Vector2(x, -z))));
+  return shape;
 }
 
-function flatOrExtruded(points, height) {
-  const shape = shapeOf(points);
+function flatOrExtruded(points, height, holes = []) {
+  const shape = shapeOf(points, holes);
   const geo = height > 0 ? new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false }) : new THREE.ShapeGeometry(shape);
   geo.rotateX(-Math.PI / 2);
   return geo;
@@ -154,11 +190,16 @@ export class HouseScene {
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x8a7f70, 1.6);
     this.sun = new THREE.DirectionalLight(0xffffff, 1.6);
     this.sun.position.set(12, 30, 8);
-    this.scene.add(this.hemi, this.sun);
+    this.scene.add(this.hemi, this.sun, this.sun.target);
+    this._sunCenter = new THREE.Vector3();
+    this._sunR = 40;
+    this._sunDir = null; // Richtung zur echten Sonne (setSun) oder null = feste Lampe
+    this._lightCache = new Map(); // Lampen- und Fensterfarben (je Farbe ein Material)
 
     this.style = "standard";
     this.layers = {};
     this.lampBulbs = new Map(); // entity_id -> Leuchtmittel (Möbel-Lampen und 3D-Geräte)
+    this.heatParts = []; // Heizkörper-Rippen (glühen beim Heizen)
     this.devicesGroup = new THREE.Group();
     this.selected = null;
     this._makeMats();
@@ -174,6 +215,9 @@ export class HouseScene {
     this._camDirty = true;
     this._clock = new THREE.Clock();
     this._running = false;
+    this.quality = resolveQuality("schoen");
+    this.stats = { renders: 0, frameMs: [] }; // für Tests und die Leistungsanzeige
+    this._frozen = false;
     this.setTheme(dark);
 
     this._resize = new ResizeObserver(() => this.resize());
@@ -209,7 +253,58 @@ export class HouseScene {
     // Nacht: schwaches, bläuliches Mondlicht
     this.sun.color.set(night ? 0x9fb3ff : 0xffffff);
     this.sun.intensity = cyber ? 0.7 : night ? 0.35 : this.dark ? 1.1 : 1.6;
-    if (this.mats?.glow) this.mats.glow.opacity = night ? 0.32 : cyber ? 0.22 : 0.16;
+    // echte Sonne: nur im Tag-Stil Farbe und Stärke nach der Sonnenhöhe (Nacht/Cyber wie bisher)
+    if (this.style === "standard" && this._sunLook) {
+      this.sun.color.setHex(this._sunLook.colorHex);
+      this.sun.intensity *= this._sunLook.intensityFactor;
+      this.hemi.intensity *= this._sunLook.hemiFactor;
+    }
+    if (this.mats?.glow) this.mats.glow.opacity = STYLE_GLOW[this.style] ?? 0.16;
+  }
+
+  /**
+   * Licht aus Richtung der echten Sonne. pos: {azimuth, elevation} (Grad) oder null = feste Lampe.
+   * Kostet nichts pro Bild: nur Lichtwerte, neu gezeichnet erst ab 0,3° Änderung.
+   */
+  setSun(pos, north = 0) {
+    const dir = pos && Number.isFinite(pos.azimuth) && Number.isFinite(pos.elevation) ? sunVector(pos.azimuth, pos.elevation, north) : null;
+    const look = dir ? sunLook(pos.elevation) : null;
+    const up = !!look;
+    if (dir && this._sunDir && angleBetween(dir, this._sunDir) < 0.3 && up === !!this._sunLook) return false;
+    if (!dir && !this._sunDir) return false;
+    this._sunDir = up ? dir : null;
+    this._sunLook = look;
+    this._sunPos = up ? { azimuth: pos.azimuth, elevation: pos.elevation } : null;
+    this._placeSun();
+    this._applyBackground();
+    this.invalidate();
+    return true;
+  }
+
+  _placeSun() {
+    if (this._sunDir) {
+      const [x, y, z] = this._sunDir;
+      this.sun.position.copy(this._sunCenter).add(new THREE.Vector3(x, y, z).multiplyScalar(this._sunR));
+    } else this.sun.position.copy(this._sunCenter).add(new THREE.Vector3(12, 30, 8));
+    this.sun.target.position.copy(this._sunCenter);
+    this.sun.target.updateMatrixWorld();
+  }
+
+  /** Material in einer Lichtfarbe (Lampe an, beleuchtetes Fenster), höchstens 32 Stück. */
+  _lightMat(kind, color, make) {
+    const key = `${kind}:${colorKey(color)}`;
+    let m = this._lightCache.get(key);
+    if (!m) {
+      if (this._lightCache.size >= 32) return null;
+      m = make();
+      this._lightCache.set(key, m);
+    }
+    return m;
+  }
+
+  _clearLightCache() {
+    for (const m of this._lightCache.values()) m.dispose();
+    this._lightCache.clear();
   }
 
   _makeMats() {
@@ -223,6 +318,8 @@ export class HouseScene {
           glassAlert: std({ color: ALERT, emissive: 0xff1744, emissiveIntensity: 1, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }),
           frame: std({ color: 0x1b0f33, emissive: 0x00e5ff, emissiveIntensity: 0.7 }),
           frameAlert: std({ color: 0xff1744, emissive: 0xff1744, emissiveIntensity: 1.2 }),
+          frameOk: std({ color: 0x00e676, emissive: 0x00e676, emissiveIntensity: 0.6 }),
+          frameWarn: std({ color: 0xffab00, emissive: 0xffab00, emissiveIntensity: 0.9 }),
           door: std({ color: 0x24123f, emissive: 0xff2bd6, emissiveIntensity: 0.35 }),
           frontDoor: std({ color: 0x24123f, emissive: 0xff2bd6, emissiveIntensity: 0.6 }),
           garage: std({ color: 0x1b0f33, emissive: 0x7c4dff, emissiveIntensity: 0.45 }),
@@ -253,6 +350,9 @@ export class HouseScene {
           glassAlert: std({ color: ALERT, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide }),
           frame: std({ color: 0xfafafa, roughness: 0.6 }),
           frameAlert: std({ color: ALERT, emissive: ALERT, emissiveIntensity: 0.5 }),
+          // Sicherheitsansicht: zu = grün, gekippt = orange
+          frameOk: std({ color: 0x43a047, emissive: 0x2e7d32, emissiveIntensity: 0.35 }),
+          frameWarn: std({ color: 0xffa000, emissive: 0xff8f00, emissiveIntensity: 0.5 }),
           door: std({ color: 0x8d6e63, roughness: 0.7 }),
           frontDoor: std({ color: 0x455a64, roughness: 0.6 }),
           garage: std({ color: 0xd5d5d5, roughness: 0.5, metalness: 0.2 }),
@@ -302,6 +402,7 @@ export class HouseScene {
   }
 
   _disposeMats() {
+    this._clearLightCache();
     // Texturen sind geteilt (textures.js) und werden nicht entsorgt
     for (const m of this.texMats?.values() ?? []) m.dispose();
     for (const m of [...Object.values(this.mats ?? {}).flat(), ...Object.values(this.outdoorMats ?? {}), ...Object.values(this.furnMats ?? {}).flat()]) {
@@ -330,6 +431,7 @@ export class HouseScene {
 
   setBuilding(building, { keepCamera = false } = {}) {
     for (const child of [...this.root.children]) this._dispose(child);
+    this._clearLightCache();
     this.root.clear();
     this.floors.clear();
     this.anchors = [];
@@ -337,6 +439,10 @@ export class HouseScene {
     this.building = building;
     this.warnings = [];
     this.lampBulbs.clear();
+    this.heatParts = [];
+    this.pvFields = new Map(); // PV-Feld-ID → {mesh, solar, …} (Dach-Ebene)
+    // Deckenöffnungen (Treppen von unten, Treppenlöcher) einmal je Etage
+    this._slabHoles = new Map((building.floors ?? []).map((f) => [f.id, slabOpenings(building, f.id)]));
     for (const floor of building.floors ?? []) this._buildFloor(floor, building.settings ?? {}, footing(building.floors, floor));
     this._buildRoof(building);
     this._buildEnergy(building);
@@ -356,6 +462,14 @@ export class HouseScene {
     this.setFilter(this.filter, { fit: !keepCamera });
     if (this._deviceList) this.setDevices(this._deviceList);
     this.applyLayers();
+    // Mitte und Abstand der Sonne aus dem Haus (ohne Garten)
+    const box = new THREE.Box3();
+    for (const entry of this.floors.values()) for (const m of entry.occluders) box.expandByObject(m);
+    if (!box.isEmpty()) {
+      box.getCenter(this._sunCenter);
+      this._sunR = Math.max(30, box.getSize(new THREE.Vector3()).length() * 2);
+    }
+    this._placeSun();
   }
 
   // ------------------------------------------------------------------ Ebenen, Geräte, Auswahl
@@ -375,6 +489,7 @@ export class HouseScene {
     }
     this.devicesGroup.visible = on("devices") && this._deviceList?.length > 0;
     if (this.weather) this.weather.obj.visible = on("weather");
+    this._lodCheck(true);
     this._cameraMoved();
   }
 
@@ -461,8 +576,12 @@ export class HouseScene {
       entry.group.traverse((o) => o.isMesh && (o.userData.entity || o.userData.room || (furniture && o.userData.furniture)) && targets.push(o));
       if (furniture) entry.garden.traverse((o) => o.isMesh && o.userData.furniture && targets.push(o));
     }
-    if (this._roofShown()) targets.push(...this.roofMeshes);
+    if (this._roofShown()) {
+      for (const f of this.pvFields?.values() ?? []) targets.push(f.mesh);
+      targets.push(...this.roofMeshes);
+    }
     for (const hit of this.raycaster.intersectObjects(targets.filter(visible), false)) {
+      if (hit.object.userData.pvField) return { pvField: hit.object.userData.pvField };
       if (hit.object.userData.roof) return null;
       if (furniture && hit.object.userData.furniture) return { furniture: hit.object.userData.furniture };
       if (hit.object.userData.entity) return { entity_id: hit.object.userData.entity };
@@ -510,12 +629,19 @@ export class HouseScene {
     this.invalidate();
   }
 
-  _animateCamera(target, position) {
+  _animateCamera(target, position, duration = 450) {
     const t0 = this.controls.target.clone();
     const p0 = this.camera.position.clone();
     const start = performance.now();
+    if (duration <= 0) {
+      this.controls.target.copy(target);
+      this.camera.position.copy(position);
+      this.controls.update();
+      this._cameraMoved();
+      return;
+    }
     const step = () => {
-      const k = Math.min(1, (performance.now() - start) / 450);
+      const k = Math.min(1, (performance.now() - start) / duration);
       const e = k * k * (3 - 2 * k);
       this.controls.target.lerpVectors(t0, target, e);
       this.camera.position.lerpVectors(p0, position, e);
@@ -537,8 +663,10 @@ export class HouseScene {
     const entry = { floor, group, garden, rooms: new Map(), openings: new Map(), occluders: [] };
 
     // Böden
+    const openings0 = this._slabHoles?.get(floor.id) ?? [];
     for (const room of floor.rooms ?? []) {
-      const geo = flatOrExtruded(room.points, SLAB);
+      const holes = openings0.map((o) => roomHole(room.points, o.poly)).filter(Boolean);
+      const geo = flatOrExtruded(room.points, SLAB, holes);
       geo.translate(0, elev - SLAB, 0);
       // Cyberpunk: Bodenbelag dunkel getönt, aber deckend und klar vom Hintergrund abgesetzt
       const base = new THREE.Color(floorColor(room));
@@ -547,6 +675,7 @@ export class HouseScene {
       const mat = new THREE.MeshStandardMaterial({ color: base.clone(), roughness: 0.85, emissive: 0x000000, map: ftex });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.userData.layer = "floors";
+      mesh.userData.holes = holes.length;
       mesh.userData.room = { floorId: floor.id, roomId: room.id };
       group.add(mesh);
       entry.occluders.push(mesh);
@@ -646,6 +775,13 @@ export class HouseScene {
       (floor.outdoor ?? []).some((o) => o.type === "balcony" && pointInPolygon(p, o.points));
     for (const item of floor.furniture ?? []) {
       const obj = buildFurniture(item, this.furnMats, elev, floor.height ?? 2.5);
+      if (item.type === "radiator") {
+        // Heizkörper glühen beim Heizen: verknüpftes Thermostat oder das des Raums
+        const meshes = [];
+        obj.traverse((o) => o.userData.heat && meshes.push(o));
+        const room = (floor.rooms ?? []).find((r) => pointInPolygon([item.x, item.z], r.points));
+        this.heatParts.push({ meshes, base: meshes[0]?.material, entity: item.entity && String(item.entity).startsWith("climate.") ? item.entity : null, roomKey: room ? `${floor.id}:${room.id}` : null });
+      }
       const entity = item.entity && item.entity !== "none" ? item.entity : null;
       if (entity) {
         obj.traverse((o) => (o.userData.entity = entity));
@@ -655,6 +791,7 @@ export class HouseScene {
       (inside([item.x, item.z]) ? furn : gardenFurn).add(obj);
     }
     group.add(furn);
+    entry.furn = furn; // Möbel innen (werden bei Draufsicht mit Dach ausgeblendet)
     garden.add(gardenFurn);
     entry.occluders.push(...wallMeshes);
 
@@ -664,6 +801,7 @@ export class HouseScene {
       const seg = segById.get(placed.segment);
       const item = this._buildOpening(seg, placed, elev, seg.height ?? height);
       item.group.userData.layer = "openings";
+      item.roomId = placed.opening.room_id ?? null;
       group.add(item.group);
       entry.openings.set(placed.opening.id, item);
     }
@@ -831,11 +969,18 @@ export class HouseScene {
       this._buildRailing(group, area, elev, floor);
       return group;
     }
+    // Zaun als Linie: Pfosten und Füllung statt Block
+    if (area.type === "fence" && Array.isArray(area.line?.points) && area.line.points.length > 1) {
+      this._buildFence(group, area, elev + look.y);
+      return group;
+    }
+    // Hecke/Zaun: eigene Höhe
+    const ownH = (area.type === "hedge" || area.type === "fence") && Number(area.height) > 0 ? Math.min(6, Number(area.height)) : look.h;
     if (heights && look.h === 0) {
       // schräge Fläche (Hang, Böschung): Höhe je Eckpunkt
       geo = planarUVs(slopedSurface(area.points, heights));
     } else {
-      geo = flatOrExtruded(area.points, look.h);
+      geo = flatOrExtruded(area.points, ownH);
       if (heights) geo.translate(0, heights.reduce((a, b) => a + b, 0) / heights.length, 0);
     }
     geo.translate(0, elev + look.y, 0);
@@ -844,7 +989,7 @@ export class HouseScene {
     group.add(mesh);
     if (this.mats.gardenLine) {
       const hs = Array.isArray(area.heights) && area.heights.length === area.points.length ? area.heights : null;
-      group.add(outline(area.points, elev + look.y + look.h + 0.01, this.mats.gardenLine, hs));
+      group.add(outline(area.points, elev + look.y + ownH + 0.01, this.mats.gardenLine, hs));
     }
     if (area.type === "pool") {
       // Wasser etwas nach innen versetzt, über dem Rand
@@ -864,6 +1009,60 @@ export class HouseScene {
     if (area.type === "gravel" || area.type === "rockery") this._buildStones(group, area, elev + look.y + look.h);
     if (!heights) this._buildRailing(group, area, elev + look.y + look.h, floor);
     return group;
+  }
+
+  /**
+   * Zaun entlang seiner Mittellinie (area.line): Pfosten alle 2 m (instanziert) und Füllung nach
+   * area.fence_style – Holz (Bretter), Doppelstabmatte (Stäbe, instanziert), Lamellen.
+   */
+  _buildFence(group, area, y) {
+    const h = Math.min(3, Math.max(0.3, Number(area.height) || 1.0));
+    const pts = area.line.points;
+    const style = area.fence_style ?? "wood";
+    const mat = style === "bars" ? this.mats.railing : this.mats.railWood;
+    const fence = new THREE.Group();
+    fence.userData.layer = "garden";
+    const posts = [];
+    const bars = [];
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const beam = (a, b, y0, y1, t) => {
+      const len = Math.max(t, Math.hypot(b[0] - a[0], b[1] - a[1]));
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(len, y1 - y0, t), mat);
+      mesh.position.set((a[0] + b[0]) / 2, (y0 + y1) / 2, (a[1] + b[1]) / 2);
+      mesh.rotation.y = -Math.atan2(b[1] - a[1], b[0] - a[0]);
+      fence.add(mesh);
+    };
+    for (let i = 1; i < pts.length; i++) {
+      const [a, b] = [pts[i - 1], pts[i]];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < 0.05) continue;
+      const ang = -Math.atan2(b[1] - a[1], b[0] - a[0]);
+      const at = (t) => [a[0] + ((b[0] - a[0]) * t) / len, a[1] + ((b[1] - a[1]) * t) / len, ang];
+      const n = Math.max(1, Math.ceil(len / 2));
+      for (let k = i === 1 ? 0 : 1; k <= n; k++) posts.push(at((len * k) / n));
+      if (style === "bars") {
+        beam(a, b, y + 0.1, y + 0.14, 0.04);
+        beam(a, b, y + h - 0.06, y + h - 0.02, 0.04);
+        for (let t = 0.05; t < len - 0.02; t += 0.05) bars.push(at(t));
+      } else if (style === "slats") {
+        for (let z = 0.08; z < h - 0.05; z += 0.14) beam(a, b, y + z, y + z + 0.1, 0.025);
+      } else {
+        beam(a, b, y + h * 0.2, y + h * 0.2 + 0.08, 0.03);
+        beam(a, b, y + h * 0.75, y + h * 0.75 + 0.08, 0.03);
+        for (let t = 0.06; t < len - 0.03; t += 0.12) bars.push(at(t));
+      }
+    }
+    const inst = (list, geo) => {
+      const im = new THREE.InstancedMesh(geo, mat, list.length);
+      const up = new THREE.Vector3(0, 1, 0);
+      list.forEach((p, i) => im.setMatrixAt(i, m.compose(new THREE.Vector3(p[0], y + geo.parameters.height / 2, p[1]), q.setFromAxisAngle(up, p[2] ?? 0), new THREE.Vector3(1, 1, 1))));
+      im.instanceMatrix.needsUpdate = true;
+      fence.add(im);
+    };
+    if (posts.length) inst(posts, new THREE.BoxGeometry(0.08, h + 0.05, 0.08));
+    if (bars.length) inst(bars, style === "bars" ? new THREE.BoxGeometry(0.012, h - 0.1, 0.012) : new THREE.BoxGeometry(0.09, h * 0.95, 0.02));
+    group.add(fence);
   }
 
   /**
@@ -972,6 +1171,7 @@ export class HouseScene {
   /** Dach über der obersten Etage (settings.roof, nur in „Alle“) und eigene Dächer einzelner Räume (room.roof). */
   _buildRoof(building) {
     this.roofHolder = null;
+    this.roofModel = null;
     this.roofMeshes = [];
     this.roomRoofs = new Map(); // roomId -> {parts, eave, tan, type}
     const wall = building.settings?.wall_exterior ?? 0.24;
@@ -987,6 +1187,7 @@ export class HouseScene {
         const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
         const res = this._roofGeometry(rooms, roof, top, wall, inner, { settings: building.settings });
         const model = { roof, parts: res.parts, top, eave: res.eave, tan: res.tan };
+        this.roofModel = model; // für Kenndaten der PV-Felder (gleiche Flächen wie im Bild)
         const items = Array.isArray(roof.items) ? roof.items : [];
         // verschiebbare PV-Felder (Dach-Ebene im Editor) ersetzen die Angaben je Richtung
         if (!items.some((it) => it.type === "pv")) this._roofPanels(inner, model, building.settings?.north ?? 0);
@@ -1018,19 +1219,63 @@ export class HouseScene {
     }
   }
 
-  /** Ein PV-Modul (oder Dachfenster) flach auf der Dachfläche: Mitte p (Grundriss), Höhe y, Richtung hangabwärts out. */
+  /**
+   * Ein PV-Modul (oder Dachfenster) flach auf der Dachfläche: Mitte p (Grundriss), Höhe y, Richtung
+   * hangabwärts out. Ziel ist ein PanelBatch (Module) oder eine Gruppe (eigenes Mesh, Dachfenster).
+   */
   _panelOnRoof(group, p, y, out, tan, w, l, mats, along = null) {
-    const o = out ?? [-(along?.[1] ?? 0), along?.[0] ?? 1];
-    const U = new THREE.Vector3(o[1], 0, -o[0]);
-    const down = out ? new THREE.Vector3(out[0], -tan, out[1]).normalize() : new THREE.Vector3(o[0], 0, o[1]);
-    const N = new THREE.Vector3().crossVectors(down, U).normalize();
-    if (N.y < 0) N.negate();
-    const Z = new THREE.Vector3().crossVectors(U, N);
+    const b = panelBasis(out, tan, along);
+    const [U, N, Z] = [b.U, b.N, b.Z].map((v) => new THREE.Vector3(...v));
+    const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(U, N, Z));
+    const pos = new THREE.Vector3(p[0], y, p[1]).addScaledVector(N, 0.07);
+    if (group instanceof PanelBatch) {
+      group.push(new THREE.Matrix4().compose(pos, q, new THREE.Vector3(w, 1, l)));
+      return null;
+    }
     const panel = new THREE.Mesh(new THREE.BoxGeometry(w, 0.04, l), mats);
-    panel.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(U, N, Z));
-    panel.position.set(p[0], y, p[1]).addScaledVector(N, 0.07);
+    panel.quaternion.copy(q);
+    panel.position.copy(pos);
     group.add(panel);
     return panel;
+  }
+
+  /** Materialien eines PV-Felds: eigene Kopie der Moduloberseite (glänzt je nach Leistung). */
+  _pvMats() {
+    const f = this.mats.solarFrame;
+    return [f, f, this.mats.solar.clone(), f, f, f];
+  }
+
+  /** PV-Feld fertigstellen: InstancedMesh einhängen, für Leistung/Auswahl und Schild merken. */
+  _finishPvField(batch, parent, id, label = null) {
+    const inst = batch.mesh();
+    if (!inst) return null;
+    parent.add(inst);
+    if (id) {
+      const solar = Array.isArray(inst.material) ? inst.material[2] : null;
+      const box = inst.boundingBox ?? new THREE.Box3();
+      const c = box.getCenter(new THREE.Vector3());
+      this.pvFields.set(id, { mesh: inst, solar, base: solar?.emissiveIntensity ?? 0, baseColor: solar?.emissive.getHex() ?? 0, label });
+      this.anchors.push({ key: `pv:${id}`, floorId: null, roof: true, position: new THREE.Vector3(c.x, box.max.y + 0.35, c.z) });
+    }
+    return inst;
+  }
+
+  /**
+   * Leistung je PV-Feld (Map id → Anteil 0..1 der Spitzenleistung): Module glänzen leicht, ohne
+   * Neuaufbau.
+   */
+  setPvPower(ratios) {
+    let changed = false;
+    for (const [id, f] of this.pvFields ?? []) {
+      if (!f.solar) continue;
+      const r = Math.min(1, Math.max(0, Number(ratios?.get(id)) || 0));
+      const want = f.base + 0.3 * r;
+      if (Math.abs(f.solar.emissiveIntensity - want) < 0.01) continue;
+      if (!f.baseColor) f.solar.emissive.setHex(r > 0 ? 0x4f8fe8 : 0x000000);
+      f.solar.emissiveIntensity = want;
+      changed = true;
+    }
+    if (changed) this.invalidate();
   }
 
   /**
@@ -1045,12 +1290,13 @@ export class HouseScene {
     group.userData.layer = "solar";
     const faces = roofFaces(model, north);
     const mats = [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame];
+    const batch = new PanelBatch(mats);
     const place = (f, slots) => {
       const fr = f.fr;
       for (const { s, x, w = 1.0, l = 1.7 } of slots) {
         const t = roof.type === "shed" ? -fr.width / 2 + x : f.sg * (fr.width / 2 - x);
         const p = [fr.center[0] + s * fr.u[0] + t * fr.v[0], fr.center[1] + s * fr.u[1] + t * fr.v[1]];
-        this._panelOnRoof(group, p, model.eave + x * tan, f.out, tan, w, l, mats);
+        this._panelOnRoof(batch, p, model.eave + x * tan, f.out, tan, w, l, mats);
       }
     };
     if (arrays?.length) {
@@ -1070,6 +1316,7 @@ export class HouseScene {
         }
       }
     }
+    this._finishPvField(batch, group, null);
     if (group.children.length) parent.add(group);
   }
 
@@ -1082,15 +1329,18 @@ export class HouseScene {
     const cyber = this.style === "cyber";
     const pvMats = [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame];
     const skyMats = [this.mats.frame, this.mats.frame, this.mats.glass, this.mats.frame, this.mats.frame, this.mats.frame];
+    const obstacles = roofObstacles(model, items); // Kamin und Dachfenster: dort keine Module
     for (const it of items) {
       if (!Number.isFinite(it?.x) || !Number.isFinite(it?.z)) continue;
       if (it.type === "pv") {
-        const lay = pvLayout(model, it);
+        const lay = pvLayout(model, it, { obstacles });
+        const batch = new PanelBatch(this._pvMats(), { pvField: it.id ?? null });
         for (const [i, p] of lay.panels.entries()) {
           const hit = roofSurfaceAt(model, p);
           if (!hit || !lay.fits[i]) continue;
-          this._panelOnRoof(solar, p, hit.y, hit.out ? lay.out : null, model.tan, lay.w, lay.l, pvMats, lay.along);
+          this._panelOnRoof(batch, p, hit.y, hit.out ? lay.out : null, model.tan, lay.w, lay.l, pvMats, lay.along);
         }
+        this._finishPvField(batch, solar, it.id ?? null, it.name ?? null);
       } else if (it.type === "skylight") {
         const hit = roofSurfaceAt(model, [it.x, it.z]);
         if (!hit) continue;
@@ -1216,15 +1466,8 @@ export class HouseScene {
   }
 
   _buildEnergy(building) {
-    // Schuppen mit Balkonkraftwerk: Raum mit area_id "balkonkraftwerk" (oder Name "Schuppen")
-    let shed = null;
-    for (const floor of building.floors ?? []) {
-      const room = (floor.rooms ?? []).find((r) => r.area_id === "balkonkraftwerk") ?? (floor.rooms ?? []).find((r) => /schuppen/i.test(r.name));
-      if (room) {
-        shed = { floor, room };
-        break;
-      }
-    }
+    // Raum mit Balkonkraftwerk (room.energy_role, früher Bereich „balkonkraftwerk“ oder Name Schuppen)
+    const shed = findPvShed(building);
     if (!shed) return;
     const entry = this.floors.get(shed.floor.id);
     const elev = shed.floor.elevation ?? 0;
@@ -1261,6 +1504,10 @@ export class HouseScene {
     const pw = 1.0;
     const pd = 1.7;
     const rowDepth = pd * Math.cos(tilt) + 0.3;
+    const rack = new PanelBatch([this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
+    // Gestell: um yaw gedreht, Modul um -tilt geneigt (Nordkante oben)
+    const rot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -tilt));
+    const scale = new THREE.Vector3(pw, 1, pd);
     const nx = Math.max(1, Math.floor((a1 - a0 - 0.2) / (pw + 0.05)));
     const nz = Math.max(1, Math.floor((b1 - b0 - 0.2) / rowDepth));
     for (let i = 0; i < nx; i++) {
@@ -1269,15 +1516,10 @@ export class HouseScene {
         const lb = b0 + (j + 0.5) * ((b1 - b0) / nz);
         const [px, pz] = toPlan([la, lb]);
         if (!pointInPolygon([px, pz], shed.room.points)) continue;
-        const holder = new THREE.Group();
-        holder.rotation.y = yaw;
-        holder.position.set(px, top + 0.35, pz);
-        const panel = new THREE.Mesh(new THREE.BoxGeometry(pw, 0.04, pd), [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
-        panel.rotation.x = -tilt; // Nordkante (+z) oben
-        holder.add(panel);
-        solar.add(holder);
+        rack.push(new THREE.Matrix4().compose(new THREE.Vector3(px, top + 0.35, pz), rot, scale));
       }
     }
+    this._finishPvField(rack, solar, null);
     solar.userData.layer = "solar";
     // ohne eigenes Dach: Platte mit Modulen ist das Dach (Ebene „roof“ und Etagenwahl wie Raumdächer)
     const wrap = new THREE.Group();
@@ -1302,6 +1544,7 @@ export class HouseScene {
     const perSlope = Math.ceil(count / slopes.length);
     const fit = Math.max(1, Math.floor((2 * L - 0.3) / (pw + 0.05)));
     let left = count;
+    const batch = new PanelBatch([this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
     for (const sg of slopes) {
       const n = Math.min(perSlope, fit, left);
       left -= n;
@@ -1314,15 +1557,15 @@ export class HouseScene {
       let N = new THREE.Vector3().crossVectors(down, U).normalize();
       if (N.y < 0) N.negate();
       const Z = new THREE.Vector3().crossVectors(U, N);
-      const basis = new THREE.Matrix4().makeBasis(U, N, Z);
+      const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(U, N, Z));
+      const scale = new THREE.Vector3(pw, 1, pd);
       for (let k = 0; k < n; k++) {
         const s = (k - (n - 1) / 2) * (pw + 0.05);
-        const panel = new THREE.Mesh(new THREE.BoxGeometry(pw, 0.04, pd), [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
-        panel.quaternion.setFromRotationMatrix(basis);
-        panel.position.set(fr.center[0] + s * fr.u[0] + t * fr.v[0], y, fr.center[1] + s * fr.u[1] + t * fr.v[1]).addScaledVector(N, 0.06);
-        group.add(panel);
+        const pos = new THREE.Vector3(fr.center[0] + s * fr.u[0] + t * fr.v[0], y, fr.center[1] + s * fr.u[1] + t * fr.v[1]).addScaledVector(N, 0.06);
+        batch.push(new THREE.Matrix4().compose(pos, q, scale));
       }
     }
+    this._finishPvField(batch, group, null);
   }
 
   /** Energieflusslinie vom Schuppen zum Haus. */
@@ -1384,7 +1627,8 @@ export class HouseScene {
     return this.filter === "all" || this.filter === floorId;
   }
 
-  fitCamera() {
+  /** Umriss der sichtbaren Etagen (ohne Garten) als {min, max}. */
+  viewBox() {
     const box = new THREE.Box3();
     for (const entry of this.floors.values()) {
       if (!this.isFloorVisible(entry.floor.id)) continue;
@@ -1392,14 +1636,27 @@ export class HouseScene {
       for (const m of entry.occluders) box.expandByObject(m);
     }
     if (box.isEmpty()) box.set(new THREE.Vector3(-5, 0, -5), new THREE.Vector3(5, 3, 5));
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const radius = Math.max(size.x, size.z, 4) * 0.5;
-    const dist = radius / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) / Math.min(1, this.camera.aspect) * 1.05;
-    this.controls.target.copy(center);
-    this.camera.position.copy(center).add(new THREE.Vector3(0.35, 0.95, 0.75).normalize().multiplyScalar(dist));
-    this.controls.update();
-    this._cameraMoved();
+    return { min: box.min.toArray(), max: box.max.toArray() };
+  }
+
+  /** Feste Ansicht (camera.js: iso, oben, sued, nord, ost, west). */
+  viewPreset(name, north = 0, { duration = 450 } = {}) {
+    const pose = presetPose(name, this.viewBox(), { north, fov: this.camera.fov, aspect: this.camera.aspect });
+    this.setView(pose, { duration });
+    return pose;
+  }
+
+  fitCamera() {
+    this.viewPreset("iso", 0, { duration: 0 });
+  }
+
+  /** Aktuelle Ansicht (auf cm gerundet). */
+  getView() {
+    return roundPose({ target: this.controls.target.toArray(), position: this.camera.position.toArray() });
+  }
+
+  setView(pose, { duration = 450 } = {}) {
+    this._animateCamera(new THREE.Vector3(...pose.target), new THREE.Vector3(...pose.position), duration);
   }
 
   _cameraMoved() {
@@ -1425,6 +1682,13 @@ export class HouseScene {
    * @param {number|null} s.feedIn Einspeiseleistung in W
    */
   applyStates(s) {
+    this._lastStates = s;
+    // Heizkörper: glühen, solange ihr Thermostat (oder das des Raums) heizt
+    for (const h of this.heatParts ?? []) {
+      const on = h.entity ? !!s.heating?.has(h.entity) : !!(h.roomKey && s.heatRooms?.has(h.roomKey));
+      const mat = on ? this.furnMats.heatOn : h.base;
+      for (const m of h.meshes) if (m.material !== mat) m.material = mat;
+    }
     for (const [floorId, entry] of this.floors) {
       for (const [roomId, r] of entry.rooms) {
         const key = `${floorId}:${roomId}`;
@@ -1440,20 +1704,49 @@ export class HouseScene {
         }
         // Cyberpunk: Boden glimmt leicht in seiner Farbe, damit er sich deutlich vom Hintergrund abhebt
         const idle = this.style === "cyber" && !s.tempMode ? r.base : new THREE.Color(0x000000);
+        // echtes Licht: Farbe und Helligkeit der Lampen (sonst warmweiß)
+        const look = lit ? s.lights?.get(key) : null;
         r.mesh.material.emissive.copy(lit && !s.tempMode ? WARM : idle);
-        r.mesh.material.emissiveIntensity = lit ? (this.style === "night" ? 0.9 : 0.45) : this.style === "cyber" ? 0.3 : 0;
-        r.glow.visible = lit && !s.tempMode;
+        if (look && !s.tempMode) r.mesh.material.emissive.setRGB(...look.color, THREE.SRGBColorSpace);
+        r.mesh.material.emissiveIntensity = lit ? (this.style === "night" ? 0.9 : 0.45) * (look ? 0.4 + 0.6 * look.level : 1) : this.style === "cyber" ? 0.3 : 0;
+        if (look) {
+          r.glowMat = r.glowMat ?? this.mats.glow.clone();
+          r.glowMat.color.setRGB(...look.color, THREE.SRGBColorSpace);
+          r.glowMat.opacity = (STYLE_GLOW[this.style] ?? 0.16) * (0.35 + 0.65 * look.level);
+          r.glow.material = r.glowMat;
+        } else r.glow.material = this.mats.glow;
+        // Hinweis im Raum: Boden rot (kritisch) bzw. orange (Warnung); Auswahl geht vor
+        const alert = s.alerts?.get(key);
+        if (alert) {
+          r.mesh.material.emissive.set(alert === "critical" ? 0xe53935 : 0xff8f00);
+          r.mesh.material.emissiveIntensity = alert === "critical" ? 0.55 : 0.4;
+        }
+        r.glow.visible = lit && !s.tempMode && this.quality.glow !== false;
       }
       for (const [openingId, item] of entry.openings) {
         const key = `${floorId}:${openingId}`;
-        const open = s.open.has(key);
-        for (const m of item.frames) m.material = open ? this.mats.frameAlert : this.mats.frame;
-        for (const p of item.panes) p.material = open ? this.mats.glassAlert : this.mats.glass;
-        for (const solid of item.solids) solid.material = open ? this.mats.frameAlert : solid.userData.base;
+        // Sicherheitsansicht: gekippt orange, zu grün (nur Öffnungen mit Kontakt)
+        const tilted = !!s.security?.tilted.has(key);
+        const open = s.open.has(key) && !tilted;
+        const ok = !!s.security?.closed.has(key);
+        const frame = open ? this.mats.frameAlert : tilted ? this.mats.frameWarn : ok ? this.mats.frameOk : this.mats.frame;
+        for (const m of item.frames) m.material = frame;
+        // nachts leuchten Fenster beleuchteter Räume in der Lichtfarbe (Rollladen zu dimmt)
+        const roomKey = item.roomId ? `${floorId}:${item.roomId}` : null;
+        const litLook = !open && this.style === "night" && roomKey && s.lit.has(roomKey) && (s.covers.get(key) ?? 0) < 0.9 ? s.lights?.get(roomKey) ?? { color: [1, 0.78, 0.45], level: 1 } : null;
+        const glassLit = litLook ? this._lightMat("glass", litLook.color, () => {
+          const m = this.mats.glass.clone();
+          m.emissive.setRGB(...litLook.color, THREE.SRGBColorSpace);
+          m.emissiveIntensity = 1.1;
+          m.opacity = 0.75;
+          return m;
+        }) : null;
+        for (const p of item.panes) p.material = open ? this.mats.glassAlert : glassLit ?? this.mats.glass;
+        for (const solid of item.solids) solid.material = open || tilted ? frame : solid.userData.base;
         const closed = s.covers.get(key);
         // Ziele setzen; die Bewegung macht _animate() Bild für Bild
         item.anim = item.anim ?? { open: open ? 1 : 0, cover: null };
-        item.anim.openTarget = open ? 1 : 0;
+        item.anim.openTarget = open ? 1 : tilted ? 0.3 : 0;
         if (item.garage) {
           item.anim.coverTarget = closed == null ? (open ? 0.15 : 1) : Math.max(0.08, closed);
           item.garage.material = open ? this.mats.frameAlert : this.mats.garage;
@@ -1466,7 +1759,14 @@ export class HouseScene {
     }
     for (const [entity, bulbs] of this.lampBulbs) {
       const on = s.onEntities?.has(entity);
-      for (const b of bulbs) b.material = on ? this.furnMats.bulbOn : this.furnMats.bulb;
+      const look = on ? s.lightLooks?.get(entity) : null;
+      const mat = !on ? this.furnMats.bulb : (look && this._lightMat("bulb", look.color, () => {
+        const m = this.furnMats.bulbOn.clone();
+        m.emissive.setRGB(...look.color, THREE.SRGBColorSpace);
+        m.color.setRGB(...look.color.map((v) => 0.6 + 0.4 * v), THREE.SRGBColorSpace);
+        return m;
+      })) || this.furnMats.bulbOn;
+      for (const b of bulbs) b.material = mat;
     }
     this._applySelection();
     this._animate(1 / 60);
@@ -1521,9 +1821,15 @@ export class HouseScene {
     this._running = false;
     if (this._raf) cancelAnimationFrame(this._raf);
     this._raf = null;
+    clearTimeout(this._timer);
+    this._timer = null;
   }
 
   _kick() {
+    if (this._timer) {
+      clearTimeout(this._timer);
+      this._timer = null;
+    }
     if (!this._running || this._raf) return;
     this._raf = requestAnimationFrame(() => this._frame());
   }
@@ -1538,26 +1844,84 @@ export class HouseScene {
     const animDt = Math.min(0.5, (now - (this._lastAnim ?? now)) / 1000);
     this._lastAnim = now;
     const animating = this._animating && this._animate(animDt);
-    const flowing = this.flow && this.flow.speed > 0 && this.isFloorVisible(this.flow.floorId);
-    const weather = !!this._weather && this.layers.weather !== false && this._stepWeather(animDt);
-    if (flowing) {
-      this.flow.phase = (this.flow.phase + dt * this.flow.speed) % 1;
-      const n = this.flow.dots.length;
-      this.flow.dots.forEach((d, i) => d.position.copy(this.flow.curve.getPointAt((this.flow.phase + i / n) % 1)));
-    }
-    // nur Wetter: höchstens ca. 30 Bilder pro Sekunde (schont Tablets)
-    const weatherOnly = weather && !(this._dirty || moving || flowing || animating);
-    if ((this._dirty || moving || flowing || animating || weather) && !(weatherOnly && now - (this._lastRender ?? 0) < 32)) {
+    // Hintergrund-Animationen nur, wenn sichtbar (Ebene an) und die Ansicht nicht ruht
+    const flowing = !this._frozen && this.flow && this.flow.speed > 0 && this.layers.flow !== false && this.isFloorVisible(this.flow.floorId);
+    const weatherOn = !this._frozen && !!this._weather && this.layers.weather !== false;
+    const ambient = flowing || weatherOn;
+    const interval = ambientInterval(this.quality.ambientFps);
+    const render = shouldRender({ dirty: this._dirty, moving, animating, ambient, now, lastRender: this._lastRender ?? -Infinity, interval });
+    if (render) {
+      // Fluss und Wetter nur weiterrechnen, wenn auch gezeichnet wird (nach echter Zeit)
+      const ambDt = Math.min(0.5, (now - (this._lastAmbient ?? now)) / 1000);
+      this._lastAmbient = now;
+      if (flowing) {
+        this.flow.phase = (this.flow.phase + ambDt * this.flow.speed) % 1;
+        const n = this.flow.dots.length;
+        this.flow.dots.forEach((d, i) => d.position.copy(this.flow.curve.getPointAt((this.flow.phase + i / n) % 1)));
+      }
+      if (weatherOn) this._stepWeather(ambDt);
+      const t0 = performance.now();
       this.renderer.render(this.scene, this.camera);
+      this.stats.renders++;
+      if (moving) {
+        // Bildabstand beim Drehen messen (für die automatische Auflösung)
+        if (this._lastMoveFrame) this.stats.frameMs.push(t0 - this._lastMoveFrame);
+        if (this.stats.frameMs.length > 120) this.stats.frameMs.shift();
+        this._lastMoveFrame = t0;
+      } else this._lastMoveFrame = null;
       this._dirty = false;
       this._lastRender = now;
     }
     if (this._camDirty || moving) {
       this._camDirty = false;
       this.onCameraChange();
+      this._lodCheck();
     }
-    // weiterlaufen, solange gedämpft gedreht wird oder Energie fließt; sonst bis zur nächsten Änderung schlafen
-    if (moving || flowing || animating || weather) this._kick();
+    // weiter: sofort bei Bewegung, sonst Hintergrund-Animation im gedrosselten Takt, sonst schlafen
+    if (moving || animating || this._dirty) this._kick();
+    else if (ambient) {
+      const wait = Math.max(0, interval - (performance.now() - this._lastRender));
+      clearTimeout(this._timer);
+      this._timer = setTimeout(() => {
+        this._timer = null;
+        this._kick();
+      }, wait);
+    }
+  }
+
+  /** Qualitätsstufe zur Laufzeit (perf.js): Auflösung, Glühen, Wetter-Dichte, Möbel innen. */
+  setQuality(profile) {
+    const prev = this.quality;
+    this.quality = profile;
+    const dpr = Math.min(window.devicePixelRatio || 1, profile.dpr ?? profile.maxDpr);
+    if (Math.abs(this.renderer.getPixelRatio() - dpr) > 1e-3) {
+      this.renderer.setPixelRatio(dpr);
+      this.resize();
+    }
+    if (prev && this._weather && prev.weatherScale !== profile.weatherScale && this.building) this.setWeather(this._weather, { force: true });
+    if (this._lastStates) this.applyStates(this._lastStates);
+    this._lodCheck(true);
+    this.invalidate();
+  }
+
+  /** Hintergrund-Animationen anhalten (Ruhemodus). */
+  setPerf({ frozen = false } = {}) {
+    this._frozen = !!frozen;
+    this.invalidate();
+  }
+
+  /** Möbel innen ausblenden, wenn das Dach drauf ist und man von oben schaut (perf.js:lodState). */
+  _lodCheck(force = false) {
+    const now = performance.now();
+    if (!force && now - (this._lodAt ?? 0) < 150) return;
+    this._lodAt = now;
+    const polar = this.controls.getPolarAngle?.() ?? 0;
+    const { hideInterior } = lodState(polar, this._roofShown(), this.quality);
+    if (hideInterior === this._hideInterior && !force) return;
+    this._hideInterior = hideInterior;
+    const on = this.layers.furniture !== false;
+    for (const entry of this.floors.values()) if (entry.furn) entry.furn.visible = on && !hideInterior;
+    this._dirty = true;
   }
 
   /** Bewegt Türen, Fensterflügel, Rollläden und Tore Richtung Ziel; true, solange sich etwas bewegt. */
@@ -1616,9 +1980,16 @@ export class HouseScene {
   }
 
   /** Schnee bleibt liegen: Rasen, Wege und Dach werden heller. */
+  /** Gelände- und Dachmaterialien inklusive ihrer Textur-Kopien (für Schnee und Jahreszeiten). */
+  _groundRoofMats() {
+    const out = [...["lawn", "terrace", "path", "driveway", "bed", "hedge", "balcony", "gravel", "rockery"].map((t) => this.outdoorMats[t]), this.mats.roof];
+    for (const [key, m] of this.texMats ?? []) if (key.startsWith("ground:") || key.startsWith("roof:")) out.push(m);
+    return out;
+  }
+
   _snowTint(k) {
     const white = new THREE.Color(0xf4f7fb);
-    const mats = [...["lawn", "terrace", "path", "driveway", "bed", "hedge", "balcony", "gravel", "rockery"].map((t) => this.outdoorMats[t]), this.mats.roof];
+    const mats = this._groundRoofMats();
     const tint = (m, f) => {
       if (!m) return;
       m.userData.base ??= m.color.clone();
@@ -1648,7 +2019,7 @@ export class HouseScene {
     const top = Math.max(...floors.map((f) => (f.elevation ?? 0) + (f.height ?? 2.5)), 3) + 7;
     const area = (x1 - x0) * (z1 - z0);
     const density = w.kind === "rain" ? 10 : w.kind === "hail" ? 4 : 6;
-    const n = Math.min(6000, Math.round(area * density * (0.3 + 0.7 * w.amount)));
+    const n = Math.min(6000, Math.round(area * density * (0.3 + 0.7 * w.amount) * (this.quality.weatherScale ?? 1)));
     const rnd = seeded(`wetter:${n}`);
     const drops = [];
     for (let tries = 0; drops.length < n && tries < n * 4; tries++) {
