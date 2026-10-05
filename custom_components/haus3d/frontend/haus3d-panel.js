@@ -28,7 +28,7 @@ import {
   roomActions,
   stepTarget,
   temperatureColor,
-  watchedEntities, cameraCones, conePolygon } from "./devices.js";
+  watchedEntities, cameraCones, conePolygon, areaOf } from "./devices.js";
 import { ROOF_TYPES, compass16, fieldInfo, roofModel, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
@@ -48,6 +48,10 @@ import { EnergyMethods } from "./panel-energy.js";
 import { TabletMethods } from "./panel-tablet.js";
 import { MEDIA_STYLE, MediaMethods } from "./panel-media.js";
 import { FX_STYLE, FxMethods } from "./panel-fx.js";
+import { CLIMATE_STYLE, ClimateMethods } from "./panel-climate.js";
+import { NETWORK_STYLE, NetworkMethods } from "./panel-network.js";
+import { ENERGYCFG_STYLE, EnergyCfgMethods } from "./panel-energycfg.js";
+import { energyEntities, energyTotals } from "./energymodel.js";
 import { USER_STYLE, UserMethods } from "./panel-user.js";
 import { ACCESS_STYLE, AccessMethods } from "./panel-access.js";
 import { ADMIN_STYLE, AdminMethods } from "./panel-admin.js";
@@ -360,11 +364,12 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
           <div class="title">Haus 3D</div>
+          <div class="modes" hidden></div>
           <div class="status" aria-label="Status"><div class="people"></div><div class="chips"></div></div>
           <div class="floors" role="tablist" aria-label="Etage"></div>
           <button class="icon temp" title="Temperaturansicht"><ha-icon icon="mdi:thermometer"></ha-icon></button>
@@ -726,7 +731,7 @@ class Haus3DPanel extends HTMLElement {
     const ecard = this._building.settings?.energy_card ?? {};
     const rows = ecard.hidden ? [] : energyRows(this._building.settings?.energy ?? {}, hass, ecard);
     const energyCfg = this._building.settings?.energy ?? {};
-    const unset = !Object.entries(energyCfg).some(([k, v]) => k !== "extra" && typeof v === "string" && v.includes(".")) && !(energyCfg.extra ?? []).length;
+    const unset = !energyEntities(energyCfg).length;
     if (!rows.length && unset && this._editing() && this._settings.layers.energy !== false && !this._cardState().energieSetupHidden) {
       // frische Installation: Hinweis statt leerer Karte
       const el = document.createElement("div");
@@ -849,6 +854,8 @@ class Haus3DPanel extends HTMLElement {
     const label = name || st?.attributes?.friendly_name || entityId;
     const safety = this._building?.settings?.safety?.confirm !== false;
     if (entityId.startsWith("camera.")) return this._cameraDialog(entityId);
+    if (entityId.startsWith("device_tracker.") && st?.attributes?.source_type === "router") return this._networkPopup(entityId);
+    if (entityId.startsWith("climate.") && source === "tap" && st && !["unavailable", "unknown"].includes(st.state)) return this._climatePopup(entityId);
     const act = entityAction(entityId, st, { source, safety, confirm });
     if (act.dialog || !act.call) return this._moreInfo(entityId);
     if (act.confirm) {
@@ -868,7 +875,7 @@ class Haus3DPanel extends HTMLElement {
   _placeText(entityId) {
     const b = this._building;
     if (!b) return "";
-    const area = this._hass?.entities?.[entityId]?.area_id;
+    const area = this._hass ? areaOf(this._hass, entityId) : null; // eigener Bereich oder der des Geräts
     for (const f of b.floors ?? []) {
       for (const r of f.rooms ?? []) if (area && r.area_id === area) return `${f.name} · ${r.name}`;
       for (const o of f.openings ?? []) {
@@ -931,6 +938,7 @@ class Haus3DPanel extends HTMLElement {
 
   _updateStates() {
     const hass = this._hass;
+    if (this._popup?._refresh) this._popup._refresh(); // Thermostat- bzw. Netzwerk-Fenster
     if (!hass || !this._building || !this._byArea) return;
     const lit = new Set();
     const lights = new Map(); // Raum → {color, level} (echtes Licht)
@@ -944,7 +952,7 @@ class Haus3DPanel extends HTMLElement {
     VIEW_MODES.humidity.warn = Number(this._building.settings?.climate?.humidity_max) || 65;
     const heatRooms = new Set();
     // Werte der Energie-Anzeige (PV, Einspeisung, Akku) zählen nicht als Raumverbrauch
-    const energyIds = new Set(Object.values(this._building.settings?.energy ?? {}).filter((v) => typeof v === "string"));
+    const energyIds = new Set(energyEntities(this._building.settings?.energy));
     const now = Date.now();
     const showPresence = this._settings.layers.presence !== false;
     const holdMs = Math.max(1, Number(this._building.settings?.presence?.hold_minutes) || 5) * 60000;
@@ -1119,21 +1127,28 @@ class Haus3DPanel extends HTMLElement {
   _updateEnergy(energy, hass) {
     const cfg = this._building.settings?.energy ?? {};
     const lang = hass.locale?.language;
-    const bat = batteryState(energy.akku_ladestand, energy.akku_leistung, { invert: !!cfg.akku_invert, capacityKWh: cfg.akku_kapazitaet, reservePct: cfg.akku_reserve ?? 10 });
+    const tot = energyTotals(cfg, hass);
+    const bat = batteryState(energy.akku_ladestand, energy.akku_leistung, { capacityKWh: tot.speicher?.capacity, reservePct: tot.speicher?.reserve ?? 10 });
     // Restzeit glätten (Akkuleistung schwankt), Richtungswechsel setzt zurück
     const e = (this._energyEma = this._energyEma ?? {});
     if (bat.dir !== e.dir) Object.assign(e, { dir: bat.dir, eta: null });
     e.eta = ema(e.eta, bat.etaMin);
     const batS = { ...bat, etaMin: Number.isFinite(e.eta) ? e.eta : bat.etaMin };
-    const grid = gridState(energy.netz, !!cfg.netz_invert);
-    const sur = surplus({ netz: energy.netz, netzInvert: !!cfg.netz_invert, einspeisung: energy.einspeisung }, cfg.ueberschuss, this._surplusLevel);
+    const grid = gridState(energy.netz);
+    const sur = surplus({ netz: energy.netz, einspeisung: energy.einspeisung }, cfg.ueberschuss, this._surplusLevel);
     this._surplusLevel = sur.level;
     const texts = {};
     for (const row of this._energyEl.querySelectorAll(".row")) {
       const r = this._energyRows[Number(row.dataset.i)];
       const v = energy[r.key];
       let text;
+      const pw = (x) => (Number.isFinite(x) ? formatPower(x, lang) : "–");
       if (!r.key) text = hass.states[r.entity] ? (hass.formatEntityState ? hass.formatEntityState(hass.states[r.entity]) : hass.states[r.entity].state) : "–";
+      else if (r.key.startsWith("src:")) text = pw(tot.sources.find((s) => `src:${s.id}` === r.key)?.value);
+      else if (r.key === "verbrauch") text = pw(tot.verbrauch);
+      else if (r.key === "bezug") text = pw(tot.bezug);
+      else if (r.key === "einspeisung") text = pw(tot.einspeisung);
+      else if (r.key === "erzeugung") text = pw(tot.erzeugung);
       else if (r.key === "netz") text = gridText(grid, lang);
       else if (r.key === "akku_leistung") text = bat.dir ? batteryText(batS, Date.now(), lang) : "–";
       else if (r.key === "akku_ladestand") text = `${fmt(v, 0)} %`;
@@ -1141,9 +1156,9 @@ class Haus3DPanel extends HTMLElement {
       else text = formatPower(v, lang);
       texts[r.key ?? ""] = texts[r.key ?? ""] ?? text;
       setText(row.querySelector("b"), text);
-      if (r.key === "netz") {
-        row.classList.toggle("import", grid.dir === "import");
-        row.classList.toggle("export", grid.dir === "export");
+      if (r.key === "netz" || r.key === "bezug" || r.key === "einspeisung") {
+        row.classList.toggle("import", r.key !== "einspeisung" && grid.dir === "import");
+        row.classList.toggle("export", r.key !== "bezug" && grid.dir === "export");
       }
       if (r.key === "akku_leistung") row.firstElementChild.setAttribute("icon", bat.dir === "charge" || bat.dir === "discharge" ? bat.icon : "mdi:battery-charging");
       if (r.key === "akku_ladestand") {
@@ -1160,10 +1175,10 @@ class Haus3DPanel extends HTMLElement {
     // eingeklappt: gewählter Wert (settings.energy.kurz), sonst der erste
     const arrow = { charge: " ↑", discharge: " ↓" }[bat.dir] ?? "";
     const short = {
-      akku: Number.isFinite(energy.akku_ladestand) ? `Akku ${fmt(energy.akku_ladestand, 0)} %${arrow}` : null,
-      solar: Number.isFinite(energy.solar ?? energy.haus_pv) ? `☀ ${formatPower(energy.solar ?? energy.haus_pv, lang)}` : null,
+      akku: Number.isFinite(energy.akku_ladestand) ? `Speicher ${fmt(energy.akku_ladestand, 0)} %${arrow}` : null,
+      solar: Number.isFinite(tot.erzeugung) ? `☀ ${formatPower(tot.erzeugung, lang)}` : null,
       netz: grid.dir ? gridText(grid, lang) : null,
-      verbrauch: Number.isFinite(energy.verbrauch) ? `Verbrauch ${formatPower(energy.verbrauch, lang)}` : null,
+      verbrauch: Number.isFinite(tot.verbrauch) ? `Haus ${formatPower(tot.verbrauch, lang)}` : null,
       ueberschuss: sur.level ? `☀ Überschuss ${formatPower(sur.w, lang)}` : null,
     }[cfg.kurz] ?? this._energyEl.querySelector(".row b")?.textContent ?? "";
     setText(this._energyEl.querySelector(".short"), short);
@@ -1379,7 +1394,7 @@ class Haus3DPanel extends HTMLElement {
     box.innerHTML = list
       .map((p) => {
         const pic = p.picture && !this._settings.initialsOnly ? `<img alt="" src="${esc(p.picture)}">` : `<span class="ini">${esc(p.name.slice(0, 2).toUpperCase())}</span>`;
-        return `<button class="avatar${p.home ? " home" : " away"}" data-entity="${esc(p.entity_id)}" title="${esc(`${p.full}: ${p.zone}`)}">${pic}${p.home ? "" : `<small>${esc(p.zone)}</small>`}</button>`;
+        return `<button class="avatar${p.home ? " home" : " away"}" data-entity="${esc(p.entity_id)}" title="${esc(`${p.full}: ${p.zone}`)}"><span class="pic">${pic}</span><span class="pn"><b>${esc(p.name)}</b><small>${esc(p.zone)}</small></span></button>`;
       })
       .join("");
     box.querySelectorAll(".avatar").forEach((b) => b.addEventListener("click", () => this._moreInfo(b.dataset.entity)));
@@ -1501,6 +1516,12 @@ class Haus3DPanel extends HTMLElement {
         if (ent) {
           down.long = true;
           this._moreInfo(ent);
+        } else if (hit?.roomId) {
+          // gedrückt halten: Raumfenster
+          down.long = true;
+          navigator.vibrate?.(15);
+          if (this._filter === "all") this._setFilter(hit.floorId);
+          this._selectRoom(hit);
         }
       }, LONG_PRESS_MS);
     });
@@ -1524,9 +1545,9 @@ class Haus3DPanel extends HTMLElement {
       if (hit?.entity_id) this._activate(hit.entity_id);
       else if (hit?.pvField) this._pvCard(hit.pvField);
       else if (hit?.roomId) {
-        // erst die Etage wählen, dann den Raum: in "Alle" führt ein Klick zur Etage des Raums
+        // Tipp: Kamera fährt zum Raum (in „Alle“ erst die Etage); Raumfenster per Gedrückthalten
         if (this._filter === "all") this._setFilter(hit.floorId);
-        this._selectRoom(hit, { toggle: true });
+        this._focusRoom(hit);
       }
     });
     target.addEventListener("contextmenu", (ev) => {
@@ -1536,6 +1557,19 @@ class Haus3DPanel extends HTMLElement {
         this._moreInfo(hit.entity_id);
       }
     });
+  }
+
+  /** Kamera zum Raum fahren und ihn kurz hervorheben (ohne Raumfenster). */
+  _focusRoom(hit) {
+    const open = (this._panels ?? []).map((p) => ({ floorId: p.floorId, roomId: p.roomId }));
+    this._scene?.selectRooms([...open.filter((p) => p.roomId !== hit.roomId), { floorId: hit.floorId, roomId: hit.roomId }], { focus: true });
+    clearTimeout(this._focusTimer);
+    this._focusTimer = setTimeout(() => this._scene?.selectRooms((this._panels ?? []).map((p) => ({ floorId: p.floorId, roomId: p.roomId })), { focus: false }), 2500);
+    const room = this._building.floors.find((f) => f.id === hit.floorId)?.rooms.find((r) => r.id === hit.roomId);
+    if (room && !this._focusHinted) {
+      this._focusHinted = true;
+      this._toast(`${room.name} – gedrückt halten öffnet das Raumfenster`);
+    }
   }
 
   /** Raum öffnen/schließen (null = alle schließen). Bis zu 3 Raumfenster gleichzeitig. */
@@ -1889,6 +1923,7 @@ class Haus3DPanel extends HTMLElement {
         this._updateStates();
         this._renderWheels();
       } },
+      network: { icon: "mdi:lan", name: "Netzwerk", on: false, run: () => this._networkDialog() },
       goodnight: { icon: "mdi:weather-night", name: "Gute Nacht", on: false, run: () => this._checkSheet("goodnight") },
       walk: { icon: "mdi:walk", name: "Begehen", on: false, run: () => this._startWalk() },
       shadows: layer("shadows", "mdi:box-shadow", "Schatten"),
@@ -2003,7 +2038,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

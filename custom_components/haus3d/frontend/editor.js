@@ -38,6 +38,7 @@ import { HouseScene } from "./scene.js";
 import { GRID_CHOICES, TOUCH_STYLE, TouchMethods } from "./editor-touch.js";
 import { MEASURE_STYLE, MeasureMethods } from "./editor-measure.js";
 import { LineMethods } from "./editor-lines.js";
+import { PIPE_HINT, PipeMethods } from "./editor-pipes.js";
 import { PLAN_HINTS, PLAN_STYLE, PlanMethods } from "./editor-plan.js";
 import { furnitureThumb, renderThumbs } from "./thumbs.js";
 import { closeGaps, computeWalls, labelPoint, pieceFootprint, signedArea } from "./walls.js";
@@ -86,6 +87,7 @@ const TOOLS = [
   ["device", "mdi:lightbulb-on-outline", "Gerät"],
   ["outdoor", "mdi:tree-outline", "Garten"],
   ["line", "mdi:vector-polyline", "Linie"],
+  ["pipe", "mdi:pipe", "Leitung"],
   ["measure", "mdi:tape-measure", "Messen"],
 ];
 const HINTS = {
@@ -100,6 +102,7 @@ const HINTS = {
   device: "Rechts ein Gerät wählen, dann an seine Stelle tippen. Ziehen im Auswahl-Modus verschiebt es.",
   outdoor: "Punkte der Gartenfläche antippen, ersten Punkt erneut antippen zum Abschließen.",
   line: "Weg, Hecke, Zaun oder Mauer: Punkte antippen (0/45/90°, „Frei“ ohne Einrasten), „Fertig“ beendet.",
+  pipe: PIPE_HINT,
   measure: "Zwei Punkte antippen – rastet an Ecken und Wänden ein. Bis zu drei Messungen bleiben stehen (werden nicht gespeichert).",
 };
 
@@ -864,9 +867,18 @@ export class FloorEditor {
     const byArea = entitiesByArea(this.hass);
     const icons = buildingIcons(this.b, this.hass, byArea).get(f.id) ?? [];
     for (const c of cameraCones(new Map([[f.id, icons]]))) parts.push(`<polygon points="${conePolygon(c).map(P).join(" ")}" fill="#29b6f6" fill-opacity=".18" stroke="#29b6f6" stroke-width="${px(1)}" pointer-events="none" data-cone/>`);
+    // Kamera gewählt: Drehgriff in Blickrichtung (frei drehen, 1°-Schritte)
+    for (const ic of icons) {
+      if (ic.kind !== "camera" || !ic.manual || !(this.sel?.kind === "device" && this.sel.id === ic.entity_id)) continue;
+      const a = ((Number(ic.rotation) || 0) * Math.PI) / 180;
+      const d = Math.max(1.2, 60 / s);
+      const hx = ic.x + Math.cos(a) * d;
+      const hz = ic.z - Math.sin(a) * d;
+      parts.push(`<line x1="${r3(ic.x)}" y1="${r3(ic.z)}" x2="${r3(hx)}" y2="${r3(hz)}" stroke="#ff9800" stroke-width="${px(2)}" pointer-events="none"/><circle data-kind="camrot" data-id="${esc(ic.entity_id)}" cx="${r3(hx)}" cy="${r3(hz)}" r="${px(this.coarse ? 15 : 9)}" fill="#ff9800" stroke="#fff" stroke-width="${px(2)}"/><text x="${r3(hx)}" y="${r3(hz - px(16))}" text-anchor="middle" font-size="${px(12)}" fill="#ff9800" font-weight="600">${Math.round(Number(ic.rotation) || 0)}°</text>`);
+    }
     for (const ic of icons) {
       const sel = this.sel?.kind === "device" && this.sel.id === ic.entity_id;
-      const letter = { light: "L", switch: "S", fan: "V", cover: "R", climate: "K", camera: "C", vacuum: "B" }[ic.kind] ?? "F";
+      const letter = { light: "L", switch: "S", fan: "V", cover: "R", climate: "K", camera: "C", vacuum: "B", network: "N" }[ic.kind] ?? "F";
       parts.push(
         `<g data-kind="device" data-id="${esc(ic.entity_id)}" transform="translate(${r3(ic.x)} ${r3(ic.z)})">` +
           `<circle r="${px(11)}" fill="${ic.manual ? "#ffc107" : "transparent"}" stroke="${sel ? "#03a9f4" : "#ff9800"}" stroke-width="${px(sel ? 3.5 : 2)}"/>` +
@@ -904,6 +916,7 @@ export class FloorEditor {
       poly.points.forEach((p, i) => parts.push(`<circle data-kind="vertex" data-i="${i}" cx="${r3(p[0])}" cy="${r3(p[1])}" r="${px(this.coarse ? 13 : 7)}" fill="#03a9f4" stroke="#fff" stroke-width="${px(2)}"/>`));
     }
     parts.push(this._openingParts(px, P));
+    parts.push(this._pipeParts(px, P));
     parts.push(this._lineDraftParts(px, P));
     parts.push(this._dimParts(px));
     parts.push(this._planParts(px, P));
@@ -940,6 +953,7 @@ export class FloorEditor {
         this.render();
       }
       if (this.draft?.points?.length >= 3) this._finishPolygon();
+      if (this.draft?.pipe && this.draft.line.length >= 2) this._finishPipe();
     });
     this.svg.addEventListener("pointerdown", (ev) => {
       this.svg.setPointerCapture(ev.pointerId);
@@ -979,6 +993,9 @@ export class FloorEditor {
       if (!drag) {
         if (this.draft?.points && (this.tool === "poly" || this.tool === "outdoor")) {
           this.draft.hover = this._snap(p);
+          this.render();
+        } else if (this.draft?.pipe && this.tool === "pipe") {
+          this.draft.hover = this._pipeSnap(ev, p, this.draft.line.at(-1));
           this.render();
         } else if (this.draft?.line && this.tool === "line") {
           this.draft.hover = this._wallSnap(this.draft.line.at(-1), p, this._free(ev));
@@ -1040,6 +1057,10 @@ export class FloorEditor {
     }
     if (tool === "line") {
       this._lineTap(ev, p);
+      return null;
+    }
+    if (tool === "pipe") {
+      this._pipeTap(ev, p);
       return null;
     }
     if (tool === "poly" || tool === "outdoor") {
@@ -1170,6 +1191,7 @@ export class FloorEditor {
       const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
       return { mode: "edge", id: room.id, i, start: p, n: [-(b[1] - a[1]) / len, (b[0] - a[0]) / len], applied: 0, first: true };
     }
+    if (kind === "camrot") return { mode: "camrot", id, first: true };
     if (kind === "device") {
       this.sel = { kind: "device", id };
       this.renderProps();
@@ -1194,6 +1216,12 @@ export class FloorEditor {
       this.renderProps();
       this.render();
       return { mode: "room", id, start: p, moved: false, first: true };
+    }
+    if (kind === "pipe") {
+      this.sel = { kind: "pipe", id };
+      this.renderProps();
+      this.render();
+      return null;
     }
     if (kind === "outdoor") {
       this.sel = { kind: "outdoor", id };
@@ -1352,6 +1380,16 @@ export class FloorEditor {
         this._placeDevice(drag.id, p, !drag.first);
         drag.first = false;
         break;
+      case "camrot": {
+        const pl = f.placements.find((x) => x.entity_id === drag.id);
+        if (!pl) break;
+        const deg = Math.round((((Math.atan2(-(p[1] - pl.z), p[0] - pl.x) * 180) / Math.PI) % 360 + 360) % 360);
+        this._dragChange(drag, (fl) => {
+          fl.placements.find((x) => x.entity_id === drag.id).rotation = deg;
+        });
+        this.renderProps();
+        break;
+      }
       case "roofitem":
       case "roofhandle":
       case "roofpart":
@@ -1460,6 +1498,7 @@ export class FloorEditor {
     else if (sel.kind === "furniture") this.change((fl) => ({ ...fl, furniture: fl.furniture.filter((m) => m.id !== sel.id) }));
     else if (sel.kind === "outdoor") this.change((fl) => ({ ...fl, outdoor: fl.outdoor.filter((o) => o.id !== sel.id) }));
     else if (sel.kind === "wall") this.change((fl) => removeWall(fl, sel.id));
+    else if (sel.kind === "pipe") this.change((fl) => ({ ...fl, pipes: (fl.pipes ?? []).filter((x) => x.id !== sel.id) }));
     else if (sel.kind === "device") this.change((fl) => ({ ...fl, placements: fl.placements.filter((x) => x.entity_id !== sel.id) }));
     this.sel = null;
     this.renderProps();
@@ -1528,6 +1567,11 @@ export class FloorEditor {
       );
 
     if (this.tool === "line") return this._lineToolProps(el);
+    if (this.tool === "pipe") return this._pipeToolProps(el);
+    if (sel?.kind === "pipe") {
+      const l = (f.pipes ?? []).find((x) => x.id === sel.id);
+      return l ? this._pipeProps(el, l) : this._clearSel();
+    }
     if (this.tool === "furniture") {
       el.innerHTML = `<h3>Möbel einfügen</h3><p class="muted">Möbel wählen, dann in den Plan tippen.</p>
         <input class="search" type="search" placeholder="Suchen …" value="${esc(this.furnSearch)}"><div class="cats"></div>`;
@@ -1949,13 +1993,13 @@ export class FloorEditor {
       const pl = f.placements.find((x) => x.entity_id === sel.id);
       el.innerHTML = `<h3>${esc(st?.attributes.friendly_name ?? sel.id)}</h3><p class="muted">${esc(sel.id)}</p>
         ${pl ? `<div class="row3">${num("x", "x", pl.x)}${num("z", "z", pl.z)}${num("y", "Höhe", pl.y ?? "")}</div><p class="muted">Höhe leer = Standard (Lampen unter der Decke).</p>` : `<p class="muted">Automatisch im Raum verteilt. Ziehen legt die Position fest.</p>`}
-        ${pl && sel.id.startsWith("camera.") ? `<div class="row2">${num("rotation", "Blickrichtung (°)", pl.rotation ?? "", 5)}${num("range", "Reichweite (m)", pl.range ?? "", 0.5)}</div><p class="muted">0° = rechts, 90° = nach oben im Plan. Leer = kein Sichtkegel.</p>` : ""}
+        ${pl && sel.id.startsWith("camera.") ? `<div class="row2">${num("rotation", "Blickrichtung (°)", pl.rotation ?? "", 1)}${num("fov", "Sichtfeld (°)", pl.fov ?? "", 5)}</div><div class="row2">${num("tilt", "Neigung nach unten (°)", pl.tilt ?? "", 1)}${num("range", "Reichweite (m)", pl.range ?? "", 0.5)}</div><p class="muted">Am orangen Griff im Plan drehen (1°-Schritte). 0° = rechts, 90° = oben. Neigung leer = flacher Kegel; mit Neigung und Höhe zeigt der Kegel genau den sichtbaren Boden. Weitwinkel ≈ 110°, normal ≈ 90°.</p>` : ""}
         ${pl ? pad() : ""}
         <div class="btns">${pl ? `<button data-act="del">Automatisch platzieren</button>` : ""}</div>`;
       bindPad();
       bindNums((fl, k, v) => {
         const x = fl.placements.find((y) => y.entity_id === sel.id);
-        x[k] = k === "y" || k === "rotation" || k === "range" ? v : v ?? x[k];
+        x[k] = k === "y" || k === "rotation" || k === "range" || k === "fov" || k === "tilt" ? v : v ?? x[k];
       });
       bindDelete();
       return;
@@ -2035,4 +2079,4 @@ export class FloorEditor {
 }
 
 // Tablet: Schalter, Zeichen-Leiste, Langdruck, Entwurf sichern (editor-touch.js)
-Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods, PlanMethods);
+Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods, PlanMethods, PipeMethods);

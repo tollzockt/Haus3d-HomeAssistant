@@ -34,6 +34,7 @@ import {
 } from "./devices.js";
 import { ROOF_TYPES, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
+import { energyRowSpecs } from "./energymodel.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
 import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
 import { entityAction } from "./actions.js";
@@ -72,8 +73,8 @@ export const ENERGY_GROUPS = [
  * von settings.energy_card.rows, mit hidden und eigenem Namen (custom). id: Schlüssel bzw. x:Entität.
  */
 export function energyRowList(energy, hass, card = null) {
-  const rows = ENERGY_CORE.filter(([key]) => energy[key] && hass.states[energy[key]]).map(([key, icon, name]) => ({ id: key, key, icon, base: name, entity: energy[key] }));
-  for (const x of energy.extra ?? []) {
+  const rows = energyRowSpecs(energy, hass);
+  for (const x of energy?.extra ?? []) {
     const id = typeof x === "string" ? x : x?.entity;
     const st = id && hass.states[id];
     if (!st) continue;
@@ -111,6 +112,7 @@ export const LAYERS = [
   ["shadows", "Schatten der Sonne"],
   ["solar", "Solarmodule"],
   ["flow", "Energiefluss"],
+  ["pipes", "Leitungen (Strom, Wasser)"],
   ["devices", "Geräte"],
   ["labels", "Raumnamen"],
   ["climate", "Temperatur & Feuchte"],
@@ -146,6 +148,7 @@ export const ICONS = {
   lock: ["mdi:lock-open-variant", "mdi:lock"],
   camera: ["mdi:cctv", "mdi:cctv"],
   vacuum: ["mdi:robot-vacuum", "mdi:robot-vacuum"],
+  network: ["mdi:lan-connect", "mdi:lan-disconnect"],
 };
 export const CONTACT_ICONS = {
   window: ["mdi:window-open-variant", "mdi:window-closed-variant"],
@@ -198,6 +201,7 @@ export function iconFor(kind, stateObj) {
   }
   const active = isActive(kind, stateObj);
   if (kind === "contact") return (CONTACT_ICONS[stateObj.attributes.device_class] ?? CONTACT_ICONS.opening)[active ? 0 : 1];
+  if (kind === "network" && stateObj.attributes?.is_wired === false) return active ? "mdi:wifi" : "mdi:wifi-off";
   if (kind === "cover" && stateObj.attributes.device_class === "garage") return CONTACT_ICONS.garage_door[active ? 0 : 1];
   return (ICONS[kind] ?? ["mdi:help-circle-outline"])[active ? 0 : 1];
 }
@@ -208,6 +212,7 @@ export function isActive(kind, stateObj) {
   if (kind === "climate") return !["off", "unavailable", "unknown"].includes(stateObj.state);
   if (kind === "lock") return stateObj.state !== "locked"; // offen = auffällig
   if (kind === "vacuum") return ["cleaning", "returning"].includes(stateObj.state);
+  if (kind === "network") return ["home", "connected", "on"].includes(stateObj.state);
   if (kind === "camera") return ["recording", "streaming"].includes(stateObj.state);
   return stateObj.state === "on";
 }

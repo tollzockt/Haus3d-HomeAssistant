@@ -15,6 +15,7 @@ import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, pa
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 import { SceneFx } from "./scene-fx.js";
 import { SceneWalk } from "./scene-walk.js";
+import { ScenePipes } from "./scene-pipes.js";
 
 const OUTDOOR = {
   lawn: { color: 0x6aa84f, y: -0.035, h: 0 },
@@ -439,6 +440,7 @@ export class HouseScene {
     this.anchors = [];
     this.flow = null;
     this._houseFlow = null; // hing an root, ist mit weg
+    this._pipes = new Map();
     this.building = building;
     this.warnings = [];
     this.lampBulbs.clear();
@@ -497,6 +499,7 @@ export class HouseScene {
       });
     }
     this.devicesGroup.visible = on("devices") && this._deviceList?.length > 0;
+    this._syncPipeDots?.();
     this._syncGarden();
     if (this.weather) this.weather.obj.visible = on("weather");
     this._applyShadows();
@@ -550,16 +553,31 @@ export class HouseScene {
       const entry = this.floors.get(c.floorId);
       if (!entry) continue;
       const pts = c.poly;
+      const contour = pts.map(([x, z]) => new THREE.Vector2(x, z));
+      const tris = THREE.ShapeUtils.triangulateShape(contour, []);
       const pos = [];
-      for (let i = 1; i < pts.length - 1; i++) pos.push(pts[0][0], 0, pts[0][1], pts[i][0], 0, pts[i][1], pts[i + 1][0], 0, pts[i + 1][1]);
+      for (const t of tris) for (const k of t) pos.push(pts[k][0], 0, pts[k][1]);
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.y = (entry.floor.elevation ?? 0) + 0.03;
+      const elev = entry.floor.elevation ?? 0;
+      mesh.position.y = elev + 0.03;
       mesh.renderOrder = 2;
       mesh.userData.floorId = c.floorId;
       mesh.userData.cone = c.entity_id;
+      mesh.userData.noShadow = true;
       this.conesGroup.add(mesh);
+      // Kanten von der Kamera zu den Ecken des Sichtbereichs
+      const apex = [c.x, elev + (c.y ?? 2.2), c.z];
+      const corners = c.tilt == null ? [pts[1], pts[Math.floor(pts.length / 2)], pts.at(-1)] : [pts[0], pts[Math.floor(pts.length / 2) - 1], pts[Math.floor(pts.length / 2)], pts.at(-1)];
+      const lp = [];
+      for (const q of corners) lp.push(...apex, q[0], elev + 0.03, q[1]);
+      const lgeo = new THREE.BufferGeometry();
+      lgeo.setAttribute("position", new THREE.Float32BufferAttribute(lp, 3));
+      const lines = new THREE.LineSegments(lgeo, (this._coneLineMat ??= new THREE.LineBasicMaterial({ color: 0x29b6f6, transparent: true, opacity: 0.6 })));
+      lines.userData.floorId = c.floorId;
+      lines.userData.cone = c.entity_id;
+      this.conesGroup.add(lines);
     }
     this._syncDeviceVisibility();
     this._dirty = true;
@@ -621,14 +639,42 @@ export class HouseScene {
       for (const f of this.pvFields?.values() ?? []) targets.push(f.mesh);
       targets.push(...this.roofMeshes);
     }
-    for (const hit of this.raycaster.intersectObjects(targets.filter(visible), false)) {
+    const hits = this.raycaster.intersectObjects(targets.filter(visible), false);
+    for (const hit of hits) {
       if (hit.object.userData.pvField) return { pvField: hit.object.userData.pvField };
       if (hit.object.userData.roof) return null;
       if (furniture && hit.object.userData.furniture) return { furniture: hit.object.userData.furniture };
       if (hit.object.userData.entity) return { entity_id: hit.object.userData.entity };
-      if (hit.object.userData.room) return { ...hit.object.userData.room };
+      if (hit.object.userData.room) break;
     }
-    return null;
+    // knapp daneben: nächstes Gerät (3D-Gerät, Lampe, Heizkörper …) im Umkreis von fingerPx
+    if (!furniture) {
+      const near = this.nearestEntity(clientX, clientY, targets.filter(visible));
+      if (near) return { entity_id: near };
+    }
+    const room = hits.find((h) => h.object.userData.room);
+    return room ? { ...room.object.userData.room } : null;
+  }
+
+  /** Gerät mit Entität, dessen Mitte auf dem Bildschirm am nächsten am Zeiger liegt (oder null). */
+  nearestEntity(clientX, clientY, targets, maxPx = this.fingerPx ?? 30) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const seen = new Map();
+    const box = new THREE.Box3();
+    const c = new THREE.Vector3();
+    for (const o of targets) {
+      const id = o.userData.entity;
+      if (!id || o.userData.room) continue;
+      box.setFromObject(o);
+      if (box.isEmpty()) continue;
+      box.getCenter(c).project(this.camera);
+      if (c.z > 1) continue; // hinter der Kamera
+      const d = Math.hypot(((c.x + 1) / 2) * rect.width + rect.left - clientX, ((1 - c.y) / 2) * rect.height + rect.top - clientY);
+      if (d <= maxPx && (!seen.has(id) || d < seen.get(id))) seen.set(id, d);
+    }
+    let best = null;
+    for (const [id, d] of seen) if (!best || d < best[1]) best = [id, d];
+    return best?.[0] ?? null;
   }
 
   /** Raum hervorheben (oder null); mit focus fährt die Kamera hin. */
@@ -862,6 +908,7 @@ export class HouseScene {
       this.anchors.push({ key: `room:${floor.id}:${area.id}`, floorId: floor.id, position: new THREE.Vector3(c[0], elev + y + 0.05, c[1]) });
     }
 
+    this._buildPipes(floor, entry, elev);
     this.root.add(group, garden);
     this.floors.set(floor.id, entry);
   }
@@ -1681,6 +1728,11 @@ export class HouseScene {
     const target = [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
     const sc = labelPoint(shed.room.points);
     const start = new THREE.Vector3(sc[0], top + 0.6, sc[1]);
+    // Stromleitungen gelegt: Fluss läuft dort entlang, keine Luftlinie
+    if ((building.floors ?? []).some((f) => (f.pipes ?? []).some((p) => p.type === "strom"))) {
+      this.anchors.push({ key: "energy", floorId: shed.floor.id, position: start.clone().add(new THREE.Vector3(0, 0.6, 0)) });
+      return;
+    }
     const end = new THREE.Vector3(target[0], top + 0.3, target[1]);
     const ctrl = start.clone().lerp(end, 0.5);
     ctrl.y += Math.max(1.5, start.distanceTo(end) * 0.25);
@@ -1959,7 +2011,8 @@ export class HouseScene {
     const flowing = !this._frozen && this.flow && this.flow.speed > 0 && this.layers.flow !== false && this.isFloorVisible(this.flow.floorId);
     const weatherOn = !this._frozen && !!this._weather && this.layers.weather !== false;
     const houseFlow = this._houseFlowActive();
-    const ambient = flowing || weatherOn || houseFlow;
+    const pipesOn = this._pipesActive();
+    const ambient = flowing || weatherOn || houseFlow || pipesOn;
     const interval = ambientInterval(this.quality.ambientFps);
     const render = shouldRender({ dirty: this._dirty, moving, animating, ambient, now, lastRender: this._lastRender ?? -Infinity, interval });
     if (render) {
@@ -1973,6 +2026,7 @@ export class HouseScene {
       }
       if (weatherOn) this._stepWeather(ambDt);
       if (houseFlow) this._stepHouseFlow(ambDt);
+      if (pipesOn) this._stepPipes(ambDt);
       const t0 = performance.now();
       this.renderer.render(this.scene, this.camera);
       this.stats.renders++;
@@ -2251,4 +2305,4 @@ function outline(points, y, material, heights = null) {
   return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), material);
 }
 
-Object.assign(HouseScene.prototype, SceneFx, SceneWalk);
+Object.assign(HouseScene.prototype, SceneFx, SceneWalk, ScenePipes);

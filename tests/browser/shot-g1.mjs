@@ -32,7 +32,7 @@ const basics = await E(() => {
   return { segs: [...d.querySelectorAll(".seg")].map((s) => s.dataset.key), tiles: [...d.querySelectorAll(".qtile span")].map((s) => s.textContent), big: [...d.querySelectorAll(".bigtile span")].map((s) => s.textContent), h4: d.querySelectorAll("h4").length };
 });
 t.results.zahnrad = basics;
-t.check(basics.segs.join() === "style,quality,deviceMode" && basics.tiles.length === 10 && basics.big.join() === "Bearbeiten,Admin-Einstellungen", `Zahnrad: ${JSON.stringify(basics)}`);
+t.check(basics.segs.join() === "style,quality,deviceMode" && basics.tiles.length === 11 && basics.tiles.includes("Leitungen") && basics.big.join() === "Bearbeiten,Admin-Einstellungen", `Zahnrad: ${JSON.stringify(basics)}`);
 await t.shot(pg, "zahnrad.png");
 // Kachel Raster schaltet um
 const g0 = await E(() => window.panel._settings.layers.grid !== false);
@@ -55,7 +55,7 @@ await pg.waitForFunction(() => window.panel._editing(), null, { timeout: 5000 })
 await pg.waitForTimeout(300);
 const ed = await E(() => {
   const r = window.panel.shadowRoot;
-  return { band: !!r.querySelector(".editband"), edit: !r.querySelector(".edit").hidden, cedit: r.querySelectorAll(".cedit").length, plus: window.panel._quickItems().some((i) => i.plus) };
+  return { band: !!r.querySelector(".modes .mode.m-edit"), edit: !r.querySelector(".edit").hidden, cedit: r.querySelectorAll(".cedit").length, plus: window.panel._quickItems().some((i) => i.plus) };
 });
 t.results.bearbeiten = ed;
 t.check(ed.band && ed.edit && ed.cedit >= 1 && ed.plus, `Bearbeiten frei: ${JSON.stringify(ed)}`);
@@ -75,14 +75,14 @@ const tabs = await E(() => {
 });
 t.results.kartenTabs = tabs;
 t.check(tabs?.title === "Karten" && tabs.sel === "Energie" && tabs.tabs.at(-1) === "+" && !tabs.pin, `Energie-Stift öffnet Karten-Tab: ${JSON.stringify(tabs)}`);
-// Energie-Karte: Netz ausblenden, Akku nach oben, Titel ändern
+// Energie-Karte: Ertrag ausblenden, Speicher nach oben, Titel ändern
 await E(() => {
   const f = window.panel.shadowRoot.querySelector(".cform");
   const rows = [...f.querySelectorAll(".erow")];
   const idx = (name) => rows.findIndex((r) => r.querySelector(".nm").placeholder === name);
-  f.querySelector(`[data-vis="${idx("Netz")}"]`).click();
+  f.querySelector(`[data-vis="${idx("Ertrag heute")}"]`).click();
 });
-const akkuIdx = await E(() => [...window.panel.shadowRoot.querySelectorAll(".cform .erow")].findIndex((r) => r.querySelector(".nm").placeholder === "Akku"));
+const akkuIdx = await E(() => [...window.panel.shadowRoot.querySelectorAll(".cform .erow")].findIndex((r) => r.querySelector(".nm").placeholder === "Speicher"));
 for (let i = akkuIdx; i > 0; i--) await pg.locator(`haus3d-panel .cform [data-up="${i}"]`).click();
 await pg.locator("haus3d-panel .cform .ttl").fill("Strom");
 await t.shot(pg, "karten-energie.png");
@@ -93,7 +93,7 @@ const ecard = await E(() => {
   return { title: el.querySelector("h3 span").textContent, rows: [...el.querySelectorAll(".row span")].map((s) => s.textContent) };
 });
 t.results.energieKarte = ecard;
-t.check(ecard.title === "Strom" && ecard.rows[0] === "Akku" && !ecard.rows.includes("Netz"), `Energie-Karte angepasst: ${JSON.stringify(ecard)}`);
+t.check(ecard.title === "Strom" && ecard.rows[0] === "Speicher" && !ecard.rows.includes("Ertrag heute"), `Energie-Karte angepasst: ${JSON.stringify(ecard)}`);
 // Tab „+“: Karte anlegen, dann „Entfernen“
 await pg.locator('haus3d-panel .ctabs [data-tab="+"]').click();
 await pg.locator("haus3d-panel .cform .ttl").fill("Wasser");
@@ -109,7 +109,7 @@ t.check(added.tab === "Wasser" && added.cards.includes("Wasser") && !removed.inc
 await pg.locator("haus3d-panel .dialog .close").click();
 
 // Beenden: Knöpfe wieder weg, Speichern wieder gesperrt
-await pg.locator("haus3d-panel .editband .end").click();
+await pg.locator("haus3d-panel .modes [data-end=edit]").click();
 await pg.waitForTimeout(300);
 const ended = await E(async () => {
   const r = window.panel.shadowRoot;
@@ -119,7 +119,7 @@ const ended = await E(async () => {
   } catch (e) {
     code = e.code;
   }
-  return { band: !!r.querySelector(".editband"), cedit: r.querySelectorAll(".cedit").length, tokens: Object.keys(window.tokens).length };
+  return { band: !!r.querySelector(".modes .mode.m-edit"), cedit: r.querySelectorAll(".cedit").length, tokens: Object.keys(window.tokens).length };
 });
 t.check(!ended.band && !ended.cedit && ended.tokens === 0, `Beenden: ${JSON.stringify(ended)}`);
 
@@ -144,6 +144,12 @@ const pins = await E(() => window.pins);
 t.check(warn === 2 && pins.edit === "4711", `PIN ändern: ${JSON.stringify({ warn, pins })}`);
 await t.shot(pg, "admin-pin.png");
 await pg.locator("haus3d-panel .dialog .close").click();
+// Admin bleibt aktiv (oben „Admin · Beenden“), bis man es beendet
+const adminBar = await E(() => !!window.panel.shadowRoot.querySelector(".modes .mode.m-admin"));
+await t.shot(pg, "admin-aktiv.png");
+await pg.locator("haus3d-panel .modes [data-end=admin]").click();
+const adminOff = await E(() => !window.panel.shadowRoot.querySelector(".modes .mode.m-admin") && !Object.keys(window.tokens).length);
+t.check(adminBar && adminOff, `Admin-Modus oben mit Beenden: ${JSON.stringify({ adminBar, adminOff })}`);
 // alte PIN öffnet Bearbeiten nicht mehr, neue schon
 await E(() => {
   window.__e = window.panel._startEdit();
