@@ -2,7 +2,7 @@
 // verknüpfen, Möbel und Geräte platzieren, Gartenflächen. Arbeitet auf einer Kopie des Gebäudes;
 // Speichern übergibt sie an onSave.
 
-import { buildingIcons, entitiesByArea, iconKind } from "./devices.js";
+import { buildingIcons, cameraCones, conePolygon, entitiesByArea, iconKind } from "./devices.js";
 import {
   alignToFloor,
   allIds,
@@ -38,6 +38,7 @@ import { HouseScene } from "./scene.js";
 import { GRID_CHOICES, TOUCH_STYLE, TouchMethods } from "./editor-touch.js";
 import { MEASURE_STYLE, MeasureMethods } from "./editor-measure.js";
 import { LineMethods } from "./editor-lines.js";
+import { PLAN_HINTS, PLAN_STYLE, PlanMethods } from "./editor-plan.js";
 import { furnitureThumb, renderThumbs } from "./thumbs.js";
 import { closeGaps, computeWalls, labelPoint, pieceFootprint, signedArea } from "./walls.js";
 
@@ -171,7 +172,7 @@ export const EDITOR_STYLE = `
   .ed-props { width: auto; max-height: 42%; border-left: none; border-top: 1px solid var(--divider-color, rgba(127,127,127,.25)); }
   .ed-bar button span { display: none; }
 }
-${TOUCH_STYLE}${MEASURE_STYLE}`;
+${TOUCH_STYLE}${MEASURE_STYLE}${PLAN_STYLE}`;
 
 export class FloorEditor {
   /**
@@ -435,6 +436,7 @@ export class FloorEditor {
   _afterHistory() {
     if (!this.b.floors.some((f) => f.id === this.floorId)) this.floorId = this.b.floors[0]?.id;
     this.sel = null;
+    this.multi = [];
     this.dirty = true;
     this.render();
     this.renderBar();
@@ -445,6 +447,7 @@ export class FloorEditor {
 
   _onKey(ev) {
     if (ev.target?.closest?.("input, select, textarea")) return;
+    if (this._planKey(ev)) return;
     if (ev.key === "Escape") {
       this.draft = null;
       this.sel = null;
@@ -582,6 +585,7 @@ export class FloorEditor {
       this.floorId = this.roofMode ? (roofFloor(this.b, roofSettings(this.b.settings))?.id ?? this.floorId) : ev.target.value;
       this.tool = "select";
       this.sel = null;
+      this.multi = [];
       this.draft = null;
       this.fit();
       this.render();
@@ -592,7 +596,7 @@ export class FloorEditor {
   }
 
   _hintText() {
-    return (this.roofMode ? ROOF_HINTS : HINTS)[this.tool] ?? "";
+    return PLAN_HINTS[this.tool] ?? (this.roofMode ? ROOF_HINTS : HINTS)[this.tool] ?? "";
   }
 
   async _onBar(ev) {
@@ -611,6 +615,8 @@ export class FloorEditor {
       this.tool = b.dataset.tool;
       this.draft = null;
       this.measures = [];
+      this._bgPts = [];
+      if (this.tool !== "select") this.multi = [];
       if (this.tool !== "select") this.sel = null;
       this.renderBar();
       this.render();
@@ -729,11 +735,14 @@ export class FloorEditor {
   /** Wandende: gerade (0/45/90°) und an Ecken/Wandenden einrasten. */
   _wallSnap(a, p, free = false) {
     const vertices = [...floorVertices(this.floor), ...(this.floor.walls ?? []).flatMap((w) => [w.a, w.b])];
-    return snapWallEnd(a, p, { grid: this.b.settings?.grid ?? 0.05, vertices, tol: this._snapTol(), free });
+    const q = snapWallEnd(a, p, { grid: this.b.settings?.grid ?? 0.05, vertices, tol: this._snapTol(), free });
+    return free ? q : this._alignWall(a, q, vertices);
   }
 
+  /** Raster, Ecken und Fluchtlinien (editor-plan.js). */
   _snap(p, exceptRoom = null) {
-    return snapPoint(p, { grid: this.b.settings?.grid ?? 0.05, vertices: floorVertices(this.floor, exceptRoom), tol: this._snapTol() });
+    const vertices = floorVertices(this.floor, exceptRoom);
+    return this._align(snapPoint(p, { grid: this.b.settings?.grid ?? 0.05, vertices, tol: this._snapTol() }), vertices);
   }
 
   // ------------------------------------------------------------------ Zeichnen
@@ -745,7 +754,7 @@ export class FloorEditor {
     const f = this.floor;
     const px = (v) => v / s; // Bildschirmpixel in Meter
     const P = ([x, z]) => `${r3(x)},${r3(z)}`;
-    const parts = [];
+    const parts = [this._bgParts()]; // Bauplan-Foto ganz unten
     // Raster (1 m, alle 5 m kräftiger)
     const x0 = Math.floor(-this.tx / s) - 1;
     const x1 = Math.ceil((w - this.tx) / s) + 1;
@@ -835,6 +844,7 @@ export class FloorEditor {
       parts.push(
         `<g data-kind="furniture" data-id="${esc(m.id)}" transform="translate(${r3(m.x)} ${r3(m.z)}) rotate(${m.rotation || 0})">` +
           shape +
+          this._stairPlan(m, fw, fd, px) +
           `<line x1="${-fw / 2}" y1="${fd / 2}" x2="${fw / 2}" y2="${fd / 2}" stroke="#5d4037" stroke-width="${px(3)}"/>` +
           (s * Math.min(fw, fd) > 26 ? `<text x="0" y="${px(4)}" text-anchor="middle" font-size="${px(10)}" fill="currentColor">${esc(name)}</text>` : "") +
           `</g>`,
@@ -853,9 +863,10 @@ export class FloorEditor {
     // Geräte: platzierte (gefüllt) und automatisch verteilte (hohl)
     const byArea = entitiesByArea(this.hass);
     const icons = buildingIcons(this.b, this.hass, byArea).get(f.id) ?? [];
+    for (const c of cameraCones(new Map([[f.id, icons]]))) parts.push(`<polygon points="${conePolygon(c).map(P).join(" ")}" fill="#29b6f6" fill-opacity=".18" stroke="#29b6f6" stroke-width="${px(1)}" pointer-events="none" data-cone/>`);
     for (const ic of icons) {
       const sel = this.sel?.kind === "device" && this.sel.id === ic.entity_id;
-      const letter = ic.kind === "light" ? "L" : ic.kind === "switch" ? "S" : ic.kind === "fan" ? "V" : ic.kind === "cover" ? "R" : ic.kind === "climate" ? "K" : "F";
+      const letter = { light: "L", switch: "S", fan: "V", cover: "R", climate: "K", camera: "C", vacuum: "B" }[ic.kind] ?? "F";
       parts.push(
         `<g data-kind="device" data-id="${esc(ic.entity_id)}" transform="translate(${r3(ic.x)} ${r3(ic.z)})">` +
           `<circle r="${px(11)}" fill="${ic.manual ? "#ffc107" : "transparent"}" stroke="${sel ? "#03a9f4" : "#ff9800"}" stroke-width="${px(sel ? 3.5 : 2)}"/>` +
@@ -895,6 +906,7 @@ export class FloorEditor {
     parts.push(this._openingParts(px, P));
     parts.push(this._lineDraftParts(px, P));
     parts.push(this._dimParts(px));
+    parts.push(this._planParts(px, P));
     // Entwurf (Polygon / Rechteck)
     if (this.draft?.points?.length) {
       const pts = [...this.draft.points, ...(this.draft.hover ? [this.draft.hover] : [])];
@@ -946,6 +958,7 @@ export class FloorEditor {
         return;
       }
       drag = this._startDrag(ev, p);
+      this._dragging = !!drag && drag.mode !== "pan";
       this._longPressStart(ev);
     });
     this.svg.addEventListener("pointermove", (ev) => {
@@ -982,6 +995,11 @@ export class FloorEditor {
       pointers.delete(ev.pointerId);
       if (pointers.size < 2) pinch = null;
       this._longPressCancel();
+      this._dragging = false;
+      if (this._guides && !this.draft) {
+        this._guides = null;
+        this.render();
+      }
       if (this._lpFired) {
         this._lpFired = false;
         drag = null;
@@ -1011,6 +1029,8 @@ export class FloorEditor {
     const kind = t?.dataset.kind;
     const id = t?.dataset.id;
     if (this.roofMode) return roofStartDrag(this, ev, p);
+    const plan = this._planStart(ev, p, kind, id);
+    if (plan !== undefined) return plan;
     const f = this.floor;
     const tool = this.tool;
     if (tool === "rect") return { mode: "rect", a: this._snap(p) };
@@ -1197,6 +1217,7 @@ export class FloorEditor {
   }
 
   _moveDrag(drag, ev, p) {
+    if (this._planMove(drag, p)) return;
     const f = this.floor;
     switch (drag.mode) {
       case "pan":
@@ -1345,6 +1366,7 @@ export class FloorEditor {
       this.mods.solo = false;
       this._updateTouch();
     }
+    if (this._planEnd(drag)) return;
     if (drag.mode === "rect" && this.draft?.rect) {
       const [a, b] = this.draft.rect;
       this.draft = null;
@@ -1448,6 +1470,7 @@ export class FloorEditor {
   renderProps() {
     this._mark3d();
     const el = this.props;
+    if (this.multi?.length && !this.roofMode) return this._multiProps(el);
     const f = this.floor;
     const sel = this.sel;
     const hass = this.hass;
@@ -1575,7 +1598,9 @@ export class FloorEditor {
         <p class="muted">${f.rooms.length} Räume · ${f.openings.length} Fenster/Türen · ${(f.furniture ?? []).length} Möbel</p>
         ${this._areaList(f)}
         ${below ? `<div class="btns"><button data-act="alignbelow" title="Außenwände, die bis 15 cm neben denen von ${esc(below.name)} liegen, genau darüber setzen">Außenwände bündig auf ${esc(below.name)}</button></div>` : ""}
+        ${this._planFloorProps()}
         <div class="btns"><button data-act="addfloor">+ Etage</button><button data-act="delfloor" class="danger">Etage löschen</button></div>`;
+      this._bindPlanFloorProps(el);
       el.querySelector("[data-act=alignbelow]")?.addEventListener("click", () => {
         const { floor, moved } = alignToFloor(this.floor, below, this.b.settings ?? {});
         if (!moved.length) return this._toast(`Außenwände liegen schon bündig auf ${below.name} (oder weiter als 15 cm daneben).`);
@@ -1924,12 +1949,13 @@ export class FloorEditor {
       const pl = f.placements.find((x) => x.entity_id === sel.id);
       el.innerHTML = `<h3>${esc(st?.attributes.friendly_name ?? sel.id)}</h3><p class="muted">${esc(sel.id)}</p>
         ${pl ? `<div class="row3">${num("x", "x", pl.x)}${num("z", "z", pl.z)}${num("y", "Höhe", pl.y ?? "")}</div><p class="muted">Höhe leer = Standard (Lampen unter der Decke).</p>` : `<p class="muted">Automatisch im Raum verteilt. Ziehen legt die Position fest.</p>`}
+        ${pl && sel.id.startsWith("camera.") ? `<div class="row2">${num("rotation", "Blickrichtung (°)", pl.rotation ?? "", 5)}${num("range", "Reichweite (m)", pl.range ?? "", 0.5)}</div><p class="muted">0° = rechts, 90° = nach oben im Plan. Leer = kein Sichtkegel.</p>` : ""}
         ${pl ? pad() : ""}
         <div class="btns">${pl ? `<button data-act="del">Automatisch platzieren</button>` : ""}</div>`;
       bindPad();
       bindNums((fl, k, v) => {
         const x = fl.placements.find((y) => y.entity_id === sel.id);
-        x[k] = k === "y" ? v : v ?? x[k];
+        x[k] = k === "y" || k === "rotation" || k === "range" ? v : v ?? x[k];
       });
       bindDelete();
       return;
@@ -2009,4 +2035,4 @@ export class FloorEditor {
 }
 
 // Tablet: Schalter, Zeichen-Leiste, Langdruck, Entwurf sichern (editor-touch.js)
-Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods);
+Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods, PlanMethods);

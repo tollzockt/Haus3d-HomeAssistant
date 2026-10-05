@@ -28,8 +28,7 @@ import {
   roomActions,
   stepTarget,
   temperatureColor,
-  watchedEntities,
-} from "./devices.js";
+  watchedEntities, cameraCones, conePolygon } from "./devices.js";
 import { ROOF_TYPES, compass16, fieldInfo, roofModel, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
@@ -47,6 +46,9 @@ import { EDITOR_STYLE, FloorEditor } from "./editor.js";
 import { PANEL_STYLE } from "./panel-style.js";
 import { EnergyMethods } from "./panel-energy.js";
 import { TabletMethods } from "./panel-tablet.js";
+import { MEDIA_STYLE, MediaMethods } from "./panel-media.js";
+import { FX_STYLE, FxMethods } from "./panel-fx.js";
+import { USER_STYLE, UserMethods } from "./panel-user.js";
 import { VIEW_PRESETS, normalizeViews, poseInBox } from "./camera.js";
 
 import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
@@ -106,6 +108,7 @@ class Haus3DPanel extends HTMLElement {
       return;
     }
     this._applyWeather();
+    this._checkDoorbell(prev);
     const changed = this._watchedChanged();
     if (changed === "membership") this._refreshEntities();
     else if (changed) this._queueUpdate();
@@ -125,6 +128,12 @@ class Haus3DPanel extends HTMLElement {
     }
     const coarse = !!window.matchMedia?.("(pointer: coarse)").matches;
     const profile = resolveQuality(name, { coarse });
+    try {
+      // ?schatten=aus (z. B. für Tests mit Software-Grafik)
+      if (new URLSearchParams(location.search).get("schatten") === "aus") profile.shadows = false;
+    } catch {
+      /* egal */
+    }
     if (profile.auto) {
       let saved = NaN;
       try {
@@ -349,7 +358,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${USER_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -463,6 +472,8 @@ class Haus3DPanel extends HTMLElement {
     try {
       const res = await this._hass.callWS({ type: "haus3d/building/get" });
       this._setBuilding(res.building, res.revision);
+      this._subscribeCommands();
+      this._loadUserData();
       // Simulation war in diesem Browser an: wieder starten (Band oben zeigt es deutlich)
       if (this._settings.sim && !this._sim) {
         if (this.hasAttribute("kiosk")) this._toastAction("Simulation war aktiv.", "Fortsetzen", () => this._setSim(true));
@@ -660,6 +671,7 @@ class Haus3DPanel extends HTMLElement {
       }
     }
     this._scene.setDevices(devices3d);
+    this._scene.setCameraCones(cameraCones(allIcons).map((c) => ({ ...c, poly: conePolygon(c) })));
     for (const floor of this._building.floors) {
       const elev = floor.elevation ?? 0;
       const icons = allIcons.get(floor.id) ?? [];
@@ -837,6 +849,7 @@ class Haus3DPanel extends HTMLElement {
     const st = this._hass?.states[entityId];
     const label = name || st?.attributes?.friendly_name || entityId;
     const safety = this._building?.settings?.safety?.confirm !== false;
+    if (entityId.startsWith("camera.")) return this._cameraDialog(entityId);
     const act = entityAction(entityId, st, { source, safety, confirm });
     if (act.dialog || !act.call) return this._moreInfo(entityId);
     if (act.confirm) {
@@ -999,9 +1012,10 @@ class Haus3DPanel extends HTMLElement {
     const lightLooks = new Map();
     if (lightColors) for (const id of onEntities) if (id.startsWith("light.")) lightLooks.set(id, lightLook(hass.states[id]));
     const heating = new Set(this._watched.filter((id) => id.startsWith("climate.") && hass.states[id]?.attributes?.hvac_action === "heating"));
-    const alertRooms = this._evalAlerts(energy);
+    const alertRooms = this._applyHighlight(this._evalAlerts(energy));
     if (this._securityView) temps.clear(); // Böden neutral grau
     this._scene?.applyStates({ security, lit, temps, tempMode: view !== "none" || this._securityView, tempColor: (v) => viewColor(view, v) ?? [0.6, 0.6, 0.6], open, covers, feedIn: energy.einspeisung, onEntities, heating, heatRooms, alerts: alertRooms, lights, lightLooks });
+    this._updateHouseFlow(energy);
     this._renderRoomPanel();
 
     for (const { el, icon } of this._iconEls) {
@@ -1086,7 +1100,7 @@ class Haus3DPanel extends HTMLElement {
     ];
     const el = document.createElement("div");
     el.className = "popup pvpop";
-    el.innerHTML = `<div class="head"></div><div class="scroll">${rows.map(() => `<div class="item"><span></span><b></b></div>`).join("")}${p?.estimated ? `<p class="hint">Geschätzt aus der Gesamtleistung (PV Dach) nach Größe und Sonnenstand.</p>` : ""}</div>${f.entity ? `<div class="foot"><button class="more"><ha-icon icon="mdi:information-outline"></ha-icon><span>Weitere Infos</span></button></div>` : ""}`;
+    el.innerHTML = `<div class="head"></div><div class="scroll">${rows.map(() => `<div class="item"><span></span><b></b></div>`).join("")}${p?.estimated ? `<p class="hint">Geschätzt aus der Gesamtleistung (PV Dach) nach Größe und Sonnenstand.</p>` : ""}</div><div class="foot"><button class="shade"><ha-icon icon="mdi:weather-partly-cloudy"></ha-icon><span>Verschattung prüfen</span></button>${f.entity ? `<button class="more"><ha-icon icon="mdi:information-outline"></ha-icon><span>Weitere Infos</span></button>` : ""}</div>`;
     el.querySelector(".head").textContent = `PV-Feld ${f.name}`;
     el.querySelectorAll(".item").forEach((row, i) => {
       row.querySelector("span").textContent = rows[i][0];
@@ -1096,6 +1110,7 @@ class Haus3DPanel extends HTMLElement {
       this._closePopup();
       this._moreInfo(f.entity);
     });
+    el.querySelector(".shade").addEventListener("click", () => this._pvShadingDialog());
     el.addEventListener("click", (ev) => ev.stopPropagation());
     this._els.stage.appendChild(el);
     this._popup = el;
@@ -1424,7 +1439,8 @@ class Haus3DPanel extends HTMLElement {
   _applySun() {
     if (!this._scene) return;
     const on = this._settings.layers.sun !== false;
-    this._scene.setSun(on ? sunFromHass(this._hass) : null, Number(this._building?.settings?.north) || 0);
+    if (!this._lapseTimer) this._scene.setSun(on ? sunFromHass(this._hass) : null, Number(this._building?.settings?.north) || 0);
+    this._applySeason();
   }
 
   _applyStyle() {
@@ -1440,6 +1456,7 @@ class Haus3DPanel extends HTMLElement {
 
   _saveSettings() {
     this._store("haus3d.settings", JSON.stringify(this._settings));
+    this._pushUserData();
   }
 
   _applyOverlayLayers() {
@@ -1484,6 +1501,8 @@ class Haus3DPanel extends HTMLElement {
     let timer = null;
     target.addEventListener("pointerdown", (ev) => {
       if (ev.pointerType === "mouse" && ev.button !== 0) return;
+      if (this._scene?.isWalking()) return; // Begehen: eigene Bedienung
+
       down = { x: ev.clientX, y: ev.clientY, t: performance.now(), long: false };
       clearTimeout(timer);
       timer = setTimeout(() => {
@@ -1510,6 +1529,7 @@ class Haus3DPanel extends HTMLElement {
       clearTimeout(timer);
       const d = down;
       down = null;
+      if (this._scene?.isWalking()) return;
       if (!d || d.long || Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 8) return;
       const hit = this._scene?.pick(ev.clientX, ev.clientY);
       if (hit?.entity_id) this._activate(hit.entity_id);
@@ -1606,7 +1626,7 @@ class Haus3DPanel extends HTMLElement {
     const hass = this._hass;
     const admin = !!hass.user?.is_admin;
     p.el.innerHTML = `<div class="rp-head"><ha-icon class="grip" icon="mdi:drag"></ha-icon><b></b>${admin ? `<button class="icon cfg" title="Geräte anpassen"><ha-icon icon="mdi:tune-variant"></ha-icon></button>` : ""}<button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-      <div class="rp-sub"></div><div class="rp-clim" hidden><span class="cv"></span><span class="vent" hidden></span></div><div class="rp-actions"></div><div class="rp-list"></div>`;
+      <div class="rp-sub"></div><div class="rp-clim" hidden><span class="cv"></span><span class="vent" hidden></span></div><div class="rp-actions"></div><div class="rp-media" hidden></div><div class="rp-list"></div>`;
     p.el.querySelector("b").textContent = room.name;
     p.el.querySelector(".close").addEventListener("click", () => this._selectRoom({ floorId: p.floorId, roomId: p.roomId }, { toggle: true }));
     p.el.querySelector(".cfg")?.addEventListener("click", () => this._customizeRoom(p, room));
@@ -1670,6 +1690,7 @@ class Haus3DPanel extends HTMLElement {
         p.rows.set(id, { row, icon: row.querySelector("ha-icon"), dot: row.firstElementChild, name: row.querySelector(".rp-name"), state: row.querySelector(".rp-state") });
       }
     }
+    this._buildMedia(p, ids);
   }
 
   /** Raumfenster aktualisieren: nur Texte und Klassen; neu aufbauen nur, wenn sich die Geräte ändern. */
@@ -1737,6 +1758,7 @@ class Haus3DPanel extends HTMLElement {
       r.name.textContent = st.attributes.friendly_name ?? id;
       r.state.textContent = hass.formatEntityState ? hass.formatEntityState(st) : st.state;
     }
+    this._updateMedia(p);
   }
 
   /** Raumfenster am Kopf ziehen (Maus und Finger); bleibt im sichtbaren Bereich. */
@@ -1886,6 +1908,8 @@ class Haus3DPanel extends HTMLElement {
         this._renderWheels();
       } },
       goodnight: { icon: "mdi:weather-night", name: "Gute Nacht", on: false, run: () => this._checkSheet("goodnight") },
+      walk: { icon: "mdi:walk", name: "Begehen", on: false, run: () => this._startWalk() },
+      shadows: layer("shadows", "mdi:box-shadow", "Schatten"),
       fit: { icon: "mdi:fit-to-screen-outline", name: "Ansicht einpassen", on: false, run: () => this._resetView() },
       view: { icon: "mdi:camera-switch-outline", name: "Blickwinkel", on: false, run: () => this._viewChips() },
       ...(document.fullscreenEnabled ? { fullscreen: { icon: document.fullscreenElement ? "mdi:fullscreen-exit" : "mdi:fullscreen", name: "Vollbild", on: !!document.fullscreenElement, run: () => this._toggleFullscreen() } } : {}),
@@ -1906,7 +1930,7 @@ class Haus3DPanel extends HTMLElement {
     const domain = q.entity.split(".")[0];
     const icon = q.icon || st?.attributes?.icon || { automation: "mdi:robot", script: "mdi:script-text-play", scene: "mdi:palette", button: "mdi:gesture-tap-button", input_button: "mdi:gesture-tap-button", light: "mdi:lightbulb", switch: "mdi:toggle-switch", cover: "mdi:window-shutter", lock: "mdi:lock", fan: "mdi:fan", input_boolean: "mdi:toggle-switch-outline" }[domain] || "mdi:flash";
     const name = q.name || st?.attributes?.friendly_name || q.entity;
-    return { icon, name, entity: q.entity, on: ["on", "open", "unlocked", "playing"].includes(st?.state) && domain !== "automation", run: () => this._runAction(q.entity, { source: "wheel", name, confirm: !!q.confirm, quiet: false }) };
+    return this._routineBadge({ icon, name, entity: q.entity, on: ["on", "open", "unlocked", "playing"].includes(st?.state) && domain !== "automation", run: () => this._runAction(q.entity, { source: "wheel", name, confirm: !!q.confirm, quiet: false }) });
   }
 
   /** Einträge der Kurzwahl (unten links): Automationen, Skripte, Szenen … aus settings.quick. */
@@ -1997,7 +2021,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

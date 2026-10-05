@@ -4,6 +4,7 @@
 // Haus 3D – Panel für die Home-Assistant-Seitenleiste.
 
 import * as THREE from "./vendor/three.module.min.js";
+import { SEASONS } from "./fx.js";
 import {
   displayKind,
   roomEntities,
@@ -342,7 +343,9 @@ export const DialogMethods = {
     const k = { ...(this._settings.kiosk ?? {}) };
     const wakeOk = "wakeLock" in navigator && window.isSecureContext;
     const floors = [["", "zuletzt gewählte"], ["all", "Alle"], ...[...(this._building?.floors ?? [])].sort((a, b) => b.elevation - a.elevation).map((f) => [f.id, f.name])];
-    box.innerHTML = `<label class="chkrow"><input type="checkbox" data-k="hideHeader"${k.hideHeader ? " checked" : ""}> Kopfzeile ausblenden (Zahnrad oben links)</label>
+    box.innerHTML = `<label class="en-row" title="Für die Dienste haus3d.show/notify/highlight (Feld „Ziel“)"><span>Name dieses Geräts</span><input data-kname maxlength="40" placeholder="z. B. flur-tablet" value="${esc(k.name ?? "")}"></label>
+      <label class="chkrow"><input type="checkbox" data-k="nosync"${k.nosync ? " checked" : ""}> Eigene Ansicht (nicht mit meinem Benutzer abgleichen)</label>
+      <label class="chkrow"><input type="checkbox" data-k="hideHeader"${k.hideHeader ? " checked" : ""}> Kopfzeile ausblenden (Zahnrad oben links)</label>
       ${wakeOk ? `<label class="chkrow"><input type="checkbox" data-k="wakeLock"${k.wakeLock ? " checked" : ""}> Bildschirm anlassen</label>` : `<p class="hint">„Bildschirm anlassen“ geht nur über https – in der HA-App bzw. Fully Kiosk dort einstellen.</p>`}
       <label class="en-row"><span>Startetage</span><select data-k="startFloor">${floors.map(([id, n]) => `<option value="${esc(id)}"${(k.startFloor ?? "") === id ? " selected" : ""}>${esc(n)}</option>`).join("")}</select></label>
       <label class="en-row"><span>Ruhe nach (min)</span><input type="number" data-k="idleMin" min="0" max="240" step="1" value="${k.idleMin ?? ""}" placeholder="${this.hasAttribute("kiosk") ? "5" : "aus"}"></label>
@@ -363,6 +366,10 @@ export const DialogMethods = {
       k[i.dataset.k] = i.value || undefined;
       save();
     }));
+    box.querySelector("[data-kname]").addEventListener("change", (ev) => {
+      k.name = ev.target.value.trim() || undefined;
+      save();
+    });
     box.querySelector("[data-k=idleMin]").addEventListener("change", (ev) => {
       k.idleMin = ev.target.value === "" ? undefined : Math.max(0, Number(ev.target.value) || 0);
       save();
@@ -403,6 +410,8 @@ export const DialogMethods = {
       <label class="en-row"><span>Norden</span><select data-northq>${[[0, "oben im Plan"], [90, "rechts im Plan"], [180, "unten im Plan"], [270, "links im Plan"], ["", "eigener Winkel"]].map(([v, n]) => `<option value="${v}"${(v === "" ? ![0, 90, 180, 270].includes(northNow) : northNow === v) ? " selected" : ""}>${n}</option>`).join("")}</select></label>
       <div class="en-row"><span>genau (°)</span><button class="nstep" data-step="-5">−5°</button><input data-north type="number" min="0" max="359" step="1" value="${northNow}"><button class="nstep" data-step="5">+5°</button></div>
       <p class="hint">Wichtig für Sonnenstand und PV-Ausrichtung: Grad im Uhrzeigersinn, um die Norden von „oben im Plan“ abweicht.</p>
+      <label class="en-row"><span>Jahreszeit im Garten</span><select data-season>${SEASONS.map(([k, n]) => `<option value="${k}"${(this._building?.settings?.season ?? "auto") === k ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label class="en-row"><span>Energiefluss im Haus</span><select data-houseflow><option value="on"${this._building?.settings?.house_flow === false ? "" : " selected"}>Räume mit Verbrauch und Netz</option><option value="off"${this._building?.settings?.house_flow === false ? " selected" : ""}>aus (nur PV → Haus)</option></select></label>
       <p class="hint">Das Dach erscheint nur in der Ansicht „Alle“. Wählt man eine Etage, schaut man hinein. Module liegen auf den Dachflächen, die in die Richtung zeigen (L-Dach: Hauptdach und Flügel).</p>
       <div class="btns"><button class="house-save primary">Speichern</button></div>`;
     // PV-Felder: Richtung, Spalten × Reihen, hoch/quer, Abstand von links (von außen gesehen), ab Reihe
@@ -468,7 +477,7 @@ export const DialogMethods = {
       const safety = { ...(this._building?.settings?.safety ?? {}), confirm: box.querySelector("[data-safety]").checked };
       const hm = Math.round(Number(box.querySelector("[data-hummax]").value));
       const climate = { ...(this._building?.settings?.climate ?? {}), humidity_max: Number.isFinite(hm) ? Math.min(90, Math.max(40, hm)) : 65 };
-      this._saveBuildingSettings({ roof, weather: w || null, north: ((Math.round(Number(box.querySelector("[data-north]").value) || 0) % 360) + 360) % 360, safety, climate }, "Dach und Wetter gespeichert.");
+      this._saveBuildingSettings({ roof, weather: w || null, north: ((Math.round(Number(box.querySelector("[data-north]").value) || 0) % 360) + 360) % 360, safety, climate, season: box.querySelector("[data-season]").value, house_flow: box.querySelector("[data-houseflow]").value !== "off" }, "Dach und Wetter gespeichert.");
     });
   },
 

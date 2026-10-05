@@ -321,12 +321,33 @@ function buildModel(type, w, d, h, M, item = {}) {
       break;
     case "stairs": {
       // Stufen als Blöcke bis zum Boden (gerade oder viertelgewendelt mit Podest)
-      const lay = stairLayout({ shape: item.stair_shape, w, d, h });
-      for (const t of lay.treads) box(g, M.wood, t.x1 - t.x0, t.top, t.z1 - t.z0, (t.x0 + t.x1) / 2, 0, (t.z0 + t.z1) / 2);
+      const lay = stairLayout({ shape: item.stair_shape, w, d, h, run: item.run_width });
+      for (const t of lay.treads) {
+        if (!t.poly) {
+          box(g, M.wood, t.x1 - t.x0, t.top, t.z1 - t.z0, (t.x0 + t.x1) / 2, 0, (t.z0 + t.z1) / 2);
+          continue;
+        }
+        // Wendel-/Fächerstufe: Vieleck hochgezogen (Wendeltreppe: nur die Trittplatte)
+        const shp = new THREE.Shape(t.poly.map(([x, z]) => new THREE.Vector2(x, -z)));
+        const thick = t.spiral ? 0.05 : t.top;
+        const geo = new THREE.ExtrudeGeometry(shp, { depth: thick, bevelEnabled: false });
+        geo.rotateX(-Math.PI / 2);
+        const mesh = new THREE.Mesh(geo, M.wood);
+        mesh.position.y = t.top - thick;
+        g.add(mesh);
+      }
+      if (lay.spindle) cyl(g, M.dark, lay.spindle, h + 0.9, 0, 0, 0);
       // Geländer: Pfosten an jeder zweiten Stufe der ersten Flucht und ein schräger Handlauf
       const rail = item.railing;
-      if (rail === "left" || rail === "right" || rail === "both") {
-        const first = lay.treads.filter((t) => !t.landing && Math.abs(t.x1 - t.x0 - (lay.treads[0].x1 - lay.treads[0].x0)) < 1e-6 && t.x0 === lay.treads[0].x0);
+      if (lay.radius && rail && rail !== "none") {
+        // Wendeltreppe: Pfosten am Außenrand
+        lay.treads.forEach((t, k) => {
+          if (k % 2) return;
+          const p = t.poly[2];
+          box(g, M.dark, 0.03, 0.9, 0.03, p[0] * 0.95, t.top, p[1] * 0.95);
+        });
+      } else if ((rail === "left" || rail === "right" || rail === "both") && !lay.treads[0].poly) {
+        const first = lay.treads.filter((t) => !t.landing && !t.poly && Math.abs(t.x1 - t.x0 - (lay.treads[0].x1 - lay.treads[0].x0)) < 1e-6 && t.x0 === lay.treads[0].x0);
         const sides = rail === "both" ? ["left", "right"] : [rail];
         for (const side of sides) {
           const x = side === "left" ? first[0].x0 + 0.03 : first[0].x1 - 0.03;
@@ -677,6 +698,15 @@ export function buildDevice(kind, stateObj, M) {
   } else if (kind === "climate") {
     cyl(g, M.white, 0.05, 0.07, 0, 0, 0, 20).rotation.x = Math.PI / 2;
     bulbs.push(box(g, M.bulb, 0.03, 0.03, 0.01, 0, 0.02, 0.04));
+  } else if (kind === "camera") {
+    // Kamera: Gehäuse mit Objektiv nach vorn (+z)
+    box(g, M.white, 0.1, 0.08, 0.16);
+    cyl(g, M.dark, 0.03, 0.03, 0, 0.04, 0.09, 12).rotation.x = Math.PI / 2;
+    bulbs.push(box(g, M.bulb, 0.015, 0.015, 0.01, 0.035, 0.065, 0.08));
+  } else if (kind === "vacuum") {
+    // Saugroboter: flache Scheibe
+    cyl(g, M.dark, 0.17, 0.08, 0, 0, 0, 24);
+    bulbs.push(cyl(g, M.bulb, 0.03, 0.01, 0, 0.085, 0.06, 12));
   } else {
     // Fenster-/Türkontakt
     box(g, M.white, 0.03, 0.09, 0.025);

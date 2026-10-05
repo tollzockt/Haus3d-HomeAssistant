@@ -11,8 +11,10 @@ import { colorKey } from "./light.js";
 import { floorColor, textureFor } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
 import { ambientInterval, lodState, resolveQuality, shouldRender } from "./perf.js";
-import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded, panelBasis, roofObstacles } from "./exterior.js";
+import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded, panelBasis, roofObstacles, dormerShape } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
+import { SceneFx } from "./scene-fx.js";
+import { SceneWalk } from "./scene-walk.js";
 
 const OUTDOOR = {
   lawn: { color: 0x6aa84f, y: -0.035, h: 0 },
@@ -436,6 +438,7 @@ export class HouseScene {
     this.floors.clear();
     this.anchors = [];
     this.flow = null;
+    this._houseFlow = null; // hing an root, ist mit weg
     this.building = building;
     this.warnings = [];
     this.lampBulbs.clear();
@@ -459,6 +462,7 @@ export class HouseScene {
       grid.userData.layer = "grid";
       this.root.add(grid);
     }
+    this._contactShadows();
     this.setFilter(this.filter, { fit: !keepCamera });
     if (this._deviceList) this.setDevices(this._deviceList);
     this.applyLayers();
@@ -470,6 +474,11 @@ export class HouseScene {
       this._sunR = Math.max(30, box.getSize(new THREE.Vector3()).length() * 2);
     }
     this._placeSun();
+    this._applyShadows();
+    // Jahreszeit auf neue Materialien (Texturen) erneut anwenden
+    const season = this._season;
+    this._season = null;
+    if (season) this.setSeason(season);
   }
 
   // ------------------------------------------------------------------ Ebenen, Geräte, Auswahl
@@ -488,7 +497,9 @@ export class HouseScene {
       });
     }
     this.devicesGroup.visible = on("devices") && this._deviceList?.length > 0;
+    this._syncGarden();
     if (this.weather) this.weather.obj.visible = on("weather");
+    this._applyShadows();
     this._lodCheck(true);
     this._cameraMoved();
   }
@@ -525,7 +536,37 @@ export class HouseScene {
     this.applyLayers();
   }
 
+  /** Sichtkegel der Kameras als halbdurchsichtige Fläche knapp über dem Boden (Ebene „Geräte“). */
+  setCameraCones(list) {
+    if (!this.conesGroup) {
+      this.conesGroup = new THREE.Group();
+      this.conesGroup.userData.layer = "devices";
+      this.root.add(this.conesGroup);
+    }
+    for (const child of [...this.conesGroup.children]) this._dispose(child);
+    this.conesGroup.clear();
+    const mat = (this._coneMat ??= new THREE.MeshBasicMaterial({ color: 0x29b6f6, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }));
+    for (const c of list) {
+      const entry = this.floors.get(c.floorId);
+      if (!entry) continue;
+      const pts = c.poly;
+      const pos = [];
+      for (let i = 1; i < pts.length - 1; i++) pos.push(pts[0][0], 0, pts[0][1], pts[i][0], 0, pts[i][1], pts[i + 1][0], 0, pts[i + 1][1]);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = (entry.floor.elevation ?? 0) + 0.03;
+      mesh.renderOrder = 2;
+      mesh.userData.floorId = c.floorId;
+      mesh.userData.cone = c.entity_id;
+      this.conesGroup.add(mesh);
+    }
+    this._syncDeviceVisibility();
+    this._dirty = true;
+  }
+
   _syncDeviceVisibility() {
+    for (const m of this.conesGroup?.children ?? []) m.visible = this.isFloorVisible(m.userData.floorId);
     for (const g of this.devicesGroup.children) g.visible = this.isFloorVisible(g.userData.floorId);
   }
 
@@ -1320,6 +1361,66 @@ export class HouseScene {
     if (group.children.length) parent.add(group);
   }
 
+  /**
+   * Gaube: Frontwand mit Fenstern, Seitenwangen bis aufs Hauptdach, Dach als Schlepp-, Sattel- oder
+   * Flachdach (exterior.js:dormerShape).
+   */
+  _buildDormer(group, model, it) {
+    const g = dormerShape(model, it);
+    if (!g) return;
+    const V = (p, y) => new THREE.Vector3(p[0], y, p[1]);
+    const tri = (list) => {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(list.flatMap((v) => [v.x, v.y, v.z]), 3));
+      geo.computeVertexNormals();
+      return geo;
+    };
+    const quad = (a, b, c, d) => [a, b, c, a, c, d];
+    const cyber = this.style === "cyber";
+    const wallMat = new THREE.MeshStandardMaterial(cyber ? { color: 0x1b0f33, emissive: 0xff2bd6, emissiveIntensity: 0.2, side: THREE.DoubleSide } : { color: /^#[0-9a-f]{6}$/i.test(it.color ?? "") ? it.color : 0xe9e4dc, roughness: 0.9, side: THREE.DoubleSide });
+    const roofMat = this.mats.roof.clone();
+    if (!cyber && /^#[0-9a-f]{6}$/i.test(it.roof_color ?? "")) roofMat.color.set(it.roof_color);
+    const { f0, f1, b0, b1, y0, yTop, yBack, out } = g;
+    const c = [(f0[0] + f1[0]) / 2, (f0[1] + f1[1]) / 2];
+    const back = (p, k) => [p[0] - out[0] * k, p[1] - out[1] * k];
+    const wall = [];
+    const roof = [];
+    wall.push(...quad(V(f0, y0), V(f1, y0), V(f1, yTop), V(f0, yTop)));
+    if (g.style === "gable") {
+      const e0 = back(f0, g.eave);
+      const e1 = back(f1, g.eave);
+      const rb = back(c, g.depth);
+      wall.push(V(f0, yTop), V(f1, yTop), V(c, g.ridge)); // Giebeldreieck
+      wall.push(V(f0, y0), V(f0, yTop), V(e0, yTop), V(f1, y0), V(f1, yTop), V(e1, yTop));
+      roof.push(...quad(V(f0, yTop), V(c, g.ridge), V(rb, g.ridge), V(e0, yTop)));
+      roof.push(...quad(V(f1, yTop), V(c, g.ridge), V(rb, g.ridge), V(e1, yTop)));
+    } else {
+      wall.push(V(f0, y0), V(f0, yTop), V(b0, yBack), V(f1, y0), V(f1, yTop), V(b1, yBack));
+      // kleiner Überstand vorne
+      const o0 = [f0[0] + out[0] * 0.12, f0[1] + out[1] * 0.12];
+      const o1 = [f1[0] + out[0] * 0.12, f1[1] + out[1] * 0.12];
+      roof.push(...quad(V(o0, yTop + 0.12 * g.tanP + 0.03), V(o1, yTop + 0.12 * g.tanP + 0.03), V(b1, yBack + 0.03), V(b0, yBack + 0.03)));
+    }
+    const wm = new THREE.Mesh(tri(wall), wallMat);
+    const rm = new THREE.Mesh(tri(roof), roofMat);
+    group.add(wm, rm);
+    // Fenster in der Front
+    const n = g.windows;
+    for (let k = 0; k < n; k++) {
+      const t = (k + 0.5) / n - 0.5;
+      const ww = Math.min(0.9, (g.w / n) * 0.7);
+      const p = [c[0] + g.along[0] * t * g.w + out[0] * 0.02, c[1] + g.along[1] * t * g.w + out[1] * 0.02];
+      const pane = new THREE.Mesh(new THREE.PlaneGeometry(ww, g.h * 0.6), this.mats.glass);
+      pane.position.set(p[0], y0 + g.h * 0.5, p[1]);
+      pane.rotation.y = Math.atan2(out[0], out[1]);
+      group.add(pane);
+      const frame = new THREE.Mesh(new THREE.PlaneGeometry(ww + 0.08, g.h * 0.6 + 0.08), this.mats.frame);
+      frame.position.set(p[0] - out[0] * 0.005, y0 + g.h * 0.5, p[1] - out[1] * 0.005);
+      frame.rotation.y = pane.rotation.y;
+      group.add(frame);
+    }
+  }
+
   /** Dinge auf dem Dach (roof.items): Kamin, Dachfenster, PV-Felder; Lage im Grundriss, Höhe aus der Dachfläche. */
   _roofItems(parent, model, items) {
     const solar = new THREE.Group();
@@ -1347,6 +1448,8 @@ export class HouseScene {
         const w = Number(it.w) || ROOF_ITEMS.skylight.w;
         const l = Number(it.l) || ROOF_ITEMS.skylight.l;
         this._panelOnRoof(other, [it.x, it.z], hit.y, hit.out, model.tan, w, l, skyMats, [1, 0]);
+      } else if (it.type === "dormer") {
+        this._buildDormer(other, model, it);
       } else if (it.type === "chimney") {
         const w = Number(it.w) || ROOF_ITEMS.chimney.w;
         const d = Number(it.d) || ROOF_ITEMS.chimney.d;
@@ -1618,9 +1721,17 @@ export class HouseScene {
     // Dach nur in der Gesamtansicht; mit Etagenwahl schaut man hinein (auch Raumdächer dieser Etage)
     if (this.roofHolder) this.roofHolder.visible = this.filter === "all";
     for (const [id, entry] of this.floors) for (const w of entry.roofWrappers ?? []) w.visible = this.filter !== id;
+    this._syncGarden();
     this._syncDeviceVisibility();
+    this._syncHouseFlow();
     if (fit) this.fitCamera();
     this._cameraMoved();
+  }
+
+  /** Keller gewählt: Garten der Etagen darüber ausblenden, sonst liegt der Rasen über dem Keller. */
+  _syncGarden() {
+    const elev = this.floors.get(this.filter)?.floor.elevation ?? Infinity;
+    for (const entry of this.floors.values()) entry.garden.visible = this.layers?.garden !== false && !(elev < -0.5 && (entry.floor.elevation ?? 0) > elev);
   }
 
   isFloorVisible(floorId) {
@@ -1847,7 +1958,8 @@ export class HouseScene {
     // Hintergrund-Animationen nur, wenn sichtbar (Ebene an) und die Ansicht nicht ruht
     const flowing = !this._frozen && this.flow && this.flow.speed > 0 && this.layers.flow !== false && this.isFloorVisible(this.flow.floorId);
     const weatherOn = !this._frozen && !!this._weather && this.layers.weather !== false;
-    const ambient = flowing || weatherOn;
+    const houseFlow = this._houseFlowActive();
+    const ambient = flowing || weatherOn || houseFlow;
     const interval = ambientInterval(this.quality.ambientFps);
     const render = shouldRender({ dirty: this._dirty, moving, animating, ambient, now, lastRender: this._lastRender ?? -Infinity, interval });
     if (render) {
@@ -1860,6 +1972,7 @@ export class HouseScene {
         this.flow.dots.forEach((d, i) => d.position.copy(this.flow.curve.getPointAt((this.flow.phase + i / n) % 1)));
       }
       if (weatherOn) this._stepWeather(ambDt);
+      if (houseFlow) this._stepHouseFlow(ambDt);
       const t0 = performance.now();
       this.renderer.render(this.scene, this.camera);
       this.stats.renders++;
@@ -1893,6 +2006,7 @@ export class HouseScene {
   setQuality(profile) {
     const prev = this.quality;
     this.quality = profile;
+    this._applyShadows();
     const dpr = Math.min(window.devicePixelRatio || 1, profile.dpr ?? profile.maxDpr);
     if (Math.abs(this.renderer.getPixelRatio() - dpr) > 1e-3) {
       this.renderer.setPixelRatio(dpr);
@@ -1988,6 +2102,7 @@ export class HouseScene {
   }
 
   _snowTint(k) {
+    this._snowK = k;
     const white = new THREE.Color(0xf4f7fb);
     const mats = this._groundRoofMats();
     const tint = (m, f) => {
@@ -2135,3 +2250,5 @@ function outline(points, y, material, heights = null) {
   const pts = points.map(([x, z], i) => new THREE.Vector3(x, y + (heights ? Number(heights[i]) || 0 : 0), z));
   return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), material);
 }
+
+Object.assign(HouseScene.prototype, SceneFx, SceneWalk);
