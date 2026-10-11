@@ -189,6 +189,11 @@ export class Simulator {
       states,
       entities,
       haus3dSimulation: true,
+      // HA-Konfiguration (Szenen …) bleibt in der Simulation unangetastet: nur lesen
+      callApi: async (method, path, ...rest) => {
+        if (String(method).toUpperCase() === "GET" && real.callApi) return real.callApi(method, path, ...rest);
+        throw new Error("In der Simulation wird nichts in Home Assistant geändert.");
+      },
       // Dienste: nur simulieren, nie an Home Assistant senden
       callService: async (domain, service, data = {}) => {
         const ids = [].concat(data.entity_id ?? []);

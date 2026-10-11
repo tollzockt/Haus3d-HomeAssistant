@@ -50,6 +50,7 @@ ADMIN_SETTINGS = (
     "house_flow",
     "presence",
     "north",
+    "daily",  # Alltag: Fenster→Heizung-Automatik und Anwesenheitssimulation schalten echte Geräte
 )
 
 

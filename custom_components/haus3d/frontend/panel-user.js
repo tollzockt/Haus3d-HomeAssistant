@@ -15,7 +15,7 @@ export const UserMethods = {
   // ------------------------------------------------------------------ Meine Ansicht
 
   _userSync() {
-    return !this._kioskUrl && !this._settings.kiosk?.nosync && !!this._hass?.callWS && !this._sim;
+    return !this._kioskUrl && !this._settings.kiosk?.nosync && !!this._hass?.callWS && !this._sim && !this._house; // Testhaus: nichts in die Benutzerdaten
   },
 
   /** Beim Start: Ansicht des Benutzers übernehmen (falls vorhanden). */
@@ -48,9 +48,13 @@ export const UserMethods = {
   _pushUserData() {
     if (!this._userSync()) return;
     clearTimeout(this._userTimer);
+    // Ziel und Ansichten jetzt festhalten (nicht erst beim Senden – inzwischen könnte ein Testhaus offen sein)
+    const hass = this._hass;
+    const views = this._savedViews?.() ?? [];
     this._userTimer = setTimeout(() => {
+      if (!this._userSync()) return;
       const settings = Object.fromEntries(SYNC_KEYS.map((k) => [k, this._settings[k]]));
-      this._hass.callWS({ type: "frontend/set_user_data", key: USER_KEY, value: { settings, views: this._savedViews?.() ?? [], updated: Date.now() } }).catch(() => {});
+      hass.callWS({ type: "frontend/set_user_data", key: USER_KEY, value: { settings, views, updated: Date.now() } }).catch(() => {});
     }, 1500);
   },
 

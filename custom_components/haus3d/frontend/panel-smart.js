@@ -29,6 +29,14 @@ export function normalizeDaily(d) {
 }
 
 export const SmartMethods = {
+  /** Lauf/fertig je Gerät – je Haus getrennt (eine Quittung im Testhaus gilt nicht im echten Haus). */
+  _applMap() {
+    this._applByHouse ??= new Map();
+    const k = this._house?.id ?? "";
+    if (!this._applByHouse.has(k)) this._applByHouse.set(k, new Map());
+    return this._applByHouse.get(k);
+  },
+
   _daily() {
     return normalizeDaily(this._building?.settings?.daily);
   },
@@ -53,17 +61,16 @@ export const SmartMethods = {
   /** Geräte-Erkennung weiterzählen; Meldung beim Wechsel auf „fertig“. Braucht den Takt, solange etwas läuft. */
   _smartStep() {
     const d = this._daily();
-    this._appl ??= new Map();
     const now = Date.now();
     let busy = false;
     for (const a of d.appliances) {
-      const prev = this._appl.get(a.id);
+      const prev = this._applMap().get(a.id);
       const next = applianceStep(prev, watts(this._hass?.states?.[a.power]), now, a.kind);
       if (next.phase === "done" && prev?.phase === "running") {
         this._toast(`${a.name} ist fertig.`);
         navigator.vibrate?.(30);
       }
-      this._appl.set(a.id, next);
+      this._applMap().set(a.id, next);
       if (next.phase === "running") busy = true;
     }
     const vent = ventTimers(this._ventTimers());
@@ -97,8 +104,8 @@ export const SmartMethods = {
 
   _ventTimers(next) {
     try {
-      if (next) localStorage.setItem(VENT_KEY, JSON.stringify(next));
-      return JSON.parse(localStorage.getItem(VENT_KEY) ?? "{}") ?? {};
+      if (next) localStorage.setItem(this._hk(VENT_KEY), JSON.stringify(next));
+      return JSON.parse(localStorage.getItem(this._hk(VENT_KEY)) ?? "{}") ?? {};
     } catch {
       return next ?? {};
     }
@@ -128,7 +135,7 @@ export const SmartMethods = {
     const d = this._daily();
     const now = Date.now();
     for (const a of d.appliances) {
-      const s = this._appl?.get(a.id);
+      const s = this._applMap().get(a.id);
       const icon = applianceKind(a.kind)[2];
       if (s?.phase === "running") {
         const rest = remainingMinutes(this._hass?.states?.[a.remaining], now);
@@ -153,7 +160,7 @@ export const SmartMethods = {
     if (key.startsWith("ap:")) {
       const id = key.slice(3);
       const a = this._daily().appliances.find((x) => x.id === id);
-      if (this._appl?.get(id)?.phase === "done") this._applianceAck(id);
+      if (this._applMap().get(id)?.phase === "done") this._applianceAck(id);
       else if (a) this._moreInfo(a.power);
       return true;
     }
@@ -166,7 +173,7 @@ export const SmartMethods = {
   },
 
   _applianceAck(id) {
-    this._appl?.set(id, { phase: "idle", startedAt: null, lowSince: null, doneAt: null });
+    this._applMap().set(id, { phase: "idle", startedAt: null, lowSince: null, doneAt: null });
     this._alertSig = null;
     this._chipKeys = null;
     this._updateStates();
@@ -192,7 +199,7 @@ export const SmartMethods = {
     const now = Date.now();
     const out = [];
     for (const a of d.appliances) {
-      const s = this._appl?.get(a.id);
+      const s = this._applMap().get(a.id);
       if (s?.phase === "done") out.push({ key: `appl:${a.id}:${s.doneAt}`, rule: "appliance", level: "info", icon: applianceKind(a.kind)[2], text: `${a.name} ist fertig`, ...this._smartPlace(a.power), entities: [a.power], action: { label: "Erledigt", act: `appl:${a.id}` } });
     }
     for (const w of wasteReminders(this._events(), now, d.waste_hour)) out.push({ key: w.key, rule: "waste", level: "info", icon: "mdi:trash-can-outline", text: `${w.when === "heute" ? "Heute" : "Morgen"}: ${w.title} rausstellen`, floorId: null, roomId: null, entities: [w.entity] });

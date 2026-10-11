@@ -191,8 +191,9 @@ export class FloorEditor {
    * @param {(b: object) => Promise<void>} o.onSave
    * @param {() => void} o.onClose
    */
-  constructor({ container, building, hass, floorId, onSave, onClose, confirm = async (text) => window.confirm(text), sceneStyle = "standard", dark = false, revision = null }) {
+  constructor({ container, building, hass, floorId, onSave, onClose, confirm = async (text) => window.confirm(text), sceneStyle = "standard", dark = false, revision = null, draftKey = undefined }) {
     this.b = structuredClone(building);
+    this.draftKey = draftKey; // Testhaus: eigener Entwurf, nie der des echten Hauses
     this.revision = revision; // Stand beim Öffnen (Entwurfssicherung)
     this.hass = hass;
     this.floorId = this.b.floors.some((f) => f.id === floorId) ? floorId : this.b.floors[0]?.id;

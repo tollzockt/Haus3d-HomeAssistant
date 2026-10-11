@@ -230,7 +230,10 @@ export const AdminMethods = {
       <button data-d="import"><ha-icon icon="mdi:upload"></ha-icon> Importieren (JSON) …</button>
       <button data-d="snap"><ha-icon icon="mdi:content-save-outline"></ha-icon> Stand sichern</button>
       <button data-d="history"><ha-icon icon="mdi:history"></ha-icon> Verlauf …</button></div>`;
-    const act = { export: () => this._export(), import: () => this._els.file.click(), snap: () => this._snapshot(), history: () => this._showHistory() };
+    const act = { export: () => this._export(), import: () => {
+        this._importEpoch = this._houseEpoch ?? 0; // Haus beim Antippen festhalten (Dateiauswahl kann dauern)
+        this._els.file.click();
+      }, snap: () => this._snapshot(), history: () => this._showHistory() };
     box.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => act[b.dataset.d]()));
   },
 

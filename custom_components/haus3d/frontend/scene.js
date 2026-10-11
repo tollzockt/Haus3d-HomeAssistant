@@ -433,6 +433,7 @@ export class HouseScene {
   // ------------------------------------------------------------------ Aufbau
 
   setBuilding(building, { keepCamera = false } = {}) {
+    this._walkWalls = null; // Wände für Begehen neu sammeln
     for (const child of [...this.root.children]) this._dispose(child);
     this._clearLightCache();
     this.root.clear();

@@ -300,7 +300,7 @@ export const TabletMethods = {
   /** Gemerkte Ansicht je Etage (dieses Gerät): {floorId: {target, position}}. */
   _views() {
     try {
-      const v = JSON.parse(localStorage.getItem("haus3d.views") ?? "{}");
+      const v = JSON.parse(localStorage.getItem(this._hk("haus3d.views")) ?? "{}");
       return v && typeof v === "object" ? v : {};
     } catch {
       return {};
@@ -311,30 +311,30 @@ export const TabletMethods = {
     if (!this._scene || !this._building || this._editor) return;
     const v = this._views();
     v[this._filter] = this._scene.getView();
-    this._store("haus3d.views", JSON.stringify(v));
+    this._store(this._hk("haus3d.views"), JSON.stringify(v));
   },
 
   _resetView() {
     const v = this._views();
     delete v[this._filter];
-    this._store("haus3d.views", JSON.stringify(v));
+    this._store(this._hk("haus3d.views"), JSON.stringify(v));
     this._scene?.fitCamera();
     setTimeout(() => {
       clearTimeout(this._viewTimer);
       const w = this._views();
       delete w[this._filter];
-      this._store("haus3d.views", JSON.stringify(w));
+      this._store(this._hk("haus3d.views"), JSON.stringify(w));
     }, 0);
   },
 
   /** Gespeicherte Blickwinkel (dieses Gerät, höchstens 6). */
   _savedViews(next) {
     if (next) {
-      this._store("haus3d.savedViews", JSON.stringify(normalizeViews(next)));
+      this._store(this._hk("haus3d.savedViews"), JSON.stringify(normalizeViews(next)));
       this._pushUserData();
     }
     try {
-      return normalizeViews(JSON.parse(localStorage.getItem("haus3d.savedViews") ?? "[]"));
+      return normalizeViews(JSON.parse(localStorage.getItem(this._hk("haus3d.savedViews")) ?? "[]"));
     } catch {
       return [];
     }
@@ -396,6 +396,7 @@ export const TabletMethods = {
   _applyKiosk() {
     const k = this._settings.kiosk ?? {};
     this.toggleAttribute("kiosk", this._kioskUrl || k.hideHeader === true);
+    this._renderModes?.(); // Modus-Leiste in Kopfzeile bzw. Ansicht
     const want = k.wakeLock === true && "wakeLock" in navigator && window.isSecureContext && !document.hidden;
     if (want && !this._wakeLock) {
       navigator.wakeLock.request("screen").then((l) => {

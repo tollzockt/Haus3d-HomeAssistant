@@ -5,6 +5,12 @@ Seitenleisten-Panel zeigt, mit Live-Status von Licht, Fenstern, Türen, Rollläd
 Energiefluss.
 
 
+## Neu in 0.22: Testhaus für Entwickler
+
+- **Admin → Entwickler → Testhaus**: zu einem eigenen Testhaus wechseln (Beispielhaus, Kopie des eigenen
+  Hauses oder leer) und dort bearbeiten, ohne das echte Haus anzufassen. Nur in diesem Browser; oben steht
+  „Testhaus: …“ mit „Mein Haus“ zurück. Geräte schalten nur mit „Geräte echt schalten“.
+
 ## Neu in 0.21: Alltag, Zeitstrahl, Szenen, Favoriten
 
 - **Admin → Alltag**: Waschmaschine/Trockner/Spülmaschine (läuft/fertig aus der Leistung), Kalender und
@@ -258,7 +264,7 @@ offen hat.
   gibt Räumen ohne eigene Geräte ein Licht, einen Temperatursensor, einen Fensterkontakt und eine Leistung
   (folgt dem Licht, Leitungen zeigen Fluss). Der Solar-Regler rechnet Haus, Netz und Speicher passend. Änderungen
   am Grundriss bleiben in der Simulation lokal; beim Beenden wird der echte Stand neu geladen.
-- **Import/Export, Verlauf** (nur für Admins, Menü ⋮): JSON exportieren/importieren, Stand sichern, einen
+- **Import/Export, Verlauf** (Zahnrad → Admin-Einstellungen → „Daten & Verlauf“): JSON exportieren/importieren, Stand sichern, einen
   der letzten 20 Stände wiederherstellen. Vor jedem Speichern wird der alte Stand automatisch gesichert.
 - Läuft **komplett offline**: Three.js und OrbitControls liegen im Paket, kein CDN.
 

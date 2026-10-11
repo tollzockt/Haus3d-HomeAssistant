@@ -49,9 +49,10 @@ export const ClimateMethods = {
         pending = stepTarget(cur, pending, n);
         draw();
         clearTimeout(timer);
+        const hass = this._hass; // beim Tippen festhalten (Testhaus-Wechsel in der Zwischenzeit)
         timer = setTimeout(() => {
           const v = pending;
-          this._hass.callService("climate", "set_temperature", { entity_id: entityId, temperature: v }).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+          hass.callService("climate", "set_temperature", { entity_id: entityId, temperature: v }).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
           setTimeout(() => {
             pending = null;
             if (el.isConnected) draw();

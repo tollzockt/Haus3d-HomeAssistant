@@ -36,6 +36,24 @@ const demo = await E(() => Object.keys(window.panel._hass.states).filter((id) =>
 t.results.simLeistung = demo.length;
 t.check(demo.length > 0, "keine Beispiel-Leistungssensoren");
 await t.shot(pg, "m1-simulation.png");
+// Editor aus der Simulation und Simulations-Gerätefenster enden mit der Simulation (nichts ins echte Haus)
+const simEd = await E(async () => {
+  const p = window.panel;
+  p._editMode = true;
+  p._openEditor();
+  const opened = !!p._editor;
+  const before = window.realSaves ?? 0;
+  p._simDialog("light.wohnzimmer_decke");
+  const dlg = !!p.shadowRoot.querySelector(".simdlg");
+  await p._setSim(false);
+  const after = { editor: !!p._editor, dlg: !!p.shadowRoot.querySelector(".simdlg"), saves: (window.realSaves ?? 0) - before };
+  p._editMode = false;
+  p._adminMode = true;
+  await p._setSim(true);
+  return { opened, dlg, after };
+});
+t.results.simEditor = simEd;
+t.check(simEd.opened && simEd.dlg && !simEd.after.editor && !simEd.after.dlg && simEd.after.saves === 0, `Simulation und Editor: ${JSON.stringify(simEd)}`);
 // Admin beenden → Simulation aus
 await E(() => window.panel._endAdmin());
 await pg.waitForTimeout(800);

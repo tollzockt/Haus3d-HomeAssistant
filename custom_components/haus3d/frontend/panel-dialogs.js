@@ -80,9 +80,10 @@ export const DialogMethods = {
       this._sim.set(entityId, b.dataset.set, {}, st);
       done();
     }));
-    el.querySelectorAll("[data-svc]").forEach((b) => b.addEventListener("click", () => this._hass.callService(domain, b.dataset.svc, { entity_id: entityId }).then(() => this._closeDialog())));
-    el.querySelector("[data-pos]")?.addEventListener("change", (ev) => this._hass.callService("cover", "set_cover_position", { entity_id: entityId, position: Number(ev.target.value) }).then(() => this._closeDialog()));
-    el.querySelector("[data-act=temp]")?.addEventListener("click", () => this._hass.callService("climate", "set_temperature", { entity_id: entityId, temperature: Number(el.querySelector("[data-temp]").value) }).then(() => this._closeDialog()));
+    const sim = this._hass; // Simulations-hass beim Öffnen (endet die Simulation, schließt das Fenster)
+    el.querySelectorAll("[data-svc]").forEach((b) => b.addEventListener("click", () => sim.callService(domain, b.dataset.svc, { entity_id: entityId }).then(() => this._closeDialog())));
+    el.querySelector("[data-pos]")?.addEventListener("change", (ev) => sim.callService("cover", "set_cover_position", { entity_id: entityId, position: Number(ev.target.value) }).then(() => this._closeDialog()));
+    el.querySelector("[data-act=temp]")?.addEventListener("click", () => sim.callService("climate", "set_temperature", { entity_id: entityId, temperature: Number(el.querySelector("[data-temp]").value) }).then(() => this._closeDialog()));
     el.querySelector("[data-act=val]")?.addEventListener("click", () => {
       this._sim.set(entityId, el.querySelector("[data-val]").value, {}, st);
       done();
@@ -126,8 +127,14 @@ export const DialogMethods = {
     el.className = "dialog-backdrop sheet-backdrop";
     const run = async (calls, needConfirm) => {
       if (needConfirm && !(await this._confirm("Tore schließen?", "Schließen"))) return false;
-      for (const c of calls) await this._hass.callService(c.domain, c.service, c.data).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
-      return true;
+      let ok = true;
+      for (const c of calls) {
+        await this._hass.callService(c.domain, c.service, c.data).catch((err) => {
+          ok = false; // nicht als erledigt abhaken (auch im Testhaus, wo nichts geschaltet wird)
+          if (!err?.quiet) this._toast(`Fehlgeschlagen: ${err.message ?? err}`);
+        });
+      }
+      return ok;
     };
     const render = () => {
       const done = allSecure(sections);
@@ -668,14 +675,20 @@ export const DialogMethods = {
       this._toast(err.message);
       return;
     }
+    // Import gehört zu dem Haus, in dem „Importieren“ angetippt wurde (vor der Dateiauswahl festgehalten)
+    const epoch = this._importEpoch ?? this._houseEpoch ?? 0;
+    this._importEpoch = null;
+    const moved = () => (this._houseEpoch ?? 0) !== epoch;
+    if (moved()) return this._toast("Inzwischen wurde das Haus gewechselt – nicht importiert.");
     // Räume mit Spalt dazwischen (Innenmaße statt Wandmitten) ergeben doppelte Außenwände: anbieten zu schließen
     const closed = building.floors.map((f) => closeGaps(f.rooms));
     const gapCount = closed.reduce((n, c) => n + c.gaps.length, 0);
     if (gapCount && (await this._confirm(`Zwischen den Räumen gibt es ${plural(gapCount, "Lücke", "Lücken")} (bis 45 cm). Schließen, damit daraus Innenwände werden?`, "Schließen", { sub: "Wie „Lücken schließen“ in NeonPlan." }))) {
       building.floors.forEach((f, i) => (f.rooms = closed[i].rooms));
     }
+    if (moved()) return;
     const rooms = building.floors.reduce((n, f) => n + f.rooms.length, 0);
-    if (!(await this._confirm(`Grundriss mit ${plural(building.floors.length, "Etage", "Etagen")} und ${plural(rooms, "Raum", "Räumen")} importieren?`, "Importieren", { sub: "Der aktuelle Stand wird vorher im Verlauf gesichert." }))) return;
+    if (!(await this._confirm(`Grundriss mit ${plural(building.floors.length, "Etage", "Etagen")} und ${plural(rooms, "Raum", "Räumen")} importieren?`, "Importieren", { sub: this._house ? `Testhaus „${this._house.name}“: kein Verlauf – der jetzige Stand wird ersetzt.` : "Der aktuelle Stand wird vorher im Verlauf gesichert." })) || moved()) return;
     try {
       const res = await this._callLocked({ type: "haus3d/building/save", building, revision: this._revision }, "admin");
       this._setBuilding(res.building, res.revision);

@@ -177,7 +177,7 @@ export const TouchMethods = {
   _writeDraft() {
     if (!this.dirty) return;
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ v: 1, base_revision: this.revision ?? null, floorId: this.floorId, saved_at: Date.now(), building: this.b }));
+      localStorage.setItem(this.draftKey ?? DRAFT_KEY, JSON.stringify({ v: 1, base_revision: this.revision ?? null, floorId: this.floorId, saved_at: Date.now(), building: this.b }));
       const t = new Date();
       this._draftNote = `Entwurf gesichert ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
       if (!this._hintTimer) this.hint.textContent = `${this._hintText()} · ${this._draftNote}`;
@@ -190,7 +190,7 @@ export const TouchMethods = {
   clearDraft() {
     clearTimeout(this._draftTimer);
     try {
-      localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(this.draftKey ?? DRAFT_KEY);
     } catch {
       /* egal */
     }
@@ -200,7 +200,7 @@ export const TouchMethods = {
   _checkDraft() {
     let raw = null;
     try {
-      raw = localStorage.getItem(DRAFT_KEY);
+      raw = localStorage.getItem(this.draftKey ?? DRAFT_KEY);
     } catch {
       return;
     }

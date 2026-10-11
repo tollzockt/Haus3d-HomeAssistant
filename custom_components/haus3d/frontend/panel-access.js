@@ -3,7 +3,7 @@
 // nichts aus; nur die richtige öffnet. Freigabe gilt bis „Beenden“/Fenster zu, längstens 10 min Ruhe.
 
 import { DEFAULT_TITLE, esc, houseTitle } from "./panel-util.js";
-import { accessScope, canAdmin, canEdit, clearAccess, currentToken, pinKey, setAccess, touchAccess, withToken } from "./access.js";
+import { HOUSE_TYPES, accessScope, canAdmin, canEdit, clearAccess, currentToken, pinKey, setAccess, touchAccess, withToken } from "./access.js";
 
 const CHECK_DELAY = 450; // ms nach der letzten Ziffer, dann still prüfen
 
@@ -212,14 +212,21 @@ export const AccessMethods = {
   _renderModes() {
     const box = this.shadowRoot?.querySelector(".modes");
     if (!box) return;
+    // Wandtablet: Kopfzeile ausgeblendet – die Modus-Leiste (Testhaus, Bearbeiten, Admin) in die Ansicht holen
+    const header = this.shadowRoot.querySelector("header");
+    if (this.hasAttribute("kiosk") && box.parentElement === header && this._els?.stage) this._els.stage.appendChild(box);
+    else if (!this.hasAttribute("kiosk") && box.parentElement !== header) header?.querySelector(".title")?.after(box);
     const parts = [];
+    // Testhaus: immer sichtbar, mit „Mein Haus“ zurück
+    if (this._house) parts.push(`<span class="mode m-test" title="Testhaus – dein Haus bleibt unverändert${this._house.live ? "; Geräte werden echt geschaltet" : "; es wird nichts geschaltet"}"><ha-icon icon="mdi:flask-outline"></ha-icon><span class="mt">Testhaus: ${esc(this._house.name)}${this._house.live ? " · live" : ""}</span><button class="end" data-end="test">Mein Haus</button></span>`);
     if (this._editMode) parts.push(`<span class="mode m-edit"><ha-icon icon="mdi:pencil"></ha-icon><span class="mt">Bearbeiten</span>${this._scene ? `<button class="plan" title="Grundriss bearbeiten"><ha-icon icon="mdi:floor-plan"></ha-icon><span class="mt">Grundriss</span></button>` : ""}<button class="end" data-end="edit">Beenden</button></span>`);
     if (this._adminMode) parts.push(`<span class="mode m-admin"><button class="open" title="Admin-Einstellungen öffnen"><ha-icon icon="mdi:cog"></ha-icon><span class="mt">Admin</span></button><button class="end" data-end="admin">Beenden</button></span>`);
     box.innerHTML = parts.join("");
     box.hidden = !parts.length;
+    this._els?.stage?.classList.toggle("kmodes", this.hasAttribute("kiosk") && parts.length > 0);
     box.querySelector(".plan")?.addEventListener("click", () => this._openEditor());
     box.querySelector(".open")?.addEventListener("click", () => this._openAdmin());
-    box.querySelectorAll("[data-end]").forEach((b) => b.addEventListener("click", () => (b.dataset.end === "edit" ? this._endEdit() : this._endAdmin())));
+    box.querySelectorAll("[data-end]").forEach((b) => b.addEventListener("click", () => (b.dataset.end === "test" ? this._switchHouse(null) : b.dataset.end === "edit" ? this._endEdit() : this._endAdmin())));
   },
 
   /** Name oben links (settings.title); im Bearbeiten-Modus antippbar. */
@@ -244,12 +251,14 @@ export const AccessMethods = {
     input.focus();
     input.select();
     let done = false;
+    const epoch = this._houseEpoch ?? 0;
     const finish = async (save) => {
       if (done) return;
       done = true;
+      this._titleCancel = null;
       const v = input.value.trim().slice(0, 60);
       input.remove();
-      if (save && v !== old) await this._saveBuildingSettings({ title: v && v !== DEFAULT_TITLE ? v : null }, "Name gespeichert.");
+      if (save && v !== old && (this._houseEpoch ?? 0) === epoch) await this._saveBuildingSettings({ title: v && v !== DEFAULT_TITLE ? v : null }, "Name gespeichert.");
       this._renderTitle();
     };
     input.addEventListener("keydown", (ev) => {
@@ -257,6 +266,7 @@ export const AccessMethods = {
       if (ev.key === "Escape") finish(false);
     });
     input.addEventListener("blur", () => finish(true));
+    this._titleCancel = () => finish(false); // Hauswechsel: Eingabe verwerfen
   },
 
   /**
@@ -264,14 +274,24 @@ export const AccessMethods = {
    * erneut senden.
    */
   async _callLocked(msg, scope = "edit") {
+    // Grundriss-Befehle gehören zum Haus, in dem sie begonnen wurden (Testhaus ↔ mein Haus)
+    const bound = HOUSE_TYPES.test(msg?.type ?? "");
+    const epoch = this._houseEpoch ?? 0;
+    const switched = () => Object.assign(new Error("Der Grundriss gehört zu einem anderen Haus oder ist nicht geladen – nicht gespeichert. Seite neu laden."), { code: "switched" });
+    if (bound && (this._switching || this._buildingHouse !== (this._house?.id ?? null))) throw switched(); // Grundriss gehört zu einem anderen Haus
+    const check = (res) => {
+      if (bound && (this._houseEpoch ?? 0) !== epoch) throw switched();
+      return res;
+    };
     try {
-      return await this._hass.callWS(withToken(msg));
+      return check(await this._hass.callWS(withToken(msg)));
     } catch (err) {
       if (err?.code !== "locked") throw err;
       clearAccess();
       if (!(await this._pinPad(scope))) throw err;
+      check();
       if (scope === "edit") this._watchAccess();
-      return this._hass.callWS(withToken(msg));
+      return check(await this._hass.callWS(withToken(msg)));
     }
   },
 };
@@ -295,6 +315,8 @@ header .title .titlein { font: inherit; width: min(240px, 40vw); padding: 2px 6p
 .mode { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 3px 0 10px; border-radius: 18px; color: #fff; font-weight: 600; font-size: 14px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 .mode.m-edit { background: #2e7d32; }
 .mode.m-admin { background: #e65100; padding-left: 3px; }
+.mode.m-test { background: #7e57c2; }
+.mode.m-test button.end { color: #7e57c2; }
 .mode button { display: inline-flex; align-items: center; gap: 4px; font: inherit; border: 0; border-radius: 15px; height: 30px; padding: 0 10px; cursor: pointer; background: rgba(255,255,255,.2); color: #fff; }
 .mode button.end { background: #fff; color: #333; }
 .mode.m-edit button.end { color: #2e7d32; }
@@ -302,5 +324,7 @@ header .title .titlein { font: inherit; width: min(240px, 40vw); padding: 2px 6p
 .mode button.open { background: transparent; padding: 0 6px; }
 @media (max-width: 700px) { .mode .mt { display: none; } }
 @media (pointer: coarse) { .mode { height: 44px; } .mode button { height: 38px; } }
-:host([kiosk]) .modes { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 9; }
+:host([kiosk]) .modes { position: absolute; top: 8px; left: 60px; z-index: 9; flex-wrap: wrap; max-width: calc(100% - 140px); }
+:host([kiosk]) .stage.walking .modes, :host([kiosk]) .stage.planning .modes { display: none; }
+:host([kiosk]) .stage.kmodes .alertbar, :host([kiosk]) .stage.kmodes .notice { top: 64px; }
 `;

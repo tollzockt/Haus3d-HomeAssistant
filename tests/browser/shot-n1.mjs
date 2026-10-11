@@ -30,7 +30,7 @@ t.check(c.some((x) => x.startsWith("ap:wm=Waschmaschine läuft")), `Chip läuft:
 await E(() => {
   const p = window.panel;
   const now = Date.now();
-  p._appl.set("wm", { phase: "running", startedAt: now - 70 * 60000, lowSince: now - 4 * 60000, doneAt: null });
+  p._applMap().set("wm", { phase: "running", startedAt: now - 70 * 60000, lowSince: now - 4 * 60000, doneAt: null });
 });
 await setState("sensor.waschmaschine_leistung", "1");
 await pg.waitForTimeout(400);

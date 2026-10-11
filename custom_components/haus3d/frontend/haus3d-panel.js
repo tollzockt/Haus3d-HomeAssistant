@@ -56,7 +56,7 @@ import { PIPENET_STYLE, PipeNetMethods } from "./panel-pipes.js";
 import { SMART_STYLE, SmartMethods } from "./panel-smart.js";
 import { TIMELINE_STYLE, TimelineMethods } from "./panel-timeline.js";
 import { SCENES_STYLE, SceneMethods } from "./panel-scenes.js";
-import { doorGuard } from "./access.js";
+import { HOUSE_KEY, doorGuard, houseGuard, loadHouse } from "./access.js";
 import { ENERGYCFG_STYLE, EnergyCfgMethods } from "./panel-energycfg.js";
 import { energyEntities, energyTotals } from "./energymodel.js";
 import { USER_STYLE, UserMethods } from "./panel-user.js";
@@ -81,9 +81,12 @@ class Haus3DPanel extends HTMLElement {
     this._securityView = false; // Sicherheitsansicht (Fenster/Türen grün, orange, rot)
     this._filter = "all";
     try {
-      this._filter = localStorage.getItem("haus3d.filter") || "all";
       this._view = migrateView(localStorage.getItem("haus3d.view"), localStorage.getItem("haus3d.temp"));
-      this._settings = loadSettings(localStorage.getItem("haus3d.settings"), localStorage.getItem("haus3d.style"));
+      this._house = loadHouse(localStorage.getItem(HOUSE_KEY)); // Testhaus (nur dieser Browser)
+      // Anzeige-Einstellungen je Haus: ein Testhaus startet mit einer Kopie der echten
+      this._settingsKey = this._house ? `haus3d.settings.${this._house.id}` : "haus3d.settings";
+      this._settings = loadSettings(localStorage.getItem(this._settingsKey) ?? localStorage.getItem("haus3d.settings"), localStorage.getItem("haus3d.style"));
+      this._filter = localStorage.getItem(this._house ? `haus3d.filter.${this._house.id}` : "haus3d.filter") || "all"; // Etage je Haus
     } catch {
       /* ohne Speicher */
     }
@@ -107,7 +110,9 @@ class Haus3DPanel extends HTMLElement {
     // Simulation: Schicht über dem echten hass, nichts geht an Home Assistant
     // Schlösser entriegeln/öffnen nur mit der Tür-PIN (Simulation schaltet ohnehin nichts Echtes)
     // Zeitstrahl: Zustände zum gewählten Zeitpunkt (nur ansehen)
-    const hass = this._tl && !this._sim ? this._tlWrap(real) : this._sim ? this._sim.wrap(real, { building: this._building, onChange: () => this._simChanged(), onToast: (t) => this._toast(t) }) : doorGuard(real, (svc, data) => this._doorUnlock(svc, data));
+    let hass = this._tl && !this._sim ? this._tlWrap(real) : this._sim ? this._sim.wrap(real, { building: this._building, onChange: () => this._simChanged(), onToast: (t) => this._toast(t) }) : doorGuard(real, (svc, data) => this._doorUnlock(svc, data));
+    // Testhaus (Entwickler): Grundriss getrennt vom echten Haus, Geräte nur mit „echt schalten“
+    if (this._house) hass = houseGuard(hass, this._house.id, { live: this._house.live, sim: !!this._sim, onBlocked: (what) => this._houseBlocked(what) });
     const prev = this._hass;
     this._hass = hass;
     if (!this._built) return;
@@ -243,6 +248,12 @@ class Haus3DPanel extends HTMLElement {
 
   /** Simulation an/aus. Beim Start wird der Grundriss kopiert; beim Beenden der echte neu geladen. */
   async _setSim(on) {
+    // offener Editor gehört zum bisherigen Stand (echt bzw. Simulationskopie): sichern und schließen
+    if (!!on !== !!this._sim && this._editor) {
+      if (!this._sim) this._editor._writeDraft?.();
+      this._editor.onClose?.();
+    }
+    if (!on && this._dialog?.querySelector(".simdlg")) this._closeDialog();
     // nur im Admin-Modus (Beispielgeräte, Wetter und Energie verändern die Ansicht für alle am Gerät)
     if (on && !this._sim && !this._adminMode) {
       this._toast("Simulation nur im Admin-Modus – erst Admin-Einstellungen mit PIN öffnen.");
@@ -492,8 +503,39 @@ class Haus3DPanel extends HTMLElement {
     }
     this._loading = true;
     try {
-      const res = await this._hass.callWS({ type: "haus3d/building/get" });
+      let res;
+      let want = this._house?.id ?? null; // Antwort gilt nur für das Haus, für das gefragt wurde
+      let epoch = this._houseEpoch ?? 0;
+      try {
+        res = await this._hass.callWS({ type: "haus3d/building/get" });
+      } catch (err) {
+        // Testhaus woanders gelöscht: zurück ins echte Haus (auch mitten in einem Wechsel) – wie beim
+        // Wechsel alles abbrechen, was noch zum Testhaus gehört, und bis zum Laden nichts speichern
+        if (!this._house || err?.code !== "not_found") throw err;
+        const own = !this._switching;
+        this._switching = true;
+        try {
+          this._houseCleanup();
+          this._house = null;
+          try {
+            localStorage.removeItem(HOUSE_KEY);
+          } catch {
+            /* ohne Speicher */
+          }
+          this._filter = localStorage.getItem("haus3d.filter") || "all";
+          if (this._realHass) this.hass = this._realHass;
+          this._toast("Das Testhaus gibt es nicht mehr – zurück in deinem Haus.");
+          want = null;
+          epoch = this._houseEpoch ?? 0;
+          res = await this._hass.callWS({ type: "haus3d/building/get" });
+        } finally {
+          if (own) this._switching = false;
+        }
+      }
+      if ((this._houseEpoch ?? 0) !== epoch || (this._house?.id ?? null) !== want) return; // inzwischen gewechselt: veraltete Antwort
+      this._buildingHouse = want; // zu diesem Haus gehört der geladene Grundriss
       this._setBuilding(res.building, res.revision);
+      this._renderModes?.();
       this._subscribeCommands();
       this._loadUserData();
       setTimeout(() => this._supportHintCheck(), 4000);
@@ -616,7 +658,7 @@ class Haus3DPanel extends HTMLElement {
       this._panels = this._panels.filter((x) => x.floorId === id);
       this._scene?.selectRooms(this._panels.map((p) => ({ floorId: p.floorId, roomId: p.roomId })), { focus: false });
     }
-    this._store("haus3d.filter", id);
+    this._store(this._hk("haus3d.filter"), id);
     // gemerkte Ansicht der Etage, solange sie noch zum Haus passt; sonst einpassen
     const saved = this._views()[id];
     this._scene?.setFilter(id, { fit: false });
@@ -879,8 +921,9 @@ class Haus3DPanel extends HTMLElement {
     if (act.call[0] === "lock" && act.call[1] !== "lock") act.confirm = null; // die Tür-PIN ist die Nachfrage
     if (act.confirm) {
       const where = this._placeText?.(entityId);
+      const epoch = this._houseEpoch ?? 0;
       const ok = await this._confirm(`${label} ${act.confirm.question}?`, act.confirm.ok, { danger: act.confirm.danger, sub: where });
-      if (!ok) return;
+      if (!ok || (this._houseEpoch ?? 0) !== epoch) return; // inzwischen Haus gewechselt
     }
     try {
       await this._hass.callService(act.call[0], act.call[1], { entity_id: entityId, ...act.data });
@@ -913,6 +956,7 @@ class Haus3DPanel extends HTMLElement {
    */
   _confirm(text, okLabel = "OK", { danger = false, sub = "" } = {}) {
     this._confirmEl?._finish?.(false);
+    if (this._switching) return Promise.resolve(false); // Haus wird gewechselt: Abläufe des alten Hauses enden hier
     return new Promise((resolve) => {
       const el = document.createElement("div");
       el.className = "confirm-backdrop";
@@ -952,6 +996,8 @@ class Haus3DPanel extends HTMLElement {
 
   _moreInfo(entityId) {
     if (this._sim) return this._simDialog(entityId);
+    // Testhaus ohne „echt schalten“: der HA-Dialog könnte schalten – nur ansehen
+    if (this._house && !this._house.live && !/^(sensor|binary_sensor|weather|person|device_tracker|sun|camera)\./.test(entityId)) return this._infoDialog(entityId);
     this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
   }
 
@@ -1207,8 +1253,8 @@ class Haus3DPanel extends HTMLElement {
   /** Ausgeblendete Hinweise (dieses Gerät): {key: Zeitpunkt}. */
   _alertAck(next) {
     try {
-      if (next) localStorage.setItem("haus3d.alerts.ack", JSON.stringify(next));
-      return next ?? JSON.parse(localStorage.getItem("haus3d.alerts.ack") || "{}") ?? {};
+      if (next) localStorage.setItem(this._hk("haus3d.alerts.ack"), JSON.stringify(next));
+      return next ?? JSON.parse(localStorage.getItem(this._hk("haus3d.alerts.ack")) || "{}") ?? {};
     } catch {
       return next ?? this._ackMem ?? {};
     }
@@ -1434,7 +1480,9 @@ class Haus3DPanel extends HTMLElement {
   // ------------------------------------------------------------------ Editor
 
   _openEditor() {
-    if (this._editor || !this._building) return;
+    if (this._editor || !this._building || this._switching || this._buildingHouse !== (this._house?.id ?? null)) return;
+    const houseId = this._house?.id ?? null; // der Editor gehört zu diesem Haus …
+    const simAtOpen = !!this._sim; // … und zu echt bzw. Simulation
     this._closePopup();
     this._closeDialog();
     this._selectRoom(null);
@@ -1447,7 +1495,9 @@ class Haus3DPanel extends HTMLElement {
       sceneStyle: this._appliedStyle === "cyber" ? "cyber" : this._appliedStyle === "night" ? "night" : "standard",
       dark: !!this._hass.themes?.darkMode,
       revision: this._revision,
+      draftKey: this._sim ? "haus3d.editorDraft.sim" : this._house ? `haus3d.editorDraft.${this._house.id}` : undefined, // Entwurf je Haus, Simulation getrennt
       onSave: async (building, { keepOpen = false } = {}) => {
+        if ((this._house?.id ?? null) !== houseId || this._switching || !!this._sim !== simAtOpen) throw new Error("Inzwischen wurde das Haus gewechselt oder die Simulation umgeschaltet – nicht gespeichert.");
         try {
           const res = await this._callLocked({ type: "haus3d/building/save", building, revision: this._revision }, "edit");
           this._setBuilding(res.building, res.revision, { keepCamera: true });
@@ -1463,6 +1513,7 @@ class Haus3DPanel extends HTMLElement {
         this._editor?.destroy();
         this._editor = null;
         if (this._editBand) this._editBand.hidden = false;
+        this._els.stage.classList.remove("planning");
         this._els.overlay.hidden = false;
         this._scene?.start();
         this._refreshEntities();
@@ -1471,6 +1522,7 @@ class Haus3DPanel extends HTMLElement {
     // Hauptansicht ruht, solange der Editor offen ist (der hat seine eigene 3D-Ansicht)
     this._scene?.stop();
     if (this._editBand) this._editBand.hidden = true;
+    this._els.stage.classList.add("planning");
   }
 
   // ------------------------------------------------------------------ Einstellungen
@@ -1502,7 +1554,7 @@ class Haus3DPanel extends HTMLElement {
   }
 
   _saveSettings() {
-    this._store("haus3d.settings", JSON.stringify(this._settings));
+    this._store(this._settingsKey ?? "haus3d.settings", JSON.stringify(this._settings));
     this._pushUserData();
   }
 
@@ -1648,7 +1700,8 @@ class Haus3DPanel extends HTMLElement {
         p.el.className = "roompanel";
         touchScroll(p.el);
         // oben links, unter einem Hinweis-Banner (sonst liegt der Banner über dem Kopf)
-        const top = this._alertBar?.isConnected ? this._alertBar.offsetTop + this._alertBar.offsetHeight + 8 : 12;
+        const modes = this.hasAttribute("kiosk") ? this.shadowRoot.querySelector(".stage > .modes:not([hidden])") : null;
+        const top = Math.max(this._alertBar?.isConnected ? this._alertBar.offsetTop + this._alertBar.offsetHeight + 8 : 12, modes ? modes.offsetTop + modes.offsetHeight + 8 : 12);
         p.x = p.x ?? 12 + idx * 28;
         p.y = p.y ?? top + idx * 28;
         this._els.stage.appendChild(p.el);
@@ -1721,8 +1774,9 @@ class Haus3DPanel extends HTMLElement {
       this._updateRoomPanel(p, floor, room);
       clearTimeout(p.climateTimer);
       // gesammelt senden: ein Aufruf nach kurzer Pause
+      const hass = this._hass; // beim Tippen festhalten (Testhaus-Wechsel in der Zwischenzeit)
       p.climateTimer = setTimeout(() => {
-        this._hass.callService("climate", "set_temperature", { entity_id: c.entity, temperature: value }).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+        hass.callService("climate", "set_temperature", { entity_id: c.entity, temperature: value }).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
       }, 700);
     };
     bar.querySelector(".act-minus")?.addEventListener("click", () => step(-1));

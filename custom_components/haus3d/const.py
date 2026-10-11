@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "haus3d"
-VERSION = "0.21.0"
+VERSION = "0.22.0"
 
 STORAGE_VERSION = 1
 STORAGE_KEY_BUILDING = f"{DOMAIN}.building"
@@ -12,7 +12,10 @@ STORAGE_KEY_HISTORY = f"{DOMAIN}.history"
 STORAGE_KEY_INVALID = f"{DOMAIN}.building_invalid"
 # Bauplan-Fotos/Luftbilder je Etage (getrennt vom Grundriss, damit der klein bleibt)
 STORAGE_KEY_BACKGROUNDS = f"{DOMAIN}.backgrounds"
-BACKGROUND_MAX_CHARS = 3_000_000  # Daten-URL (JPEG, im Browser auf höchstens 1600 px verkleinert)
+BACKGROUND_MAX_CHARS = 3_000_000
+# Testhäuser (Entwickler): eigene Grundrisse zum Ausprobieren, getrennt vom echten Haus
+STORAGE_KEY_SANDBOX = f"{DOMAIN}.sandbox"
+SANDBOX_LIMIT = 5  # Daten-URL (JPEG, im Browser auf höchstens 1600 px verkleinert)
 
 # Signal an offene Panels (Dienste haus3d.show/notify/highlight/reload)
 SIGNAL_COMMAND = f"{DOMAIN}_command"

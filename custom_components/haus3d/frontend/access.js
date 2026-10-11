@@ -65,6 +65,62 @@ export function newPinError(a, b) {
 /** Einstellungen, die nur mit der Admin-PIN gespeichert werden (wie ADMIN_SETTINGS in access.py). */
 export const ADMIN_KEYS = ["energy", "alerts", "routines", "security", "safety", "doorbell", "weather", "climate", "season", "house_flow", "presence", "north", "daily"];
 
+/** Testhaus dieses Browsers: {id, name, live} oder null (Entwickler → Testhaus). */
+export const HOUSE_KEY = "haus3d.house";
+export function loadHouse(raw) {
+  try {
+    const h = JSON.parse(raw ?? "null");
+    return h && typeof h.id === "string" && /^test[0-9]{1,30}$/.test(h.id) ? { id: h.id, name: String(h.name ?? "Testhaus"), live: h.live === true } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Befehle, die ins Testhaus umgeleitet werden (Grundriss, Verlauf, Bauplan-Foto). */
+export const HOUSE_TYPES = /^haus3d\/(building|history|background)\//;
+/** Befehle, die im Testhaus ohne „Geräte echt schalten“ nichts in Home Assistant tun dürfen. */
+export const HOUSE_BLOCKED = ["haus3d/lock/unlock", "haus3d/climate/pause"];
+/** Befehle, die im Testhaus nie gehen: dauerhafte Einstellungen des echten Hauses (PINs, Entwickler, Urlaub). */
+export const HOUSE_ALWAYS_BLOCKED = ["haus3d/pin/set", "haus3d/dev/clear", "haus3d/dev/set", "haus3d/away/set"];
+
+const testhausError = () => Object.assign(new Error("Testhaus: nichts an Home Assistant geschickt"), { code: "testhaus", quiet: true });
+
+/**
+ * hass fürs Testhaus: Grundriss-Befehle bekommen `house` (echtes Haus bleibt unberührt).
+ * - Ohne `live` geht nichts an Geräte: Dienste, Tür, Heizung pausieren und Urlaub werden abgelehnt
+ *   (Fehler mit quiet, onBlocked meldet es). In der Simulation (`sim`) schaltet die Simulation selbst.
+ * - Immer gesperrt: Änderungen an der HA-Konfiguration (callApi außer GET, z. B. Szenen) und Befehle
+ *   fürs echte Haus (PINs, Entwickler-Instanz) – auch mit `live` und in der Simulation.
+ */
+export function houseGuard(base, house, { live = false, sim = false, onBlocked = () => {} } = {}) {
+  if (!base || !house) return base;
+  const h = Object.create(base);
+  h.haus3dHouse = house;
+  h.callWS = (msg, ...rest) => {
+    const type = msg?.type ?? "";
+    if (HOUSE_TYPES.test(type)) return base.callWS({ ...msg, house }, ...rest);
+    if (HOUSE_ALWAYS_BLOCKED.includes(type) || (!live && HOUSE_BLOCKED.includes(type))) {
+      onBlocked(type);
+      return Promise.reject(testhausError());
+    }
+    return base.callWS(msg, ...rest);
+  };
+  if (!live && !sim) {
+    h.callService = async (domain, service) => {
+      onBlocked(`${domain}.${service}`);
+      throw testhausError();
+    };
+  }
+  if (base.callApi) {
+    h.callApi = (method, path, ...rest) => {
+      if (String(method).toUpperCase() === "GET") return base.callApi(method, path, ...rest);
+      onBlocked(path);
+      return Promise.reject(testhausError());
+    };
+  }
+  return h;
+}
+
 /**
  * hass mit Tür-Schutz: lock.unlock und lock.open gehen an guard(service, data) (Tür-PIN), alles andere
  * unverändert an Home Assistant. Leichte Hülle (Object.create), Zustände bleiben die des echten hass.

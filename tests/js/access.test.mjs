@@ -64,3 +64,51 @@ test("Tür-Schutz: nur lock.unlock/open gehen an die Tür-PIN, Zustände bleiben
   assert.deepEqual(real.calls, ["lock.lock", "light.toggle"]);
   assert.equal(doorGuard(null, () => {}), null);
 });
+
+test("Testhaus: Grundriss-Befehle gehen ans Testhaus, Geräte bleiben unberührt", async () => {
+  const { houseGuard, loadHouse } = await import("../../custom_components/haus3d/frontend/access.js");
+  const sent = [];
+  const services = [];
+  const api = [];
+  const real = {
+    states: { "light.a": { state: "on" } },
+    callWS: async (m) => (sent.push(m), { ok: true }),
+    callService: async (...a) => services.push(a),
+    callApi: async (...a) => (api.push(a), {}),
+  };
+  const blocked = [];
+  const h = houseGuard(real, "test123", { onBlocked: (w) => blocked.push(w) });
+  assert.equal(h.states["light.a"].state, "on"); // Zustände wie echt
+  await h.callWS({ type: "haus3d/building/save", building: {} });
+  await h.callWS({ type: "haus3d/background/get", floor_id: "eg" });
+  await h.callWS({ type: "haus3d/history/list" });
+  await h.callWS({ type: "haus3d/pin/status" });
+  assert.deepEqual(sent.map((m) => m.house), ["test123", "test123", "test123", undefined]);
+  await assert.rejects(h.callService("light", "turn_off", { entity_id: "light.a" }), { code: "testhaus", quiet: true }); // kein Erfolg melden
+  await assert.rejects(h.callWS({ type: "haus3d/lock/unlock", entity_id: "lock.tuer", pin: "1" }), { code: "testhaus" });
+  await assert.rejects(h.callApi("POST", "config/scene/config/x", {}), { code: "testhaus" });
+  await h.callApi("GET", "history/period");
+  assert.equal(services.length, 0);
+  assert.equal(api.length, 1);
+  assert.deepEqual(blocked, ["light.turn_off", "haus3d/lock/unlock", "config/scene/config/x"]);
+  // live: Geräte echt, Grundriss trotzdem im Testhaus
+  const live = houseGuard(real, "test123", { live: true });
+  await live.callService("light", "turn_on", { entity_id: "light.a" });
+  await live.callWS({ type: "haus3d/building/get" });
+  assert.equal(services.length, 1);
+  assert.equal(sent.at(-1).house, "test123");
+  // auch live und in der Simulation: HA-Konfiguration und PINs bleiben unberührt
+  await assert.rejects(live.callApi("DELETE", "config/scene/config/x"), { code: "testhaus" });
+  await assert.rejects(live.callWS({ type: "haus3d/pin/set", scope: "door", pin: "1234" }), { code: "testhaus" });
+  const sim = houseGuard(real, "test123", { sim: true });
+  await sim.callService("light", "toggle", { entity_id: "light.a" }); // die Simulation schaltet selbst
+  assert.equal(services.length, 2);
+  await assert.rejects(sim.callApi("POST", "config/scene/config/y", {}), { code: "testhaus" });
+  await assert.rejects(sim.callWS({ type: "haus3d/away/set", on: true }), { code: "testhaus" });
+  assert.equal(houseGuard(real, null), real);
+  // gemerkte Auswahl: nur gültige Kennungen
+  assert.deepEqual(loadHouse('{"id":"test42","name":"Spiel"}'), { id: "test42", name: "Spiel", live: false });
+  assert.equal(loadHouse('{"id":"../x"}'), null);
+  assert.equal(loadHouse(""), null);
+  assert.equal(loadHouse(null), null);
+});

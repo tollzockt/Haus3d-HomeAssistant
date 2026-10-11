@@ -1,5 +1,20 @@
 # Änderungen
 
+## 0.22.0
+
+- **Testhaus** (Admin → Entwickler): eigene Häuser zum Ausprobieren – Beispielhaus, Kopie des eigenen Hauses
+  oder leer (bis zu 5). Grundriss, Einstellungen und Bauplan-Fotos liegen getrennt; am echten Haus ändert
+  sich nichts (kein Speichern, kein Verlauf). Gilt nur im eigenen Browser, oben steht lila „Testhaus: …“
+  mit „Mein Haus“ zum Zurückwechseln. Geräte werden im Testhaus nicht geschaltet, außer „Geräte echt
+  schalten“ ist an; „Weitere Infos“ zeigt dann nur Werte. Editor-Entwurf, gemerkte Ansichten, Favoriten und
+  Lüften-Timer sind je Haus getrennt, nichts geht in die HA-Benutzerdaten. PINs, Entwickler-Instanz, Urlaub,
+  Heizungsautomatik und HA-Szenen gehören zum echten Haus und lassen sich im Testhaus nicht ändern. Beim
+  Wechsel werden offene Nachfragen, PIN-Feld, Fenster und Thermostat-Timer abgebrochen; Speichern, das im
+  alten Haus begann, wird verworfen.
+- Behoben: „Alltag“ (Heizungsautomatik, Urlaubs-Lichter) ließ sich mit der Bearbeiten-PIN ändern; jetzt nur
+  mit der Admin-PIN wie im Panel angezeigt.
+- Doku: Import/Verlauf stehen unter Admin-Einstellungen → „Daten & Verlauf“ (nicht mehr „⋮“).
+
 ## 0.21.0
 
 ### Alltag (Admin → Alltag)

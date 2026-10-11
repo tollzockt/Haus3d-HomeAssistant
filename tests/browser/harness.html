@@ -196,6 +196,36 @@ const hass = {
   user: { is_admin: true },
   callWS: async (msg) => {
     window.calls.push(msg);
+    // Testhäuser (wie das Backend): eigener Speicher je Kennung, das echte Haus (data) bleibt unberührt
+    const sandbox = (window.sandbox ??= {});
+    if (msg.type === "haus3d/sandbox/list") return { houses: Object.entries(sandbox).map(([id, h]) => ({ id, name: h.name, floors: h.building.floors.length, rooms: h.building.floors.reduce((n, f) => n + f.rooms.length, 0) })) };
+    if (msg.type === "haus3d/sandbox/create") {
+      const id = `test${Object.keys(sandbox).length + 1}${Date.now()}`;
+      sandbox[id] = { name: msg.name, revision: 1, building: msg.source === "empty" ? { version: 1, floors: [], settings: {} } : structuredClone(data) };
+      return { house: id };
+    }
+    if (msg.type === "haus3d/sandbox/delete") {
+      delete sandbox[msg.house];
+      return { houses: [] };
+    }
+    if (msg.house) {
+      const h = sandbox[msg.house];
+      if (!h) throw { code: "not_found", message: "Dieses Testhaus gibt es nicht (mehr)" };
+      if (msg.type === "haus3d/building/get") return { building: h.building, revision: h.revision, house: msg.house };
+      if (msg.type === "haus3d/building/save") {
+        h.building = structuredClone(msg.building);
+        h.revision += 1;
+        return { building: h.building, revision: h.revision, house: msg.house };
+      }
+      if (msg.type === "haus3d/history/list") return { items: [] };
+      if (msg.type === "haus3d/background/get") return { image: (h.bg ?? {})[msg.floor_id] ?? null };
+      if (msg.type === "haus3d/background/set") return ((h.bg ??= {})[msg.floor_id] = msg.image), { ok: true };
+      if (msg.type === "haus3d/history/snapshot" || msg.type === "haus3d/history/restore") throw { code: "sandbox", message: "Im Testhaus gibt es keinen Verlauf" };
+    }
+    if (msg.type === "haus3d/building/get" && window.failGet) {
+      window.failGet = false; // einmal scheitern (Verbindung weg)
+      throw { code: "not_loaded", message: "Verbindung verloren" };
+    }
     if (msg.type === "haus3d/building/get") return { building: data, revision: 1 };
     if (msg.type === "haus3d/away/status") return { on: !!window.away, lights: 3, paused: [] };
     if (msg.type === "haus3d/away/set") return { on: (window.away = msg.on) };
@@ -239,7 +269,10 @@ const hass = {
       return { ok: true };
     }
     if (params.has("pinlock") && ["haus3d/building/save", "haus3d/history/snapshot", "haus3d/history/restore", "haus3d/background/set"].includes(msg.type) && !(window.tokens ?? {})[msg.token]) throw { code: "locked", message: "Gesperrt" };
-    if (msg.type === "haus3d/building/save") return { building: msg.building, revision: (msg.revision ?? 1) + 1 };
+    if (msg.type === "haus3d/building/save") {
+      window.realSaves = (window.realSaves ?? 0) + 1; // Speichern ins echte Haus (Test: Testhaus darf das nie)
+      return { building: msg.building, revision: (msg.revision ?? 1) + 1 };
+    }
     if (msg.type === "frontend/get_user_data") return { value: window.userData ?? (params.has("userdata") ? { settings: { style: "night", layers: { grid: false } }, views: [{ name: "Garten", position: [20, 12, 20], target: [5, 0, 5] }] } : null) };
     if (msg.type === "frontend/set_user_data") {
       window.userData = msg.value;

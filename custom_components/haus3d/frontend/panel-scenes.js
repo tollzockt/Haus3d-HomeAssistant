@@ -115,6 +115,7 @@ export const SceneMethods = {
   },
 
   async _deleteRoomScene(floor, room, sc) {
+    if (this._sim) return this._toast("In der Simulation werden keine Szenen gelöscht.");
     if (!(await this._confirm(`Szene „${sc.name}“ löschen?`, "Löschen", { danger: true }))) return;
     await this._hass.callApi("DELETE", `config/scene/config/${sc.id}`).catch(() => {}); // fehlt sie schon, egal
     await this._saveRoomScenes(floor, room, (room.scenes ?? []).filter((x) => x.id !== sc.id), "Szene gelöscht.");
@@ -136,8 +137,8 @@ export const SceneMethods = {
 
   _favUses(next) {
     try {
-      if (next) localStorage.setItem(FAV_KEY, JSON.stringify(next));
-      return JSON.parse(localStorage.getItem(FAV_KEY) ?? "{}") ?? {};
+      if (next) localStorage.setItem(this._hk(FAV_KEY), JSON.stringify(next));
+      return JSON.parse(localStorage.getItem(this._hk(FAV_KEY)) ?? "{}") ?? {};
     } catch {
       return next ?? {};
     }
