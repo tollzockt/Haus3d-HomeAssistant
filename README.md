@@ -4,8 +4,6 @@ Eine Home-Assistant-Integration, die deinen Hausgrundriss als interaktives 3D-Mo
 Seitenleisten-Panel zeigt, mit Live-Status von Licht, Fenstern, Türen, Rollläden, Raumklima und
 Energiefluss.
 
-Das Datenformat ist kompatibel mit [NeonPlan 3D](https://github.com/Mastershort/neonplan3d): Exporte von
-dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder öffnen.
 
 ## Neu in 0.21: Alltag, Zeitstrahl, Szenen, Favoriten
 
@@ -374,13 +372,6 @@ die Integration wie oben hinzufügen.
 
 ## Startstand und Datenformat
 
-Beim allerersten Start übernimmt Haus 3D die Datei `custom_components/haus3d/haus-daten.json` als
-Startstand. Danach liegt der Grundriss in `.storage/haus3d.building` (mit Revisionszähler), der Verlauf in
-`.storage/haus3d.history`. Die mitgelieferte Datei ist ein **Beispielhaus**. Den eigenen Grundriss liest
-man am einfachsten über **⋮ → Importieren** ein (NeonPlan-Export oder rohe JSON-Datei).
-
-Das Format entspricht NeonPlan 3D (`version: 1`):
-
 ```text
 floors[]          id, name, elevation, height, ha_floor, attic (Dachgeschoss), knee (Kniestock, m)
   rooms[]         id, name, area_id, points [[x, z], …] in Metern, floor_material,
@@ -411,29 +402,6 @@ settings          wall_exterior (0.24), wall_interior (0.12), wall_colors {exter
                   daily {appliances [{id, name, kind, power, remaining}], calendars, price, price_entity,
                          kwp, vent_min, mold, waste_hour, window_heat {auto, minutes}}
 ```
-
-- Räume werden auf der **Mitte der Innenwände** gezeichnet. Kanten, die zwei Räume teilen, werden zu
-  **einer** Innenwand (`wall_interior`), einzelne Kanten zu Außenwänden (`wall_exterior`, nach außen).
-  Teilweise geteilte Kanten werden in Segmente aufgeteilt.
-- Öffnungen hängen an `room_id` + `edge` (Kante von Punkt *i* zu *i+1*). **`offset` ist der Abstand der
-  Mitte der Öffnung** vom Punkt *i* (wie bei NeonPlan).
-- `contact`/`cover` einer Öffnung: `null` = automatisch aus dem Bereich des Raums, `"none"` = keins,
-  sonst die Entitäts-ID.
-- Gartenflächen liegen auf der Höhe ihrer Etage. **Hang/Böschung:** Eine Gartenfläche kann zusätzlich
-  `heights` haben (Meter über ihrer Etage, ein Wert je Eckpunkt); sie wird dann schräg dargestellt.
-- `balcony`, `gravel`, `paving`, `rockery`, `railing`, Farben, eigene Körper und `settings.roof` sind
-  Erweiterungen von Haus 3D; NeonPlan kennt sie nicht (unbekannte Möbel zeigt es als Kiste).
-- Gartenflächen mit `area_id` (und optional `name`) bekommen wie Räume eine Beschriftung und die Geräte
-  ihres Bereichs (z. B. Gartenlicht). NeonPlan ignoriert diese Zusatzfelder.
-- Räume, die mit Spalt nebeneinander gezeichnet sind (Innenmaße), bietet der Import an zu schließen:
-  gegenüberliegende Kanten bis 45 cm Abstand kommen auf eine gemeinsame Mittellinie.
-
-### NeonPlan-Export aufbereiten
-
-```bash
-node tools/neonplan_aufbereiten.mjs neonplan-export.json haus3d.json
-```
-
 Löst Garten-Etagen (unter 1 m Höhe, Gartenflächen als Räume gezeichnet) in Gartenflächen der Hausetage
 auf gleicher Höhe auf, schließt Lücken zwischen Räumen und trägt die Energie-Entitäten ein. Danach
 `haus3d.json` im Panel importieren.
