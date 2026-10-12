@@ -102,7 +102,7 @@ test("Strompreis: Einheiten, Reihen, günstigstes Fenster, Kosten", () => {
   assert.ok(Math.abs(w.avg - 0.103333) < 1e-5);
   // nur Zukunft
   assert.equal(cheapestWindow(series, 3, base + 6.5 * 3600000), null);
-  // EPEX-Format
+  // Format mit data[] und Preis je MWh
   assert.equal(priceSeries(st(1, { data: [{ start_time: h(0), end_time: h(1), price_eur_per_mwh: 85 }] }))[0].price, 0.085);
   // fester Preis in ct oder €
   assert.equal(currentPrice({ price: 32 }, {}), 0.32);

@@ -175,9 +175,9 @@ export function loadSettings(raw, legacyStyle) {
 }
 /** Spenden (leere URL = nicht anzeigen): [Schlüssel, Name, URL, Symbol]. */
 export const SUPPORT_LINKS = [
-  ["github", "GitHub Sponsors", "https://github.com/sponsors/tollzockt", "mdi:github"],
+  ["github", "GitHub Sponsors", "https://github.com/sponsors/tollzockt", "mdi:heart"],
   ["kofi", "Ko-fi", "", "mdi:coffee"],
-  ["patreon", "Patreon", "", "mdi:patreon"],
+  ["patreon", "Patreon", "", "mdi:account-heart"],
   ["paypal", "PayPal", "https://paypal.me/RobinK24", "mdi:hand-heart"],
 ];
 

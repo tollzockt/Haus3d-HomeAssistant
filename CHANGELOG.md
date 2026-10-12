@@ -1,5 +1,26 @@
 # Änderungen
 
+## 0.22.2
+
+- **Komplett kostenlos** – auch alle künftigen Erweiterungen und Zusatzpakete; Spenden schalten nichts frei.
+- **Marken-Hinweise**: neuer README-Abschnitt „Marken & Hinweise“ (unabhängiges, inoffizielles Projekt, Namen
+  nur als Bezug, Kontakt für Rechteinhaber) und kurze Hinweise im Möbelkatalog und bei den Gerätevorlagen.
+- **Möbelkatalog neutral**: Kategorie „Möbelserien“; Möbel und Konsolen heißen jetzt nach ihrer Gattung mit dem
+  Produkt nur als Maßangabe, z. B. „Würfelregal 2×4 (Maße wie KALLAX)“ oder „Spielkonsole (Maße wie
+  PlayStation 5 Slim)“. Gespeicherte Häuser bleiben unverändert (gleiche Typ-Schlüssel).
+- **Modelle schlichter**: Wallboxen, Wechselrichter, Speicher und Mikrowechselrichter sehen je Gruppe gleich aus
+  (neutrale Farben, nur die Maße unterscheiden sich); Konsolen als schlichte Grundformen ohne Markenfarben
+  (Leuchtflächen folgen nur einem verknüpften Licht); Sessel ohne nachgebautes Gestell; Sofas und Sessel der
+  Möbelserien mit Polster in der gewählten Farbe. „Glasgehäuse“ und „Lichtleiste (stehend)“ statt
+  Anspielungen, „Balkonspeicher“ als Oberbegriff.
+- Hinweise für Netzwerkgeräte und dynamische Strompreise ohne Herstellernamen; der Hinweis bei leerem Grundriss
+  zeigt den richtigen Weg zum Import; ein altes Import-Hilfsskript entfernt; CI prüft wieder alle Python-Dateien
+  und Tests.
+- **Eigenes Symbol** für die Integration (`brand/icon.png`, ab Home Assistant 2026.3 sichtbar); Spenden-Links mit
+  neutralen Symbolen.
+- Regeln für Beiträge in `CONTRIBUTING.md`; Tests wachen über Marken- (Namen, Symbole, Farben) und
+  Datenschutzregeln.
+
 ## 0.22.1
 
 - Export-Dateien tragen die eigene Kennung `haus3d`. Beim Import werden rohe Grundrisse und Exportdateien
@@ -97,7 +118,7 @@
 ## 0.18.3
 
 - **Eigener Speicher bei PV-Anlage und Balkonkraftwerk**: Haken „mit eigenem Speicher“ (z. B. Hybrid-Anlage,
-  Solarbank) mit Ladestand, Speicherleistung, Kapazität und Reserve. Wird beim Speicher mitgezählt und beim
+  Balkonspeicher) mit Ladestand, Speicherleistung, Kapazität und Reserve. Wird beim Speicher mitgezählt und beim
   berechneten Hausverbrauch berücksichtigt; kein zusätzlicher AC-Speicher nötig.
 - Gerätevorlagen (SENEC, Anker, Fronius, Huawei …) füllen bei PV/Balkonkraftwerk den eingebauten Speicher
   gleich mit. SENEC findet jetzt auch die Namen der lokalen API (…powergenerated_now) und der WebAPI.
@@ -125,8 +146,8 @@
 ### Neu
 - **Tür-PIN**: eigener Befehl `haus3d/lock/unlock` prüft die PIN im Backend (still, gedrosselt, kein
   Token) und schließt erst dann auf; das PIN-Feld zeigt, welche Tür entriegelt wird.
-- **Möbelkatalog**: IKEA, weitere Lampen, LED, Gaming, Wallbox & E-Auto, Wechselrichter & Speicher,
-  Solar-Aufständerungen (rund 140 Teile mit Maßen nach Herstellerangaben, eigene 3D-Modelle).
+- **Möbelkatalog**: Möbel in den Maßen bekannter Serien, weitere Lampen, LED, Gaming, Wallbox & E-Auto,
+  Wechselrichter & Speicher, Solar-Aufständerungen (rund 140 Teile mit Maßen nach Herstellerangaben, eigene 3D-Modelle).
 - **Gerätevorlagen** für PV, Balkonkraftwerk und Speicher in der Energie-Einrichtung mit
   Entitätsvorschlägen aus der passenden Integration. Dabei u. a. SENEC.Home und Anker SOLIX Solarbank.
 

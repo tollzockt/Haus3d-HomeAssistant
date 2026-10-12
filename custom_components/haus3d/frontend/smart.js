@@ -179,8 +179,8 @@ export function priceOf(value, unit = "EUR/kWh") {
 }
 
 /**
- * Stundenpreise aus den Attributen gängiger Integrationen (Nordpool raw_today/raw_tomorrow, Tibber/
- * EPEX/aWATTar today/tomorrow/data/prices/forecast) als [{start, end, price}] in €/kWh.
+ * Stundenpreise aus den Attributen gängiger Preis-Integrationen (raw_today/raw_tomorrow bzw.
+ * today/tomorrow/data/prices/forecast) als [{start, end, price}] in €/kWh.
  */
 export function priceSeries(st) {
   if (!st) return [];
@@ -192,7 +192,7 @@ export function priceSeries(st) {
     if (!Array.isArray(list)) continue;
     list.forEach((it, i) => {
       if (typeof it === "number") {
-        // Nordpool: 24 Zahlen je Tag
+        // 24 Zahlen je Tag
         const base = startOfDay(Date.now()) + (key.includes("tomorrow") ? 86400000 : 0);
         out.push({ start: base + i * 3600000, end: base + (i + 1) * 3600000, price: priceOf(it, unit) });
         return;

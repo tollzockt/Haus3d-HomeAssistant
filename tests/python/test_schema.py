@@ -32,6 +32,34 @@ def test_no_private_ids_in_package() -> None:
     assert hits == []
 
 
+# Marken (CONTRIBUTING.md): Hersteller- und Produktnamen nur in den Produktlisten, keine Marken-Symbole,
+# keine Logos/Fotos im Paket; Haus 3D bleibt komplett kostenlos
+BRAND_WORDS = re.compile(
+    r"\b(ikea|playstation|xbox|nintendo|steam deck|solarbank|powerwall|unifi|ubiquiti|tibber|nordpool|awattar|epex|"
+    r"fronius|senec|huawei|victron|growatt|sungrow|goodwe|deye|byd|zendure|ecoflow|marstek|hoymiles|opendtu|apsystems|"
+    r"kostal|solaredge|pylontech|easee|keba|zaptec|tesla)\b",
+    re.I,
+)
+SERIES_WORDS = re.compile(r"\b(KALLAX|BILLY|IVAR|PAX|BRIMNES|MALM|HEMNES|EKTORP|KIVIK|SÖDERHAMN|FRIHETEN|POÄNG|STRANDMON|LACK|BESTÅ|MICKE|ALEX|BEKANT|LINNMON|ADILS|MARKUS|NORDVIKEN|EKEDALEN)\b")
+BRAND_ICONS = re.compile(r"mdi:(github|patreon|paypal|ko-?fi|sony|microsoft|nintendo|tesla|ikea|apple|google|amazon|steam|home-assistant)\b")
+
+
+def test_brand_rules_in_package() -> None:
+    files = [*sorted(PKG.glob("*.py")), *sorted((PKG / "frontend").glob("*.js"))]
+    words = [f.name for f in files if f.name not in VENDOR_LISTS and (BRAND_WORDS.search(t := f.read_text(encoding="utf-8")) or SERIES_WORDS.search(t))]
+    assert words == []
+    icons = [f.name for f in files if BRAND_ICONS.search(f.read_text(encoding="utf-8"))]
+    assert icons == []
+    images = [str(f.relative_to(PKG)) for f in PKG.rglob("*") if f.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico"} and f.parent.name != "brand"]
+    assert images == []
+
+
+def test_free_and_independent_notice() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "komplett kostenlos" in readme and "## Marken & Hinweise" in readme and "keiner Verbindung" in readme
+    support = (PKG / "frontend/panel-support.js").read_text(encoding="utf-8")
+    assert "schalten nichts frei" in support and "Zusatzpaket" not in support
+
 def test_energy_defaults_empty_and_saved_ids_kept() -> None:
     b = validate_building(_building())
     assert b["settings"]["energy"]["einspeisung"] is None

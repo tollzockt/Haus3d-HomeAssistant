@@ -37,7 +37,7 @@ test("networkInfo: Werte aus Attributen und Geschwister-Entitäten", () => {
   assert.equal(ap.uptime, "2 T 3 h");
   assert.equal(ap.restart, "button.ap_flur_restart");
   assert.deepEqual(ap.extra.map((x) => [x.key, x.text]), [["clients", "5"]]);
-  assert.equal(ap.unifi, true);
+  assert.equal(ap.platform, "unifi");
   const tv = networkInfo("device_tracker.tv", hass, NOW);
   assert.equal(tv.role, "client");
   assert.equal(tv.ap, "AP Flur"); // per MAC gefunden (Groß/klein egal)

@@ -45,14 +45,14 @@ export const EnergyCfgMethods = {
         <div class="seg en-grid"><button data-gm="one" class="${gridMode === "one" ? "sel" : ""}">Ein Sensor (±)</button><button data-gm="two" class="${gridMode === "two" ? "sel" : ""}">Bezug und Einspeisung getrennt</button></div>
         ${gridMode === "one" ? `${field('data-core="netz"', "Netz (+ Bezug / − Einspeisung)", e.netz)}<label class="chkrow"><input type="checkbox" data-inv="netz_invert"${e.netz_invert ? " checked" : ""}> Vorzeichen umkehren</label>` : `${field('data-core="netz_bezug"', "Netzbezug", e.netz_bezug)}${field('data-core="netz_einspeisung"', "Einspeisung", e.netz_einspeisung)}`}
         <h4>Erweiterungen</h4>
-        ${e.sources.length ? "" : `<p class="hint">Noch keine – PV-Anlage, Balkonkraftwerk oder AC-Speicher hinzufügen. Alle Erzeuger werden zusammengerechnet.</p>`}
+        ${e.sources.length ? `<p class="hint brandnote">Gerätenamen dienen nur der Zuordnung der passenden Integration – keine Verbindung zu den Herstellern.</p>` : `<p class="hint">Noch keine – PV-Anlage, Balkonkraftwerk oder AC-Speicher hinzufügen. Alle Erzeuger werden zusammengerechnet.</p>`}
         ${e.sources.map((s, i) => `<div class="src" data-i="${i}">
           <div class="srchead"><ha-icon icon="${SOURCE_TYPES.find(([t]) => t === s.type)[2]}"></ha-icon><input class="sname" data-sf="name" value="${esc(s.name)}"><small>${SOURCE_TYPES.find(([t]) => t === s.type)[1]}</small><button class="icon" data-srm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>
           <label class="en-row"><span>Gerät</span><select data-tpl><option value="">– anderes / selbst eintragen –</option>${templatesFor(s.type).map((t) => `<option value="${t.id}"${s.template === t.id ? " selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
           ${tplMsg.has(s.id) ? `<p class="hint sub tplmsg">${esc(tplMsg.get(s.id))}</p>` : ""}
           ${field('data-sf="power"', s.type === "speicher" ? "Leistung (+ laden / − entladen)" : "Leistung", s.power)}
           ${s.type === "speicher" ? storeFields(s, "") : `${field('data-sf="energy"', "Ertrag heute (kWh)", s.energy)}
-          <label class="chkrow ownbat"><input type="checkbox" data-ownbat${batOpen.has(s.id) ? " checked" : ""}> mit eigenem Speicher (z. B. Hybrid-Anlage, Solarbank)</label>
+          <label class="chkrow ownbat"><input type="checkbox" data-ownbat${batOpen.has(s.id) ? " checked" : ""}> mit eigenem Speicher (z. B. Hybrid-Anlage, Balkonspeicher)</label>
           ${batOpen.has(s.id) ? `<div class="ownstore">${storeFields(s, field('data-sf="bat_power"', "Speicherleistung (+ laden / − entladen)", s.bat_power))}<p class="hint sub">Diesen Speicher nicht zusätzlich als AC-Speicher anlegen – sonst wird er doppelt gezählt.</p></div>` : ""}`}
         </div>`).join("")}
         <div class="btns left">${SOURCE_TYPES.map(([t, n, ic]) => `<button data-add="${t}"><ha-icon icon="${ic}"></ha-icon> + ${n}</button>`).join("")}</div>

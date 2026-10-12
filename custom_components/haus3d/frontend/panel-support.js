@@ -86,9 +86,9 @@ export const SupportMethods = {
     el.className = "dialog-backdrop sheet-backdrop";
     el.innerHTML = `<div class="dialog sheet supportdlg" role="dialog" aria-label="Unterstützen"><div class="dialog-head"><span>Haus 3D unterstützen</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
       <div class="dialog-body">
-        <p>Haus 3D ist kostenlos und bleibt es. Entwickelt in der Freizeit – wenn es dir gefällt, hilft eine kleine Spende, dass es weitergeht.</p>
+        <p>Haus 3D ist kostenlos und bleibt es – mit allen Funktionen und allen künftigen Erweiterungen. Entwickelt in der Freizeit – wenn es dir gefällt, hilft eine kleine Spende, dass es weitergeht.</p>
         <div class="slinks">${supportLinks().map(([k, name, url, icon]) => `<a class="slink" data-k="${k}" href="${esc(url)}" target="_blank" rel="noopener noreferrer"><ha-icon icon="${icon}"></ha-icon><span>${esc(name)}</span></a>`).join("")}</div>
-        <p class="hint">Später gibt es optionale Zusatzpakete; alles, was es heute gibt, bleibt frei.</p>
+        <p class="hint">Spenden sind freiwillig und schalten nichts frei – es gibt keine Bezahl-Funktionen.</p>
       </div></div>`;
     el.querySelector(".close").addEventListener("click", () => this._closeDialog());
     el.addEventListener("click", (ev) => ev.target === el && this._closeDialog());

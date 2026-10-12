@@ -60,7 +60,7 @@ export function normalizeEnergy(cfg) {
         power: isId(s.power) ? s.power : null,
         energy: isId(s.energy) ? s.energy : null,
         soc: isId(s.soc) ? s.soc : null,
-        // PV/Balkonkraftwerk mit eigenem Speicher (Hybrid, Solarbank): Leistung des Speichers
+        // PV/Balkonkraftwerk mit eigenem Speicher (Hybrid, Balkonspeicher): Leistung des Speichers
         bat_power: s.type !== "speicher" && isId(s.bat_power) ? s.bat_power : null,
         invert: !!s.invert,
         capacity: Number(s.capacity) > 0 ? Number(s.capacity) : null,

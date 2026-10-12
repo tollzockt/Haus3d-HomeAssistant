@@ -1,4 +1,4 @@
-// I2/I3: erweiterter Möbelkatalog (IKEA, Gaming, Wallbox, Solar) im Editor und Gerätevorlagen in der
+// I2/I3: erweiterter Möbelkatalog (Möbelserien, Gaming, Wallbox, Solar) im Editor und Gerätevorlagen in der
 // Energie-Einrichtung (Entitäten der Integration vorschlagen)
 import { start, unlock } from "./lib.mjs";
 
@@ -12,10 +12,12 @@ await ed.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
 await ed.waitForTimeout(3000); // Vorschaubilder
 const cats = await E(() => [...window.panel._editor.props.querySelectorAll(".cat")].map((h) => h.textContent.trim()));
 t.results.kategorien = cats;
-for (const c of ["IKEA", "LED", "Gaming", "Wallbox & E-Auto", "Wechselrichter & Speicher", "Solar-Aufständerung"]) t.check(cats.some((x) => x.startsWith(c)), `Kategorie fehlt: ${c}`);
+for (const c of ["Möbelserien", "LED", "Gaming", "Wallbox & E-Auto", "Wechselrichter & Speicher", "Solar-Aufständerung"]) t.check(cats.some((x) => x.startsWith(c)), `Kategorie fehlt: ${c}`);
 await ed.locator("haus3d-panel .ed-props .search").fill("kallax");
 const hits = await ed.locator("haus3d-panel .ed-props .tile").count();
 t.check(hits === 4, `Suche KALLAX: ${hits}`);
+const note = await E(() => window.panel._editor.props.querySelector(".brandnote")?.textContent ?? "");
+t.check(note.includes("keine Verbindung"), `Marken-Hinweis fehlt: ${note}`);
 const plan = (x, z) => E(([x, z]) => {
   const e = window.panel._editor;
   const r = e.svg.getBoundingClientRect();

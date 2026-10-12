@@ -357,7 +357,7 @@ export const SmartMethods = {
         <label class="en-row"><span>Müll-Erinnerung am Vorabend ab (Uhr)</span><input type="number" min="0" max="23" data-wh value="${d.waste_hour}"></label>
         <h4>Strompreis</h4>
         <label class="en-row"><span>Fester Preis (ct/kWh)</span><input type="number" step="0.1" min="0" data-price value="${d.price ?? ""}" placeholder="z. B. 32"></label>
-        <label class="en-row"><span>oder dynamischer Preis (Sensor)</span><input data-pe list="dl_pow" value="${esc(d.price_entity ?? "")}" placeholder="Tibber, Nordpool, EPEX …"></label>
+        <label class="en-row"><span>oder dynamischer Preis (Sensor)</span><input data-pe list="dl_pow" value="${esc(d.price_entity ?? "")}" placeholder="Sensor mit Stundenpreisen (dynamischer Tarif)"></label>
         <label class="en-row"><span>PV-Leistung (kWp, für die Vorhersage im Zeitstrahl)</span><input type="number" step="0.1" min="0" data-kwp value="${d.kwp ?? ""}" placeholder="z. B. 9,8"></label>
         <h4>Lüften & Heizen</h4>
         <label class="en-row"><span>Lüften-Timer (min)</span><input type="number" min="1" max="60" data-vent value="${d.vent_min}"></label>

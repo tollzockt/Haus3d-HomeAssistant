@@ -56,13 +56,8 @@ function X(M) {
     alu: m(0xc9ccd1, { metalness: 0.6, roughness: 0.35 }),
     birch: m(0xd9b98a),
     oak: m(0xb58d5c),
-    black: m(0x1e1f22, { roughness: 0.5 }),
     grey: m(0x8a8f96),
-    orange: m(0xe8710a),
     red: m(0xc62828),
-    green: m(0x2e7d32),
-    teal: m(0x00897b),
-    cream: m(0xece4d4),
     car: m(0x546e7a, { metalness: 0.5, roughness: 0.35 }),
     tyre: m(0x222222, { roughness: 0.9 }),
   };
@@ -126,7 +121,7 @@ function panel(g, M, x, y, z, pw, pl, tilt, face = 1) {
 
 // ------------------------------------------------------------------ einzelne Gruppen
 
-function ikea(type, w, d, h, M, g) {
+function series(type, w, d, h, M, g) {
   const x = X(M);
   switch (type) {
     case "ikea_kallax_1x4":
@@ -172,33 +167,25 @@ function ikea(type, w, d, h, M, g) {
       box(g, M.white, w * 0.15, 0.4, 0.4, w / 2 - w * 0.075, 0.38, -d / 2 + 0.25);
       return true;
     case "ikea_ektorp_3":
-      sofa(g, M, x.cream, w, h, d, { arms: 0.2, cushions: 3, legs: 0.05 });
+      sofa(g, M, M.fabric, w, h, d, { arms: 0.2, cushions: 3, legs: 0.05 });
       return true;
     case "ikea_kivik_3":
       sofa(g, M, M.fabric, w, h, d, { arms: 0.25, cushions: 3, legs: 0.06 });
       return true;
     case "ikea_soderhamn_3":
-      sofa(g, M, x.grey, w, h, d, { arms: 0.1, cushions: 3, legs: 0.03, seatH: 0.4 });
+      sofa(g, M, M.fabric, w, h, d, { arms: 0.1, cushions: 3, legs: 0.03, seatH: 0.4 });
       return true;
     case "ikea_friheten":
-      sofa(g, M, x.grey, w, h, d - 0.6, { arms: 0, cushions: 3, legs: 0.08, chaise: 0.85 });
+      sofa(g, M, M.fabric, w, h, d - 0.6, { arms: 0, cushions: 3, legs: 0.08, chaise: 0.85 });
       return true;
-    case "ikea_poang": {
-      // geschwungenes Birkenholz-Gestell, Polster
-      for (const sx of [-1, 1]) {
-        rod(g, x.birch, [sx * (w / 2 - 0.04), 0.02, d / 2 - 0.05], [sx * (w / 2 - 0.04), 0.02, -d / 2 + 0.05], 0.02);
-        rod(g, x.birch, [sx * (w / 2 - 0.04), 0.02, d / 2 - 0.05], [sx * (w / 2 - 0.04), 0.55, d / 2 - 0.12], 0.02);
-      }
-      const seat = box(g, M.fabric, w - 0.14, 0.08, d * 0.55, 0, 0.32, 0.08);
-      seat.rotation.x = 0.25;
-      const back = box(g, M.fabric, w - 0.14, h * 0.62, 0.08, 0, 0.36, -d / 2 + 0.18);
-      back.rotation.x = -0.35;
+    case "ikea_poang":
+      // schlichter Sessel in den Maßen der Serie (bewusst ohne deren Gestell-Form)
+      sofa(g, M, M.fabric, w, h, d, { arms: 0.08, cushions: 1, legs: 0.1, seatH: 0.42 });
       return true;
-    }
     case "ikea_strandmon":
-      sofa(g, M, x.teal, w, h, d, { arms: 0.14, cushions: 1, legs: 0.12 });
-      box(g, x.teal, 0.14, 0.25, 0.25, -w / 2 + 0.07, h - 0.25, -d / 2 + 0.2);
-      box(g, x.teal, 0.14, 0.25, 0.25, w / 2 - 0.07, h - 0.25, -d / 2 + 0.2);
+      // Ohrensessel: Polster in der gewählten Farbe, seitliche „Ohren“ an der Lehne
+      sofa(g, M, M.fabric, w, h, d, { arms: 0.14, cushions: 1, legs: 0.12 });
+      for (const sx of [-1, 1]) box(g, M.fabric, 0.14, 0.25, 0.25, sx * (w / 2 - 0.07), h - 0.25, -d / 2 + 0.2);
       return true;
     case "ikea_lack_coffee":
     case "ikea_lack_side":
@@ -525,24 +512,20 @@ function gaming(type, w, d, h, M, g, bulbs) {
     case "console_ps5":
     case "console_ps5_pro":
       box(g, M.white, w * 0.7, h, d, 0, 0, 0);
-      box(g, M.dark, w * 0.25, h * 0.96, d * 0.98, 0, 0.005, 0);
       bulbs.push(box(g, M.bulb, w * 0.3, h * 0.6, 0.004, 0, h * 0.2, d / 2 + 0.002));
       return true;
     case "console_xbox_x":
       box(g, M.dark, w, h, d, 0, 0, 0);
-      cyl(g, x.black, w * 0.4, 0.004, 0, h, 0, 24);
-      bulbs.push(cyl(g, x.green, w * 0.38, 0.003, 0, h + 0.004, 0, 24));
+      bulbs.push(box(g, M.bulb, w * 0.3, 0.01, 0.004, 0, h * 0.85, d / 2 + 0.002)); // Statusleuchte
       return true;
     case "console_xbox_s":
       box(g, M.white, w, h, d, 0, 0, 0);
-      cyl(g, M.dark, h * 0.3, 0.004, w / 2 + 0.002, h * 0.6, d * 0.1, 20).rotation.z = Math.PI / 2;
       return true;
     case "console_switch":
       box(g, M.dark, w * 0.75, h * 0.65, d, 0, 0, 0);
       box(g, M.dark, w * 0.72, h * 0.62, 0.014, 0, h * 0.35, d / 2 + 0.008);
       box(g, M.screen, w * 0.55, h * 0.5, 0.004, 0, h * 0.4, d / 2 + 0.016);
-      box(g, x.teal, w * 0.09, h * 0.62, 0.014, -w * 0.41, h * 0.35, d / 2 + 0.008);
-      box(g, x.red, w * 0.09, h * 0.62, 0.014, w * 0.41, h * 0.35, d / 2 + 0.008);
+      for (const sx of [-1, 1]) box(g, x.grey, w * 0.09, h * 0.62, 0.014, sx * w * 0.41, h * 0.35, d / 2 + 0.008);
       return true;
     case "steam_deck":
       box(g, M.dark, w, h * 0.5, d, 0, 0, 0);
@@ -605,19 +588,11 @@ function wallbox(type, w, d, h, M, g, bulbs) {
     return true;
   }
   if (!type.startsWith("wallbox")) return false;
-  const x = X(M);
-  const body = type === "wallbox_tesla" || type === "wallbox_easee" || type === "wallbox_zaptec" ? M.white : type === "wallbox_heidelberg" ? x.grey : M.dark;
-  box(g, body, w, h, d * 0.9, 0, 0, -d * 0.05);
-  if (type === "wallbox_easee" || type === "wallbox_zaptec") box(g, M.dark, w * 0.9, h * 0.9, 0.01, 0, h * 0.05, d / 2 - 0.05);
-  // Statusleuchte
-  if (type === "wallbox_goe" || type === "wallbox_pulsar") {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(Math.min(w, h) * 0.28, 0.008, 6, 28), M.bulb);
-    ring.position.set(0, h * 0.55, d * 0.4 + 0.004);
-    g.add(ring);
-    bulbs.push(ring);
-  } else bulbs.push(box(g, M.bulb, w * 0.5, 0.012, 0.006, 0, h * 0.7, d * 0.4 + 0.003));
+  // eine neutrale Form für alle Modelle (Größe aus dem Katalog), keine Herstellerfarben oder -details
+  box(g, M.dark, w, h, d * 0.9, 0, 0, -d * 0.05);
+  bulbs.push(box(g, M.bulb, w * 0.5, 0.012, 0.006, 0, h * 0.7, d * 0.4 + 0.003)); // Statusleuchte
   // Kabel: Schlaufe nach unten, Stecker im Halter
-  const cx = type === "wallbox_heidelberg" ? 0 : w * 0.35;
+  const cx = w * 0.35;
   rod(g, M.dark, [0, 0.01, d * 0.2], [0, -0.35, d * 0.25], 0.012);
   rod(g, M.dark, [0, -0.35, d * 0.25], [cx, -0.25, d * 0.3], 0.012);
   rod(g, M.dark, [cx, -0.25, d * 0.3], [cx, h * 0.3, d * 0.45], 0.012);
@@ -629,23 +604,19 @@ function wallbox(type, w, d, h, M, g, bulbs) {
 function energy(type, w, d, h, M, g, bulbs) {
   const x = X(M);
   if (type.startsWith("inv_")) {
-    const col = { inv_fronius_gen24: M.white, inv_sma_stp_se: M.white, inv_huawei_sun2000: M.white, inv_kostal_plenticore: M.white, inv_solaredge_hub: M.white, inv_victron_mp2: x.teal, inv_growatt_mod: M.white, inv_sungrow_sh: M.white, inv_goodwe_et: M.white, inv_deye_hybrid: M.white }[type] ?? M.white;
-    const accent = { inv_fronius_gen24: x.red, inv_sma_stp_se: x.orange, inv_huawei_sun2000: x.red, inv_kostal_plenticore: x.red, inv_solaredge_hub: x.red, inv_victron_mp2: M.dark, inv_growatt_mod: x.orange, inv_sungrow_sh: x.orange, inv_goodwe_et: x.teal, inv_deye_hybrid: x.teal }[type] ?? x.grey;
-    box(g, col, w, h, d, 0, 0, 0);
-    box(g, accent, w, h * 0.08, 0.006, 0, h * 0.82, d / 2 + 0.003);
+    // neutral für alle Hersteller: weißes Gehäuse, graue Blende
+    box(g, M.white, w, h, d, 0, 0, 0);
+    box(g, x.grey, w, h * 0.08, 0.006, 0, h * 0.82, d / 2 + 0.003);
     box(g, M.screen, w * 0.25, h * 0.1, 0.005, 0, h * 0.6, d / 2 + 0.003);
     bulbs.push(box(g, M.bulb, 0.04, 0.012, 0.006, w * 0.25, h * 0.62, d / 2 + 0.004));
     for (let i = 0; i < 4; i++) cyl(g, M.dark, 0.012, 0.04, -w * 0.3 + i * w * 0.2, -0.04, 0, 8);
     return true;
   }
   if (type.startsWith("bat_")) {
-    const stack = {
-      bat_byd_hvs: [M.white, 4, x.red], bat_huawei_luna10: [M.white, 3, x.red], bat_huawei_luna15: [M.white, 4, x.red], bat_sma_home: [M.white, 3, x.orange],
-      bat_sonnen10: [M.white, 1, x.orange], bat_tesla_pw3: [M.white, 1, M.dark], bat_e3dc: [M.white, 2, x.teal], bat_pylontech: [M.dark, 1, x.green],
-      bat_zendure_sf800: [x.grey, 1, M.dark], bat_zendure_hyper: [x.grey, 3, M.dark], bat_ecoflow_stream: [x.grey, 1, M.dark], bat_ecoflow_delta: [x.grey, 1, M.dark],
-      bat_marstek_venus: [M.white, 1, M.dark], bat_senec_v3: [M.white, 1, x.green], bat_growatt_noah: [M.white, 1, x.orange],
-    }[type] ?? [M.white, 1, x.grey];
-    const [mat, n, accent] = stack;
+    // neutral für alle Hersteller; die Zahl der Module ergibt sich nur aus der Höhe
+    const n = Math.max(1, Math.round(h / 0.45));
+    const mat = M.white;
+    const accent = x.grey;
     const gap = 0.006;
     for (let i = 0; i < n; i++) {
       const mh = (h - gap * (n - 1)) / n;
@@ -654,11 +625,10 @@ function energy(type, w, d, h, M, g, bulbs) {
     box(g, accent, w * 0.6, 0.012, 0.004, 0, h - 0.06, d / 2 + 0.002);
     // Ladestandsanzeige (leuchtet, wenn verknüpft)
     for (let i = 0; i < 4; i++) bulbs.push(box(g, M.bulb, w * 0.06, 0.012, 0.004, -w * 0.12 + i * w * 0.08, h * 0.5, d / 2 + 0.003));
-    if (type === "bat_pylontech") for (const sx of [-1, 1]) box(g, M.metal, 0.02, h, 0.02, sx * (w / 2 + 0.01), 0, d / 2 - 0.02);
     return true;
   }
   if (type.startsWith("micro_")) {
-    box(g, type === "micro_ecoflow" ? x.grey : M.dark, w, h, d, 0, 0, 0);
+    box(g, M.dark, w, h, d, 0, 0, 0);
     for (let i = 0; i < 6; i++) box(g, M.dark, w * 0.9, 0.006, d * 0.4, 0, h * (0.15 + i * 0.13), d / 2);
     bulbs.push(box(g, M.bulb, 0.012, 0.012, 0.004, w * 0.4, h * 0.85, d / 2 + 0.002));
     rod(g, M.dark, [-w * 0.3, 0, 0], [-w * 0.3, -0.25, 0.02], 0.006);
@@ -743,5 +713,5 @@ function solar(type, w, d, h, M, g) {
 
 /** Baut einen Typ aus dem erweiterten Katalog; false, wenn der Typ nicht dazugehört. */
 export function buildExtra(type, w, d, h, M, g, bulbs) {
-  return ikea(type, w, d, h, M, g) || lamps(type, w, d, h, M, g, bulbs) || leds(type, w, d, h, M, g, bulbs) || gaming(type, w, d, h, M, g, bulbs) || wallbox(type, w, d, h, M, g, bulbs) || energy(type, w, d, h, M, g, bulbs) || solar(type, w, d, h, M, g);
+  return series(type, w, d, h, M, g) || lamps(type, w, d, h, M, g, bulbs) || leds(type, w, d, h, M, g, bulbs) || gaming(type, w, d, h, M, g, bulbs) || wallbox(type, w, d, h, M, g, bulbs) || energy(type, w, d, h, M, g, bulbs) || solar(type, w, d, h, M, g);
 }

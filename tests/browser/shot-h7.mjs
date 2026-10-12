@@ -1,4 +1,4 @@
-// H7: Netzwerkgeräte (UniFi Network): Symbole im Plan, Fenster mit IP/WLAN/Signal/Laufzeit, Neustart mit
+// H7: Netzwerkgeräte (Router-/Controller-Integration): Symbole im Plan, Fenster mit IP/WLAN/Signal/Laufzeit, Neustart mit
 // Nachfrage, Liste aller Geräte über das Funktionsrad
 import { start } from "./lib.mjs";
 

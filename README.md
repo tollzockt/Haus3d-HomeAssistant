@@ -4,6 +4,9 @@ Eine Home-Assistant-Integration, die deinen Hausgrundriss als interaktives 3D-Mo
 Seitenleisten-Panel zeigt, mit Live-Status von Licht, Fenstern, Türen, Rollläden, Raumklima und
 Energiefluss.
 
+Unabhängiges, inoffizielles Projekt – komplett kostenlos, ohne Bezahl-Funktionen (siehe
+[Marken & Hinweise](#marken--hinweise)).
+
 
 ## Neu in 0.22: Testhaus für Entwickler
 
@@ -51,14 +54,14 @@ Energiefluss.
   eine Unterverteilung mit Zähler zeigt zusätzlich, was „nicht zugeordnet“ ist.
 - **Leitungen bearbeiten**: gewählte Leitung → Punkte ziehen, Strecke antippen fügt einen Punkt ein, Punkt
   antippen ändert **seine Höhe** (oder alle auf einmal), Punkt löschen.
-- Neuer Leitungstyp **Netzwerk** (Datenrate z. B. aus UniFi-Sensoren oder Gerät online).
+- Neuer Leitungstyp **Netzwerk** (Datenrate z. B. aus Sensoren der Netzwerk-Integration oder Gerät online).
 
 ## Unterstützen
 
-Haus 3D ist kostenlos und bleibt es. Wenn es dir gefällt, freue ich mich über eine Spende – über den
-**„Sponsor“-Knopf** oben im Repo oder im Panel unter **Zahnrad → ♥ Haus 3D unterstützen**. Das Panel zeigt
-nach 14 Tagen einmalig einen dezenten Hinweis (nie auf dem Wandtablet). Später gibt es optionale
-Zusatzpakete; alles, was es heute gibt, bleibt frei.
+Haus 3D ist kostenlos und bleibt es – mit allen Funktionen und auch allen künftigen Erweiterungen und
+Zusatzpaketen. Wenn es dir gefällt, freue ich mich über eine Spende – über den **„Sponsor“-Knopf** oben im
+Repo oder im Panel unter **Zahnrad → ♥ Haus 3D unterstützen**. Spenden sind freiwillig und schalten nichts
+frei. Das Panel zeigt nach 14 Tagen einmalig einen dezenten Hinweis (nie auf dem Wandtablet).
 
 ## Neu in 0.18: Tür-PIN, großer Möbelkatalog, Gerätevorlagen
 
@@ -67,16 +70,18 @@ Zusatzpakete; alles, was es heute gibt, bleibt frei.
   prüft die PIN und schließt erst dann auf; eine falsche PIN löst nichts aus. **Abschließen** geht ohne PIN.
   Tür-PIN unter Admin-Einstellungen → PIN & Zugang (Standard 0000 – bitte ändern). Hinweis: Die PIN schützt
   die Bedienung in Haus 3D; Automationen und die normale HA-Oberfläche bleiben davon unberührt.
-- **Möbelkatalog** um rund 140 Teile erweitert (Maße nach Hersteller- bzw. Händlerangaben):
-  - **IKEA**: KALLAX, BILLY, IVAR, PAX, BRIMNES, MALM, HEMNES, EKTORP, KIVIK, SÖDERHAMN, FRIHETEN, POÄNG,
-    STRANDMON, LACK, BESTÅ, MICKE, ALEX, BEKANT, LINNMON/ADILS, MARKUS, NORDVIKEN, EKEDALEN.
+- **Möbelkatalog** um rund 140 Teile erweitert (Maße nach öffentlichen Hersteller- bzw. Händlerangaben, ohne
+  Gewähr; eigene, vereinfachte Modelle):
+  - **Möbelserien**: Regale, Schränke, Kommoden, Bett, Sofas, Sessel, Tische und Bürostuhl in den Maßen
+    bekannter Serien (z. B. Würfelregal „Maße wie KALLAX“, Bücherregal „Maße wie BILLY“).
   - **Lampen**: Bogenlampe, Dreibein, Kugel-Pendel, Kronleuchter, Ring-LED, Mehrfach-Pendel, Glühbirne am
     Kabel, Schienensystem, Schreibtisch-, Pilzleuchte, Neon-Schild.
   - **LED**: Deckenvoute, Alu-Profil, Lichtleiste, Eck-Stab, TV-Hintergrund, Hexagon-Panels, Lichtlinien,
     Bett- und Treppenbeleuchtung. Mit einem Licht verknüpft leuchten sie in dessen Farbe.
   - **Gaming**: Gaming-PC, Schreibtisch, Stuhl, Monitore (27″, 34″/49″ curved, Doppel), Tastatur & Maus,
-    Lautsprecher, Headset-Ständer, Mikrofonarm, PlayStation 5 (Slim/Pro), Xbox Series X/S, Switch, Steam Deck,
-    Controller, VR-Brille, Sim-Racing-Sitz – RGB-Teile folgen einem verknüpften Licht.
+    Lautsprecher, Headset-Ständer, Mikrofonarm, Spielkonsolen und Handhelds in den Maßen gängiger Modelle
+    (z. B. PlayStation 5, Xbox Series X/S, Switch, Steam Deck), Controller, VR-Brille, Sim-Racing-Sitz – RGB-Teile
+    folgen einem verknüpften Licht.
   - **Wallbox & E-Auto**: go-e, Tesla Wall Connector, Easee, Wallbox Pulsar Plus, KEBA P30, Zaptec Go,
     Heidelberg, allgemeine Wallbox, E-Auto.
   - **Wechselrichter & Speicher**: Fronius GEN24, SMA STP SE, Huawei SUN2000/LUNA2000, Kostal PLENTICORE,
@@ -104,7 +109,7 @@ Zusatzpakete; alles, was es heute gibt, bleibt frei.
   **Zielraum** Strom braucht; Wasser, wenn der Durchfluss > 0 bzw. Ventil/Pumpe an ist. Der Energiefluss
   im Haus läuft nur noch in diesen Leitungen (keine Luftlinien zu den Räumen mehr; die Linie vom
   Balkonkraftwerk erscheint nur, solange noch keine Stromleitung gelegt ist). Ebene „Leitungen“ im Zahnrad.
-- **Netzwerkgeräte** (Integration „UniFi Network“, allgemein device_tracker mit `source_type: router`):
+- **Netzwerkgeräte** (Router-/Controller-Integrationen, allgemein device_tracker mit `source_type: router`):
   Symbol bzw. 3D-Gerät im Raum (Bereich des Geräts) oder frei im Editor platziert; Tipp öffnet
   online/offline, IP, WLAN, Signal, Access Point, Laufzeit, Clients und **Neu starten** (mit Nachfrage).
   „Netzwerk“ im Funktionsrad listet alle Geräte.
@@ -408,9 +413,9 @@ settings          wall_exterior (0.24), wall_interior (0.12), wall_colors {exter
                   daily {appliances [{id, name, kind, power, remaining}], calendars, price, price_entity,
                          kwp, vent_min, mold, waste_hour, window_heat {auto, minutes}}
 ```
-Löst Garten-Etagen (unter 1 m Höhe, Gartenflächen als Räume gezeichnet) in Gartenflächen der Hausetage
-auf gleicher Höhe auf, schließt Lücken zwischen Räumen und trägt die Energie-Entitäten ein. Danach
-`haus3d.json` im Panel importieren.
+Eigenen Grundriss einlesen: Zahnrad → Admin-Einstellungen → Daten & Verlauf → Importieren. Gelesen werden
+rohe Grundriss-Dateien (`version: 1`, `floors`) und Haus-3D-Exporte (`{format: "haus3d", building}`); Lücken
+zwischen Räumen (bis 45 cm) bietet der Import zum Schließen an.
 
 ### Energie-Entitäten
 
@@ -438,6 +443,22 @@ NODE_PATH="$(npm root -g)" node tests/browser/run.mjs /tmp/shots
 Die Wandberechnung (`frontend/walls.js`) ist ein eigenes Modul ohne Three.js. Die Tests prüfen gegen
 `haus-daten.json`, dass es keine doppelten Innenwände gibt und jede Öffnung auf genau einem Wandsegment
 landet.
+
+## Marken & Hinweise
+
+Haus 3D ist ein unabhängiges, inoffizielles Projekt und **komplett kostenlos** – mit allen Funktionen und
+allen künftigen Erweiterungen. Spenden sind freiwillig und schalten nichts frei.
+
+Genannte Firmen- und Produktnamen (z. B. IKEA, PlayStation, Xbox, Nintendo Switch, Tesla, Fronius, SMA) sind
+Marken ihrer jeweiligen Inhaber. Haus 3D steht in keiner Verbindung zu diesen Unternehmen oder zu Home
+Assistant, Nabu Casa bzw. der Open Home Foundation und wird von ihnen weder unterstützt noch geprüft. Die Namen
+bezeichnen nur Maße („Maße wie …“) bzw. das Gerät und die passende Home-Assistant-Integration. Die 3D-Modelle
+sind eigene, stark vereinfachte Darstellungen ohne Logos, Produktfotos oder Markenfarben; die Maße stammen aus
+öffentlich zugänglichen Herstellerangaben, ohne Gewähr.
+
+Rechteinhaber mit Einwänden erreichen mich über die
+[GitHub-Issues](https://github.com/tollzockt/Haus3d-HomeAssistant/issues) – die betroffene Stelle wird
+umgehend geändert.
 
 ## Lizenz
 

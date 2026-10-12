@@ -1,5 +1,5 @@
-// Netzwerkgeräte (ohne DOM, mit node testbar): device_tracker mit source_type „router“ – z. B. aus der
-// UniFi-Network-Integration (Clients, Access Points, Switches, Gateways). Zusatzwerte kommen aus den
+// Netzwerkgeräte (ohne DOM, mit node testbar): device_tracker mit source_type „router“ – z. B. aus einer
+// Router-/Controller-Integration (Clients, Access Points, Switches, Gateways). Zusatzwerte kommen aus den
 // Attributen und aus den übrigen Entitäten desselben Geräts (Laufzeit, Clients, CPU, Temperatur, Neustart).
 
 const ONLINE = ["home", "connected", "on"];
@@ -131,7 +131,7 @@ export function networkInfo(entityId, hass, now = Date.now()) {
     manufacturer: device?.manufacturer ?? null,
     extra,
     restart: sib.restart,
-    unifi: ent?.platform === "unifi",
+    platform: ent?.platform ?? null,
   };
 }
 

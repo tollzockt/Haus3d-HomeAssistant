@@ -73,7 +73,7 @@ export const NetworkMethods = {
     const body = el.querySelector(".dialog-body");
     const list = networkDevices(this._hass);
     if (!list.length) {
-      body.innerHTML = `<p class="hint">Keine Netzwerkgeräte gefunden. In Home Assistant die Integration „UniFi Network“ einrichten – ihre Geräte-Tracker (Clients, Access Points, Switches) erscheinen dann hier und im Plan (Bereich zuordnen oder im Editor mit „Gerät“ platzieren).</p>`;
+      body.innerHTML = `<p class="hint">Keine Netzwerkgeräte gefunden. In Home Assistant eine Netzwerk-Integration einrichten, die Geräte-Tracker für Router bzw. Controller liefert – Clients, Access Points und Switches erscheinen dann hier und im Plan (Bereich zuordnen oder im Editor mit „Gerät“ platzieren).</p>`;
       return;
     }
     const online = list.filter((n) => n.online).length;

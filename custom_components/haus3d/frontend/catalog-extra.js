@@ -1,42 +1,46 @@
-// Erweiterter Möbelkatalog (ohne Three.js, mit node testbar): IKEA-Klassiker, weitere Lampen und LEDs,
-// Gaming, Wallboxen, Wechselrichter, Speicher, Mikrowechselrichter und Solar-Aufständerungen.
-// Maße (w × d × h in m, Breite × Tiefe × Höhe) nach Hersteller- bzw. Händlerangaben; einige sind
-// gerundet. Produktnamen dienen nur der Wiedererkennung, die Modelle sind vereinfacht.
+// Erweiterter Möbelkatalog (ohne Three.js, mit node testbar): Möbel in den Maßen bekannter Serien,
+// weitere Lampen und LEDs, Gaming, Wallboxen, Wechselrichter, Speicher, Mikrowechselrichter und
+// Solar-Aufständerungen. Maße (w × d × h in m, Breite × Tiefe × Höhe) nach öffentlichen Hersteller- bzw.
+// Händlerangaben, einige gerundet, ohne Gewähr.
+//
+// Marken (siehe CONTRIBUTING.md): Fremde Produkt- und Herstellernamen nur als Bezug („Maße wie …“ bzw.
+// Gerätename für Montagehöhe und Integration), nie als Kategorie, Logo oder Markenfarbe. Die Modelle sind
+// eigene, stark vereinfachte Grundformen ohne die typischen Gestaltungsmerkmale der Originale.
 
 /** Typ → [Name, w, d, h] */
 export const EXTRA = {
-  // IKEA (Maße wie auf den Produktseiten)
-  ikea_kallax_1x4: ["KALLAX Regal 1×4", 0.42, 0.39, 1.47],
-  ikea_kallax_2x2: ["KALLAX Regal 2×2", 0.77, 0.39, 0.77],
-  ikea_kallax_2x4: ["KALLAX Regal 2×4", 0.77, 0.39, 1.47],
-  ikea_kallax_4x4: ["KALLAX Regal 4×4", 1.47, 0.39, 1.47],
-  ikea_billy_80: ["BILLY Bücherregal 80", 0.8, 0.28, 2.02],
-  ikea_billy_40: ["BILLY Bücherregal 40", 0.4, 0.28, 2.02],
-  ikea_ivar: ["IVAR Regal", 0.89, 0.3, 1.79],
-  ikea_pax_100: ["PAX Kleiderschrank 100", 1.0, 0.58, 2.36],
-  ikea_pax_50: ["PAX Kleiderschrank 50", 0.5, 0.58, 2.36],
-  ikea_brimnes_3: ["BRIMNES Kleiderschrank 3 Türen", 1.17, 0.5, 1.9],
-  ikea_malm_chest6: ["MALM Kommode 6 Schubladen", 1.6, 0.48, 0.78],
-  ikea_hemnes_chest8: ["HEMNES Kommode 8 Schubladen", 1.6, 0.5, 0.96],
-  ikea_malm_dressing: ["MALM Frisiertisch", 1.2, 0.41, 0.78],
-  ikea_malm_bed160: ["MALM Bett 160×200", 1.76, 2.09, 1.0],
-  ikea_ektorp_3: ["EKTORP 3er-Sofa", 2.18, 0.88, 0.88],
-  ikea_kivik_3: ["KIVIK 3er-Sofa", 2.28, 0.95, 0.83],
-  ikea_soderhamn_3: ["SÖDERHAMN 3er-Sofa", 1.98, 0.99, 0.83],
-  ikea_friheten: ["FRIHETEN Ecksofa", 2.3, 1.51, 0.66],
-  ikea_poang: ["POÄNG Sessel", 0.68, 0.82, 1.0],
-  ikea_strandmon: ["STRANDMON Ohrensessel", 0.82, 0.96, 1.01],
-  ikea_lack_coffee: ["LACK Couchtisch", 1.18, 0.78, 0.45],
-  ikea_lack_side: ["LACK Beistelltisch", 0.55, 0.55, 0.45],
-  ikea_besta_tv: ["BESTÅ TV-Bank 180", 1.8, 0.42, 0.39],
-  ikea_micke: ["MICKE Schreibtisch", 1.05, 0.5, 0.75],
-  ikea_alex: ["ALEX Schreibtisch", 1.31, 0.6, 0.76],
-  ikea_bekant: ["BEKANT Schreibtisch 160×80", 1.6, 0.8, 0.75],
-  ikea_linnmon_100: ["LINNMON/ADILS Tisch 100×60", 1.0, 0.6, 0.74],
-  ikea_linnmon_150: ["LINNMON/ADILS Tisch 150×75", 1.5, 0.75, 0.74],
-  ikea_markus: ["MARKUS Bürostuhl", 0.62, 0.6, 1.35],
-  ikea_nordviken: ["NORDVIKEN Esstisch", 1.52, 0.95, 0.75],
-  ikea_ekedalen: ["EKEDALEN Esstisch", 1.2, 0.8, 0.75],
+  // Möbel in den Maßen bekannter Serien (Schlüssel bleiben für gespeicherte Häuser unverändert)
+  ikea_kallax_1x4: ["Würfelregal 1×4 (Maße wie KALLAX)", 0.42, 0.39, 1.47],
+  ikea_kallax_2x2: ["Würfelregal 2×2 (Maße wie KALLAX)", 0.77, 0.39, 0.77],
+  ikea_kallax_2x4: ["Würfelregal 2×4 (Maße wie KALLAX)", 0.77, 0.39, 1.47],
+  ikea_kallax_4x4: ["Würfelregal 4×4 (Maße wie KALLAX)", 1.47, 0.39, 1.47],
+  ikea_billy_80: ["Bücherregal 80 cm (Maße wie BILLY)", 0.8, 0.28, 2.02],
+  ikea_billy_40: ["Bücherregal 40 cm (Maße wie BILLY)", 0.4, 0.28, 2.02],
+  ikea_ivar: ["Holzregal (Maße wie IVAR)", 0.89, 0.3, 1.79],
+  ikea_pax_100: ["Kleiderschrank 100 cm (Maße wie PAX)", 1.0, 0.58, 2.36],
+  ikea_pax_50: ["Kleiderschrank 50 cm (Maße wie PAX)", 0.5, 0.58, 2.36],
+  ikea_brimnes_3: ["Kleiderschrank 3 Türen (Maße wie BRIMNES)", 1.17, 0.5, 1.9],
+  ikea_malm_chest6: ["Kommode 6 Schubladen (Maße wie MALM)", 1.6, 0.48, 0.78],
+  ikea_hemnes_chest8: ["Kommode 8 Schubladen (Maße wie HEMNES)", 1.6, 0.5, 0.96],
+  ikea_malm_dressing: ["Frisiertisch (Maße wie MALM)", 1.2, 0.41, 0.78],
+  ikea_malm_bed160: ["Bett 160×200 (Maße wie MALM)", 1.76, 2.09, 1.0],
+  ikea_ektorp_3: ["3er-Sofa (Maße wie EKTORP)", 2.18, 0.88, 0.88],
+  ikea_kivik_3: ["3er-Sofa (Maße wie KIVIK)", 2.28, 0.95, 0.83],
+  ikea_soderhamn_3: ["3er-Sofa (Maße wie SÖDERHAMN)", 1.98, 0.99, 0.83],
+  ikea_friheten: ["Ecksofa (Maße wie FRIHETEN)", 2.3, 1.51, 0.66],
+  ikea_poang: ["Sessel (Maße wie POÄNG)", 0.68, 0.82, 1.0],
+  ikea_strandmon: ["Ohrensessel (Maße wie STRANDMON)", 0.82, 0.96, 1.01],
+  ikea_lack_coffee: ["Couchtisch (Maße wie LACK)", 1.18, 0.78, 0.45],
+  ikea_lack_side: ["Beistelltisch (Maße wie LACK)", 0.55, 0.55, 0.45],
+  ikea_besta_tv: ["TV-Bank 180 cm (Maße wie BESTÅ)", 1.8, 0.42, 0.39],
+  ikea_micke: ["Schreibtisch 105 cm (Maße wie MICKE)", 1.05, 0.5, 0.75],
+  ikea_alex: ["Schreibtisch 131 cm (Maße wie ALEX)", 1.31, 0.6, 0.76],
+  ikea_bekant: ["Schreibtisch 160×80 (Maße wie BEKANT)", 1.6, 0.8, 0.75],
+  ikea_linnmon_100: ["Tisch 100×60 (Maße wie LINNMON/ADILS)", 1.0, 0.6, 0.74],
+  ikea_linnmon_150: ["Tisch 150×75 (Maße wie LINNMON/ADILS)", 1.5, 0.75, 0.74],
+  ikea_markus: ["Bürostuhl (Maße wie MARKUS)", 0.62, 0.6, 1.35],
+  ikea_nordviken: ["Esstisch (Maße wie NORDVIKEN)", 1.52, 0.95, 0.75],
+  ikea_ekedalen: ["Esstisch (Maße wie EKEDALEN)", 1.2, 0.8, 0.75],
   // weitere Lampen
   lamp_arc: ["Bogenlampe", 1.6, 0.4, 2.0],
   lamp_tripod: ["Dreibein-Stehlampe", 0.6, 0.6, 1.55],
@@ -52,7 +56,7 @@ export const EXTRA = {
   // LEDs
   led_cove: ["LED-Deckenvoute (indirekt)", 3.0, 0.1, 0.04],
   led_profile: ["LED-Alu-Profil", 1.0, 0.02, 0.02],
-  led_bar: ["LED-Lichtleiste (Play-Bar)", 0.08, 0.08, 0.27],
+  led_bar: ["LED-Lichtleiste (stehend)", 0.08, 0.08, 0.27],
   led_corner: ["LED-Eckleuchte (Stab)", 0.15, 0.15, 1.4],
   led_tv: ["TV-Hintergrundbeleuchtung", 1.2, 0.02, 0.7],
   led_hex: ["Hexagon-Lichtpanels", 0.9, 0.02, 0.6],
@@ -61,7 +65,7 @@ export const EXTRA = {
   led_stairs: ["LED-Treppenstufen", 1.0, 3.0, 0.02],
   // Gaming
   gaming_pc: ["Gaming-PC (Midi-Tower)", 0.23, 0.45, 0.46],
-  gaming_pc_showcase: ["Gaming-PC (Glas, O11-Stil)", 0.29, 0.47, 0.46],
+  gaming_pc_showcase: ["Gaming-PC (Glasgehäuse)", 0.29, 0.47, 0.46],
   gaming_desk: ["Gaming-Schreibtisch", 1.6, 0.8, 0.75],
   gaming_chair: ["Gaming-Stuhl", 0.7, 0.7, 1.35],
   monitor_27: ["Monitor 27″", 0.61, 0.22, 0.5],
@@ -72,12 +76,12 @@ export const EXTRA = {
   pc_speakers: ["PC-Lautsprecher (Paar)", 0.6, 0.15, 0.2],
   headset_stand: ["Headset-Ständer", 0.12, 0.12, 0.27],
   streaming_mic: ["Mikrofon am Arm", 0.2, 0.25, 0.5],
-  console_ps5: ["PlayStation 5 Slim", 0.096, 0.216, 0.358],
-  console_ps5_pro: ["PlayStation 5 Pro", 0.089, 0.216, 0.388],
-  console_xbox_x: ["Xbox Series X", 0.151, 0.151, 0.301],
-  console_xbox_s: ["Xbox Series S", 0.064, 0.151, 0.275],
-  console_switch: ["Nintendo Switch (im Dock)", 0.27, 0.06, 0.17],
-  steam_deck: ["Steam Deck", 0.3, 0.12, 0.05],
+  console_ps5: ["Spielkonsole (Maße wie PlayStation 5 Slim)", 0.096, 0.216, 0.358],
+  console_ps5_pro: ["Spielkonsole (Maße wie PlayStation 5 Pro)", 0.089, 0.216, 0.388],
+  console_xbox_x: ["Spielkonsole, Turm (Maße wie Xbox Series X)", 0.151, 0.151, 0.301],
+  console_xbox_s: ["Spielkonsole, flach (Maße wie Xbox Series S)", 0.064, 0.151, 0.275],
+  console_switch: ["Handheld-Konsole im Dock (Maße wie Nintendo Switch)", 0.27, 0.06, 0.17],
+  steam_deck: ["Handheld-PC (Maße wie Steam Deck)", 0.3, 0.12, 0.05],
   gamepad: ["Controller", 0.16, 0.11, 0.06],
   vr_headset: ["VR-Brille", 0.18, 0.16, 0.1],
   racing_cockpit: ["Rennsitz (Sim-Racing)", 0.6, 1.4, 1.0],
@@ -137,7 +141,7 @@ export const EXTRA = {
 
 /** Neue Kategorien (Lampen gehen zusätzlich in „Licht“, siehe furniture.js). */
 export const EXTRA_CATEGORIES = [
-  ["IKEA", Object.keys(EXTRA).filter((k) => k.startsWith("ikea_"))],
+  ["Möbelserien", Object.keys(EXTRA).filter((k) => k.startsWith("ikea_"))],
   ["LED", Object.keys(EXTRA).filter((k) => k.startsWith("led_"))],
   ["Gaming", ["gaming_pc", "gaming_pc_showcase", "gaming_desk", "gaming_chair", "monitor_27", "monitor_34", "monitor_49", "monitor_dual", "keyboard_mouse", "pc_speakers", "headset_stand", "streaming_mic", "console_ps5", "console_ps5_pro", "console_xbox_x", "console_xbox_s", "console_switch", "steam_deck", "gamepad", "vr_headset", "racing_cockpit"]],
   ["Wallbox & E-Auto", Object.keys(EXTRA).filter((k) => k.startsWith("wallbox") || k === "ev_car")],

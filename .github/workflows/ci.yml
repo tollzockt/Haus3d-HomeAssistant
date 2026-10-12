@@ -20,7 +20,7 @@ jobs:
       - name: Abhängigkeiten
         run: pip install -r requirements_test.txt
       - name: py_compile
-        run: python -m py_compile custom_components/haus3d/*.py tools/*.py
+        run: python -m py_compile custom_components/haus3d/*.py
       - name: pytest
         run: python -m pytest -q
 
@@ -36,4 +36,3 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          ignore: brands

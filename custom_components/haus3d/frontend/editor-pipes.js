@@ -190,7 +190,7 @@ export const PipeMethods = {
     const hs = l.points.map((_, i) => Number(l.heights?.[i] ?? l.height ?? 0.03));
     const pt = this.pipePt?.id === l.id && this.pipePt.i < l.points.length ? this.pipePt.i : null;
     const hSeg = (attr, cur) => `<div class="seg wide" ${attr}>${PIPE_HEIGHTS.map(([h, n]) => `<button data-h="${h}" class="${cur != null && Math.abs(cur - h) < 1e-6 ? "sel" : ""}">${n}</button>`).join("")}</div>`;
-    const sensorLabel = l.type === "strom" ? "Leistungs-Sensor (W) dieser Leitung" : l.type === "netzwerk" ? "Datenrate-Sensor (z. B. UniFi rx/tx)" : "Durchfluss-Sensor oder Ventil";
+    const sensorLabel = l.type === "strom" ? "Leistungs-Sensor (W) dieser Leitung" : l.type === "netzwerk" ? "Datenrate-Sensor (z. B. rx/tx des Routers)" : "Durchfluss-Sensor oder Ventil";
     el.innerHTML = `<h3>Leitung</h3>
       <div class="seg wide" data-ptype>${PIPE_TYPES.map(([k, n]) => `<button data-k="${k}" class="${l.type === k ? "sel" : ""}">${n}</button>`).join("")}</div>
       <label>Name</label><input data-pf="name" value="${esc(l.name ?? "")}" placeholder="z. B. Büro Steckdosen">

@@ -1,3 +1,5 @@
+// three.js r170, examples/jsm/controls/OrbitControls.js (MIT, siehe LICENSE-three.txt);
+// einzige Änderung: Importpfad auf ./three.module.min.js.
 import {
 	Controls,
 	MOUSE,

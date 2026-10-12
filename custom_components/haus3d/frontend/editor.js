@@ -142,6 +142,7 @@ export const EDITOR_STYLE = NODE_STYLE + `
 .ed-props .list button:hover { background: rgba(127,127,127,.12); }
 .ed-props .list button.sel { background: var(--primary-color, #03a9f4); color: #fff; }
 .ed-props .muted { color: var(--secondary-text-color); font-size: 12px; }
+.ed-props .brandnote { font-size: 11px; margin-top: -4px; opacity: .85; }
 .ed-3d { flex: 1; min-width: 0; position: relative; border-left: 1px solid var(--divider-color, rgba(127,127,127,.25)); touch-action: none; }
 .ed-3d .ed-3d-hint { position: absolute; left: 8px; bottom: 8px; font-size: 11px; padding: 3px 8px; border-radius: 10px; background: rgba(0,0,0,.45); color: #fff; pointer-events: none; }
 .ed[data-view="2d"] .ed-3d { display: none; }
@@ -1593,7 +1594,7 @@ export class FloorEditor {
       return l ? this._pipeProps(el, l) : this._clearSel();
     }
     if (this.tool === "furniture") {
-      el.innerHTML = `<h3>Möbel einfügen</h3><p class="muted">Möbel wählen, dann in den Plan tippen.</p>
+      el.innerHTML = `<h3>Möbel einfügen</h3><p class="muted">Möbel wählen, dann in den Plan tippen.</p><p class="muted brandnote">Produkt- und Herstellernamen nur zur Angabe der Maße bzw. zur Bezeichnung des Geräts – keine Verbindung zu den Herstellern; eigene, vereinfachte Modelle.</p>
         <input class="search" type="search" placeholder="Suchen …" value="${esc(this.furnSearch)}"><div class="cats"></div>`;
       const cats = el.querySelector(".cats");
       const style = this.sceneStyle === "cyber" ? "cyber" : "standard";

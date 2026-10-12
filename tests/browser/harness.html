@@ -170,7 +170,7 @@ if (params.has("daily")) {
   add(st("climate.bad", "heat", { hvac_modes: ["off", "heat"], hvac_action: "heating", temperature: 22, current_temperature: 21, friendly_name: "Heizung Bad" }), "badezimmer");
   add(st("scene.wohnzimmer_kino", "2026-10-07T10:00:00+00:00", { id: "haus3d_wohnzimmer_kino_x", friendly_name: "Wohnzimmer: Kino" }), null);
 }
-// ?lan: Netzwerkgeräte wie aus „UniFi Network“ (Access Point im Flur, Client im Wohnzimmer, einer offline)
+// ?lan: Netzwerkgeräte wie aus einer Router-/Controller-Integration (Access Point im Flur, Client im Wohnzimmer, einer offline)
 const devices = {};
 const tokensAdmin = (t) => (window.tokens ?? {})[t];
 if (params.has("lan")) {

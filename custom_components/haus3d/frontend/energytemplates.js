@@ -106,7 +106,7 @@ export function applyTemplate(source, template, hass, defaultName = null) {
     next.invert = !!template.invert;
     if (template.capacity && !source.capacity) next.capacity = template.capacity;
   } else if (template.roles?.speicher && source.type in template.roles) {
-    // PV/Balkonkraftwerk mit eingebautem Speicher (Hybrid, Solarbank): Speicher-Sensoren gleich mit
+    // PV/Balkonkraftwerk mit eingebautem Speicher (Hybrid, Balkonspeicher): Speicher-Sensoren gleich mit
     const bat = suggestEntities({ ...template, roles: { speicher: template.roles.speicher } }, "speicher", hass, Object.values(values)).values;
     if (bat.soc || bat.power) {
       if (bat.soc) next.soc = bat.soc;

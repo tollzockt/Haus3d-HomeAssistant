@@ -555,7 +555,7 @@ class Haus3DPanel extends HTMLElement {
     this._building = normalize(building);
     this._revision = revision;
     if (!this._building.floors.length) {
-      this._showMessage("Noch kein Grundriss vorhanden. Als Admin über ⋮ → Importieren eine JSON-Datei einlesen.");
+      this._showMessage("Noch kein Grundriss vorhanden. Als Admin über Zahnrad → Admin-Einstellungen → Daten & Verlauf → Importieren eine JSON-Datei einlesen.");
     } else if (this._scene) {
       this._els.msg.hidden = true;
     }
