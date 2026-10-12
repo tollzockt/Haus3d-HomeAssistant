@@ -327,6 +327,8 @@ await import("../../custom_components/haus3d/frontend/haus3d-panel.js");
 const panel = document.createElement("haus3d-panel");
 panel.hass = hass;
 panel.narrow = params.has("narrow");
+// wie Home Assistant: panel.config.version aus dem Manifest (?nopanel = ohne)
+if (!params.has("nopanel")) panel.panel = { config: { version: (await (await fetch("../../custom_components/haus3d/manifest.json")).json()).version } };
 const resolver = document.createElement("div");
 resolver.className = "resolver";
 resolver.appendChild(panel);

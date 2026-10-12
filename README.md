@@ -1,448 +1,460 @@
 # Haus 3D
 
-Eine Home-Assistant-Integration, die deinen Hausgrundriss als interaktives 3D-Modell in einem eigenen
-Seitenleisten-Panel zeigt, mit Live-Status von Licht, Fenstern, Türen, Rollläden, Raumklima und
-Energiefluss.
+Haus 3D zeigt deinen Grundriss als interaktives 3D-Modell in einem eigenen Panel der Seitenleiste von Home
+Assistant (HA). Licht, Fenster, Türen, Rollläden, Raumklima, Anwesenheit und Energiefluss siehst du live
+am Modell und schaltest Geräte direkt dort. Den Grundriss zeichnest du im eingebauten Editor oder liest ihn
+ein.
 
 Unabhängiges, inoffizielles Projekt – komplett kostenlos, ohne Bezahl-Funktionen (siehe
 [Marken & Hinweise](#marken--hinweise)).
 
+Was sich je Version geändert hat, steht im [CHANGELOG.md](CHANGELOG.md).
 
-## Neu in 0.22: Testhaus für Entwickler
+**Inhalt:** [Überblick](#überblick) · [Installation](#installation) · [Erste Schritte](#erste-schritte) ·
+[Bedienung](#bedienung) · [Bearbeiten, Admin und PIN](#bearbeiten-admin-und-pin) · [Editor](#editor) ·
+[Energie](#energie) · [Alltag](#alltag) · [Wandtablet und Dienste](#wandtablet-und-dienste) ·
+[Simulation und Testhaus](#ausprobieren-simulation-und-testhaus) · [Daten](#daten-import-export-und-verlauf) ·
+[Update](#update) · [Entwicklung](#entwicklung-und-tests) · [Unterstützen](#unterstützen) ·
+[Marken & Hinweise](#marken--hinweise) · [Lizenz](#lizenz)
 
-- **Admin → Entwickler → Testhaus**: zu einem eigenen Testhaus wechseln (Beispielhaus, Kopie des eigenen
-  Hauses oder leer) und dort bearbeiten, ohne das echte Haus anzufassen. Nur in diesem Browser; oben steht
-  „Testhaus: …“ mit „Mein Haus“ zurück. Geräte schalten nur mit „Geräte echt schalten“.
+## Überblick
 
-## Neu in 0.21: Alltag, Zeitstrahl, Szenen, Favoriten
+- **3D-Modell deines Hauses**: Etagen, Räume, Fenster, Türen, Möbel, Garten und Dach – ohne Decken, damit du
+  von oben hineinsiehst.
+- **Live-Status**: Räume in Lampenfarbe, offene Fenster rot, gekippte orange, fahrende Rollläden und Tore.
+- **Geräte automatisch im Raum** über die HA-Bereiche – Antippen schaltet, Gedrückthalten zeigt Details.
+- **Raumfenster** mit allen Geräten eines Raums, Raumklima, Medien, Kamera-Vorschau, Szenen und Lüften-Timer.
+- **Statusleiste, Hinweise und Gute-Nacht-Check** für offene Fenster, Lichter, Schlösser, Melder und Regen.
+- **Energie**: Karte mit Tagesverlauf und Speicher-Restzeit, Fluss in Leitungen, PV-Leistung je Dachfeld.
+- **Alltag**: Waschmaschine fertig, Müllabfuhr, Strompreis, Lüften, Schimmelgefahr, Heizungspause, Urlaub.
+- **Zeitstrahl, Bodenfarbe, Begehen**: Tag zurückspulen, Böden nach Messwerten färben, durchs Haus gehen.
+- **Grundriss-Editor** in 2D und 3D mit Grundeinstellungen-Assistent, Katalog „Einrichten“ (205 Typen),
+  Treppen, Dach, Leitungen und Bauplan als Vorlage.
+- **Info-Hologramme**: Antippen eines Raums zeigt über PC, Server, Heizung, 3D-Drucker & Co. die Werte, die
+  du dort hinterlegt hast.
+- **Wandtablet** mit Kiosk-Adresse, Ruhemodus, Dimmen, Klingel-Kamera und Diensten für Automationen.
+- **Geschützt und lokal**: Ansehen ohne PIN; Bearbeiten, Admin und Türen mit je eigener PIN; läuft offline.
 
-- **Admin → Alltag**: Waschmaschine/Trockner/Spülmaschine (läuft/fertig aus der Leistung), Kalender und
-  Müllabfuhr, Strompreis (fest oder dynamisch), Lüften-Timer, Schimmelgefahr, Heizung bei offenem Fenster
-  automatisch pausieren, PV-Leistung (kWp) für die Vorhersage.
-- **Zeitstrahl** (Funktionsrad): Tag zurückspulen und Vorhersage der nächsten 24 h im Modell.
-- **Bodenfarbe** jetzt auch CO₂ und Energie heute.
-- **Raum-Szenen** (Bearbeiten → Raumfenster → „+ Szene“) und **Favoriten-Leiste** unten.
-- **Begehen** mit zwei Joysticks: links gehen, rechts umsehen.
-- **Urlaub**: Anwesenheit simulieren („Haus verlassen“ oder Dienst `haus3d.away`), läuft im Hintergrund.
+## Installation
 
-## Neu in 0.20: Dachgeschoss, eigener Name, Rahmenfarbe
+**Voraussetzung:** Home Assistant **2024.7** oder neuer. Es wird kein CDN geladen, Three.js r170 liegt
+im Paket.
 
-- **Dachgeschoss als Etage**: Editor → Etagen-Auswahl → „+ Dachgeschoss“ (oder Haken „Dachgeschoss“ in den
-  Etagen-Eigenschaften). Räume, Möbel und Leitungen wie auf jeder Etage. Mit Dach in den Einstellungen sitzt
-  das Dach auf dem **Kniestock** des Dachgeschosses, die Dachflächen ergeben sich aus dessen Räumen, Innenwände
-  enden unter der Schräge. „Dach“ (Kamin, Dachfenster, PV-Felder) gibt es in der Auswahl nur mit Dach.
-- **Name oben links**: im Bearbeiten-Modus antippen, eintippen, Enter (leer = „Haus 3D“).
-- **Rahmenfarbe** für Fenster und Türen (Editor → Fenster/Tür wählen → Rahmenfarbe).
-- **Simulation nur im Admin-Modus**, passend zum aktuellen Stand (Leitungsfluss, Speicher an PV/BKW,
-  Haus/Netz-Bilanz); endet mit dem Admin-Modus.
-- **Energiefluss aus** im Rad blendet die Leitungen ganz aus.
-- **Kamera-Sicht** (Zahnrad-Kachel, 0.20.1): blaue Sichtkegel der Kameras ein/aus.
-- Tablet: „Geräte anpassen“ scrollt mit dem Finger.
+1. In **HACS** oben rechts ⋮ → **Benutzerdefinierte Repositories** →
+   `https://github.com/tollzockt/Haus3d-HomeAssistant` mit Kategorie **Integration** hinzufügen.
+2. In HACS **Haus 3D** suchen, **Herunterladen** und Home Assistant **neu starten**.
+3. **Einstellungen → Geräte & Dienste → Integration hinzufügen → Haus 3D** (ohne Eingaben, nur einmal
+   möglich). Danach erscheint **Haus 3D** in der Seitenleiste – für alle HA-Benutzer, anfangs mit einem
+   Beispielhaus.
 
-## Neu in 0.19: Leitungsnetz mit Verteilern und Abzweigen
+**Manuell:** `custom_components/haus3d` nach `<config>/custom_components/haus3d` kopieren, neu starten und die
+Integration wie in Schritt 3 hinzufügen.
 
-- **Verteiler** (Editor → „Verteiler“): Hauptverteilung, Unterverteilungen (optional mit eigenem Zähler),
-  Einspeisung (PV/Balkonkraftwerk/Speicher), Router und Switch, Wasser-Hausanschluss, Warmwasser und
-  **Durchführungen** zwischen Etagen (Gegenstück entsteht automatisch auf der Zieletage).
-- **Abzweige**: Eine neue Leitung, die auf einer bestehenden Leitung oder an einem Verteiler beginnt oder
-  endet, rastet dort ein (Markierung „Abzweig“) und ist verbunden.
-- **Fluss auf dem ganzen Weg**: Haus 3D rechnet das Netz von der Hauptverteilung (bzw. Hausanschluss,
-  Router) bis zu den Verbrauchern an den Leitungsenden (Raum, Gerät oder Sensor) durch. Jedes Stück zeigt,
-  was hindurchfließt – auch Zubringer ohne eigenes Ziel. Mehr Watt (l/min, Mbit/s) = mehr und schnellere
-  Punkte; die Richtung zeigt, wohin es fließt (Einspeisung fließt zur Hauptverteilung).
-- **Antippen** einer Leitung oder eines Verteilers zeigt Wert, Richtung und was daran hängt (größte zuerst);
-  eine Unterverteilung mit Zähler zeigt zusätzlich, was „nicht zugeordnet“ ist.
-- **Leitungen bearbeiten**: gewählte Leitung → Punkte ziehen, Strecke antippen fügt einen Punkt ein, Punkt
-  antippen ändert **seine Höhe** (oder alle auf einmal), Punkt löschen.
-- Neuer Leitungstyp **Netzwerk** (Datenrate z. B. aus Sensoren der Netzwerk-Integration oder Gerät online).
+## Erste Schritte
 
-## Unterstützen
+1. **PINs ändern**: Zahnrad (oben rechts) → **Admin-Einstellungen** → Admin-PIN eingeben (ab Werk `0000`)
+   → **PIN & Zugang** → neue PINs für Bearbeiten, Admin und Türen festlegen (je 4–8 Ziffern).
+2. **Grundriss zeichnen oder importieren**: Zahnrad → **Bearbeiten** (PIN) → **Grundriss** in der grünen
+   Leiste – beim ersten Mal fragen die **Grundeinstellungen** Name, Norden, Etagen, Wände, Dach und Bauplan ab
+   (siehe [Editor](#editor)) – oder Admin-Einstellungen → Daten & Verlauf → **Importieren (JSON) …**.
+3. **Räume den HA-Bereichen zuordnen**: im Editor einen Raum wählen → „Bereich in Home Assistant“ →
+   **Speichern**. Die Geräte des Bereichs erscheinen dann von selbst im Raum.
+4. **Energie einrichten**: Admin-Einstellungen → **Energie** → **Aus HA-Energie übernehmen** → **Speichern**.
+5. **Wandtablet (optional)**: auf dem Tablet `/haus3d?kiosk` öffnen und es unter Admin-Einstellungen →
+   **Wandtablet** benennen (siehe [Wandtablet und Dienste](#wandtablet-und-dienste)).
 
-Haus 3D ist kostenlos und bleibt es – mit allen Funktionen und auch allen künftigen Erweiterungen und
-Zusatzpaketen. Wenn es dir gefällt, freue ich mich über eine Spende – über den **„Sponsor“-Knopf** oben im
-Repo oder im Panel unter **Zahnrad → ♥ Haus 3D unterstützen**. Spenden sind freiwillig und schalten nichts
-frei. Das Panel zeigt nach 14 Tagen einmalig einen dezenten Hinweis (nie auf dem Wandtablet).
+## Bedienung
 
-## Neu in 0.18: Tür-PIN, großer Möbelkatalog, Gerätevorlagen
+Ansehen und Schalten gehen ohne PIN; Knöpfe zum Bearbeiten (Stifte, „+“) gibt es nur im Bearbeiten-Modus.
 
-- **Haustüren nur mit PIN**: Schlösser (lock.…) lassen sich im Panel nur noch mit einer eigenen
-  **Tür-PIN** entriegeln oder öffnen – egal ob über Symbol, Raumfenster, Kurzwahl oder Karte. Home Assistant
-  prüft die PIN und schließt erst dann auf; eine falsche PIN löst nichts aus. **Abschließen** geht ohne PIN.
-  Tür-PIN unter Admin-Einstellungen → PIN & Zugang (Standard 0000 – bitte ändern). Hinweis: Die PIN schützt
-  die Bedienung in Haus 3D; Automationen und die normale HA-Oberfläche bleiben davon unberührt.
-- **Möbelkatalog** um rund 140 Teile erweitert (Maße nach öffentlichen Hersteller- bzw. Händlerangaben, ohne
-  Gewähr; eigene, vereinfachte Modelle):
-  - **Möbelserien**: Regale, Schränke, Kommoden, Bett, Sofas, Sessel, Tische und Bürostuhl in den Maßen
-    bekannter Serien (z. B. Würfelregal „Maße wie KALLAX“, Bücherregal „Maße wie BILLY“).
-  - **Lampen**: Bogenlampe, Dreibein, Kugel-Pendel, Kronleuchter, Ring-LED, Mehrfach-Pendel, Glühbirne am
-    Kabel, Schienensystem, Schreibtisch-, Pilzleuchte, Neon-Schild.
-  - **LED**: Deckenvoute, Alu-Profil, Lichtleiste, Eck-Stab, TV-Hintergrund, Hexagon-Panels, Lichtlinien,
-    Bett- und Treppenbeleuchtung. Mit einem Licht verknüpft leuchten sie in dessen Farbe.
-  - **Gaming**: Gaming-PC, Schreibtisch, Stuhl, Monitore (27″, 34″/49″ curved, Doppel), Tastatur & Maus,
-    Lautsprecher, Headset-Ständer, Mikrofonarm, Spielkonsolen und Handhelds in den Maßen gängiger Modelle
-    (z. B. PlayStation 5, Xbox Series X/S, Switch, Steam Deck), Controller, VR-Brille, Sim-Racing-Sitz – RGB-Teile
-    folgen einem verknüpften Licht.
-  - **Wallbox & E-Auto**: go-e, Tesla Wall Connector, Easee, Wallbox Pulsar Plus, KEBA P30, Zaptec Go,
-    Heidelberg, allgemeine Wallbox, E-Auto.
-  - **Wechselrichter & Speicher**: Fronius GEN24, SMA STP SE, Huawei SUN2000/LUNA2000, Kostal PLENTICORE,
-    SolarEdge Home Hub, Victron MultiPlus-II, Growatt, Sungrow, GoodWe, Deye; BYD HVS/HVM, Tesla Powerwall 3,
-    sonnenBatterie, SENEC.Home V3, E3/DC, SMA Home Storage, Pylontech, Anker SOLIX Solarbank 2, Zendure,
-    EcoFlow, Marstek Venus, Growatt NOAH;
-    Mikrowechselrichter (Hoymiles, Deye, APsystems, EcoFlow PowerStream).
-  - **Solar-Aufständerung**: Flachdach Süd (15°) und Ost-West (10°), Gartenständer (30°), Balkongeländer,
-    Balkon mit Neigung, Fassade, Solar-Carport, Solarterrasse/Pergola.
-  Wandgeräte hängen gleich in passender Höhe, Schreibtischgeräte stehen auf Tischhöhe (änderbar unter
-  „Höhe über Boden“).
-- **Gerätevorlagen in der Energie-Einrichtung**: Bei PV, Balkonkraftwerk oder Speicher das **Gerät** wählen
-  (z. B. SENEC (Integration „SENEC.Home“ von marq24), Anker SOLIX (Integration „Anker Solix“ von
-  thomluther), Fronius, SMA, Huawei, SolarEdge, Kostal, Victron, Growatt, Sungrow, GoodWe, Deye, Tesla,
-  sonnen, E3/DC, BYD, Zendure, EcoFlow, Marstek, Hoymiles, OpenDTU, APsystems) – Haus 3D sucht passende Sensoren
-  der jeweiligen Integration, setzt das Vorzeichen des Speichers und die Kapazität. Bitte prüfen: Namen
-  der Entitäten unterscheiden sich je nach Anlage und Integrationsversion.
+### Ansicht
 
-## Neu in 0.17: Leitungen, Netzwerk, Energie neu
+- **Kamera**: Ziehen mit der linken Maustaste dreht, das Mausrad zoomt, Ziehen mit der rechten verschiebt;
+  ein Finger dreht, zwei Finger zoomen und verschieben. Jede Etage merkt sich ihre letzte Ansicht.
+- **Etagen-Leiste** rechts: ▲, „Alle“, Etagen, ▼; ein Doppeltipp auf die gewählte Etage passt die Ansicht ein.
+  Das Hausdach siehst du nur in „Alle“, sonst schaust du in die Etage hinein.
+- **Zahnrad**: Stil (Auto nach `sun.sun`, Tag, Nacht, Cyber), Qualität (Automatisch, Akku, Ausgewogen, Schön),
+  Geräte als Symbole oder 3D sowie Kacheln für Raster, Raumnamen, Dach, Schatten, Wetter, Geräte, Möbel,
+  Anwesenheit, Leitungen, Kamera-Sicht und Vollbild. Weitere Ebenen stehen unter Admin-Einstellungen →
+  Anzeige.
+- **Qualität**: „Akku“ zeichnet ohne Schatten und Lichtschein; echte Sonnenschatten gibt es mit der Kachel
+  „Schatten“ ab „Ausgewogen“.
+- **Meine Ansicht**: Stil, Qualität und Ebenen gelten für deinen HA-Benutzer auf allen Geräten – außer im
+  Kiosk (`?kiosk`) und mit „Eigene Ansicht“ (siehe [Wandtablet](#wandtablet-und-dienste)).
+- **Wetter, Sonne, Jahreszeit**: Regen, Schnee und Hagel fallen draußen passend zur Wetter-Entität (bei Schnee
+  wird es draußen weiß, bei Gewitter blitzt es), das Licht kommt aus Richtung der echten Sonne, der Garten
+  folgt der Jahreszeit (Admin-Einstellungen → Haus & Wetter).
 
-- **Leitungen** (Editor → „Leitung“): Strom, Wasser kalt und Wasser warm am Boden bzw. an der Wand verlegen.
-  Punkte rasten an Wandoberflächen und Ecken ein, die Höhe wählt man je Punkt (Boden, Sockelleiste,
-  Steckdose, Schalter, Decke) – ein Wechsel läuft an der Wand senkrecht. Vom Anfang (Zählerschrank,
-  Hauswasser) zum Verbraucher zeichnen. Strom fließt, wenn der eigene Leistungssensor oder der
-  **Zielraum** Strom braucht; Wasser, wenn der Durchfluss > 0 bzw. Ventil/Pumpe an ist. Der Energiefluss
-  im Haus läuft nur noch in diesen Leitungen (keine Luftlinien zu den Räumen mehr; die Linie vom
-  Balkonkraftwerk erscheint nur, solange noch keine Stromleitung gelegt ist). Ebene „Leitungen“ im Zahnrad.
-- **Netzwerkgeräte** (Router-/Controller-Integrationen, allgemein device_tracker mit `source_type: router`):
-  Symbol bzw. 3D-Gerät im Raum (Bereich des Geräts) oder frei im Editor platziert; Tipp öffnet
-  online/offline, IP, WLAN, Signal, Access Point, Laufzeit, Clients und **Neu starten** (mit Nachfrage).
-  „Netzwerk“ im Funktionsrad listet alle Geräte.
-- **Energie neu**: Grundlage sind Haus (Verbrauch), Netzbezug und Einspeisung – ein Netz-Sensor mit
-  Vorzeichen oder zwei getrennte. Dazu beliebig viele **PV-Anlagen, Balkonkraftwerke und AC-Speicher**
-  mit eigenen Entitäten; Erzeugung, Ertrag heute und Speicher werden **zusammengerechnet** (Verbrauch
-  ohne eigenen Sensor = Erzeugung + Netz − Speicherladung). Alte Einstellungen werden übernommen.
-- **Raum antippen** fährt die Kamera hin; das Raumfenster öffnet sich mit **Gedrückthalten**.
-- **Heizkörper/Thermostat antippen**: Fenster mit Ist/Soll, − und +, Betriebsarten.
-- **Größere Trefferflächen**: Geräte in 3D treffen auch knapp daneben.
-- **Kameras** genauer ausrichten: orangen Griff im Editor ziehen (1°), Öffnungswinkel, Neigung und
-  Reichweite; der Sichtkegel folgt (geneigt: Bereich am Boden).
-- **Modus-Leiste oben**: „Bearbeiten“ bzw. „Admin“ mit **Beenden**; im Zahnrad steht „Beenden“ an der
-  Stelle, an der man den Modus gestartet hat.
-- Anwesenheit oben: Name und Ort nicht mehr halb verdeckt.
+### Geräte und Räume
 
-## Neu in 0.16: Einstellungen, Bearbeiten und PIN
+- **Automatisch im Raum**: Für Räume und Gartenflächen mit HA-Bereich erscheinen Licht, Schalter, Lüfter,
+  Rollläden, Tore, Klima, Schlösser, Kameras, Saugroboter, Netzwerkgeräte sowie Fenster- und Türkontakte;
+  versteckte, Diagnose- und Konfigurations-Entitäten bleiben weg.
+- **Antippen** schaltet Licht, Schalter und Lüfter, fährt Rollläden, startet Skripte, Szenen und Taster und
+  wechselt bei Medien zwischen Wiedergabe und Pause. Garagentor und Sirene fragen nach (abschaltbar unter
+  Admin-Einstellungen → Haus & Wetter → „Nachfragen“); Schlösser schließen sofort ab und öffnen nur mit
+  Tür-PIN. Thermostat, Kamera und Netzwerkgerät öffnen ein eigenes Fenster, alles andere „Weitere Infos“.
+  **Gedrückthalten** öffnet bei jedem Gerät „Weitere Infos“.
+- **Raum antippen** fährt die Kamera hin, **Gedrückthalten** öffnet das **Raumfenster** (bis zu 3 zugleich):
+  Temperatur, Feuchte, Bewegung, Lüften-Rat, Licht, Rollläden, Solltemperatur, Szenen, „Lüften“, Medien,
+  Saugroboter, Kamera-Vorschau und alle Geräte des Bereichs. Über Gegenständen mit hinterlegten Werten
+  schweben dabei **Info-Hologramme** mit Live-Werten (Wert antippen = „Weitere Infos“; Tipp ins Leere blendet
+  sie aus). Im Bearbeiten-Modus blendet **Geräte anpassen**
+  (Regler-Symbol) Geräte aus oder holt andere dazu; **+ Szene** speichert eine HA-Szene (braucht ein
+  HA-Administratorkonto).
+- **Thermostat**: Solltemperatur mit − und +, dazu die Betriebsarten.
+- **Kamera**: Standbild alle 2 s und „Live“. Im Bearbeiten-Modus mit Admin-PIN machen „Als Klingel-Kamera“
+  und „Klingel-Auslöser“ (`event.…` oder Binärsensor) sie zur Klingel-Kamera: Klingelt es, wacht das Tablet
+  auf und zeigt die Kamera 60 s lang.
+- **Netzwerkgeräte** (Geräte-Tracker einer Router- oder Controller-Integration) zeigen IP, WLAN, Signal,
+  Clients und „Neu starten“ (falls angeboten).
+- **Anwesenheit**: Personen stehen oben als Bild (zu Hause farbig, unterwegs grau mit Ort), Bewegungsmelder
+  zeigen „Bewegung“ am Raumnamen.
 
-- **Zahnrad** (für alle, schlicht): Stil, Qualität, Geräte, Anzeige-Kacheln (Raster, Raumnamen, Dach,
-  Schatten, Wetter, Geräte, Möbel, Anwesenheit, Vollbild, Simulation) und zwei große Felder:
-  - **Bearbeiten** 🔒: schaltet alle Bearbeitungs-Knöpfe frei (Grundriss, Stifte an den Karten,
-    Raumgeräte, „+“ an den Rädern …). Das Feld heißt dann **Beenden**; oben steht ein grünes Band.
-  - **Admin-Einstellungen** 🔒: Fenster mit Kategorien (Haus & Wetter, Energie, Karten, Hinweise,
-    Abläufe & Sicherheit, Kurzwahl & Funktionsrad, Anzeige, Wandtablet, Daten & Verlauf, PIN & Zugang).
-- **PIN**: je eine eigene PIN für Bearbeiten und Admin, **Standard 0000** – bitte gleich unter
-  Admin-Einstellungen → PIN & Zugang ändern. Eine falsche PIN löst nichts aus. Wer die PIN kennt, darf
-  bearbeiten, auch ohne Admin-Konto in Home Assistant; ohne PIN speichert niemand etwas (auch kein
-  HA-Admin). Freigaben enden mit „Beenden“, beim Schließen bzw. nach 10 min ohne Bedienung.
-- **Karten** inkl. **Energie-Karte** als Tabs (Admin → Karten, oder Stift an der Karte im
-  Bearbeiten-Modus): Titel, Symbol, Zeilen ein-/ausblenden, umbenennen, sortieren; Tab „+“ legt eine Karte
-  an, unten „Entfernen“ (Energie: „Ausblenden“).
-- Das Funktionsrad unten rechts enthält die Anzeige-Schalter nicht mehr (die stehen im Zahnrad).
+### Kurzwahl, Funktionsrad, Karten und Favoriten
 
-## Neu in 0.15
+- **Kurzwahl** (unten links): Automationen, Skripte, Szenen, Taster, Schalter, Lichter, Rollläden, Schlösser
+  und Lüfter, optional mit Nachfrage. Gedrückthalten einer Automation oder eines Skripts zeigt Status und
+  „zuletzt“ (im Bearbeiten-Modus auch „Ablauf ansehen“).
+- **Funktionsrad** (unten rechts): Energiefluss, Bodenfarbe, Zeitstrahl, Sicherheit, Netzwerk, Gute Nacht,
+  Blickwinkel, Begehen und Ansicht einpassen.
+- Beide Räder drehst du mit dem Finger oder dem Mausrad. Einträge änderst du über das „+“ (Bearbeiten-Modus)
+  oder unter Admin-Einstellungen → Kurzwahl & Funktionsrad.
+- **Blickwinkel**: Iso, Oben, Süd, Nord, Ost, West und bis zu 6 eigene („+ Merken“). **Sicherheit** färbt
+  Fenster und Türen: zu grün, gekippt orange, offen rot.
+- **Karten** oben rechts: Energie-Karte und bis zu 5 eigene mit je bis zu 12 Werten (Admin-Einstellungen →
+  Karten oder Stift an der Karte im Bearbeiten-Modus).
+- **Favoriten** unten: die bis zu 6 meistgenutzten Geräte dieses Browsers.
 
-- **Tablet**: Funktionsrad mit dem Finger drehen, nichts überlappt, Editor in einer Zeile, Dialoge als
-  Blatt von unten.
-- **Kameras** (Kamerafenster, Sichtkegel, Klingel öffnet die Kamera), **Medien und Saugroboter** im
-  Raumfenster, **Kurzwahl 2.0** (läuft gerade, zuletzt, Ablauf ansehen).
-- **Energiefluss im ganzen Haus**, **echte Schatten** mit **PV-Verschattungs-Check** und
-  Schatten-Zeitraffer, Kontaktschatten unter Möbeln, **Jahreszeiten** im Garten.
-- **Meine Ansicht** je Benutzer (alle Geräte), **Dienste** `haus3d.show/notify/highlight/reload` für
-  Automationen, **Begehen** aus Augenhöhe.
-- **Editor**: Bauplan-Foto nachzeichnen, Fluchtlinien und Länge/Winkel eintippen, Mehrfachauswahl mit
-  Kopieren/Einfügen und Vorlagen, **L-Treppe mit Podest oder gewendelt**, U- und Wendeltreppe, Gauben.
+### Statusleiste, Hinweise und Gute Nacht
 
-### Dienste für Automationen
+- **Statusleiste** oben: Chips wie „Licht an“, „offen · gekippt“, Schlösser, Alarm, „Alles zu“ und
+  „Überschuss“, jeweils mit Liste nach Etagen; die Glocke zählt die Hinweise.
+- **Hinweise** erscheinen als Banner mit „Zeigen“ und „Ausblenden“, der Raum färbt sich rot oder orange. Regeln
+  unter Admin-Einstellungen → Hinweise: Regen bei offenem Fenster, Rauch-, Wasser- und Gasmelder, Heizung bei
+  offenem Fenster, hohe Feuchte, Haustür (10 min) oder Garage (15 min) offen, Akku unter 15 %.
+- **Gute Nacht / Haus verlassen** (Funktionsrad oder Chip „Alles zu“) listet offene Fenster und Türen (nur als
+  Liste, Tipp zeigt den Raum), dazu Tore, Schlösser, Lichter und (nur bei Gute Nacht) Rollläden mit je einem
+  Knopf. „Fertig – …“ erledigt alles Angehakte und startet das unter Admin-Einstellungen → Abläufe &
+  Sicherheit gewählte Skript.
 
-Offene Haus-3D-Seiten (z. B. das Wandtablet) folgen diesen Diensten. Mit `target` nur das Gerät, dessen
-Name unter Zahnrad → Wandtablet → „Name dieses Geräts“ steht; ohne `target` alle.
+### Zeitstrahl, Bodenfarbe, Schatten und Begehen
+
+- **Zeitstrahl**: von Mitternacht bis 24 h voraus – die Vergangenheit aus dem HA-Verlauf, die Vorschau aus
+  Wettervorhersage, Sonnenstand und erwarteter PV-Leistung (kWp unter Admin-Einstellungen → Alltag).
+  Geschaltet wird dabei nichts.
+- **Bodenfarbe** schaltet der Reihe nach durch: Temperatur (18 °C blau bis 26 °C rot), Feuchte, CO₂,
+  Leistung, Energie heute, aus.
+- **Schatten**: PV-Feld auf dem Dach antippen → „Verschattung prüfen“ (Verlust je Feld, braucht den
+  HA-Standort), dort auch „Schatten-Zeitraffer“.
+- **Begehen**: durchs Haus gehen aus Augenhöhe – linker Joystick zum Gehen, rechter zum Umsehen, am PC WASD;
+  durch Türen gehst du hindurch, Esc beendet.
+
+## Bearbeiten, Admin und PIN
+
+| Stufe | PIN | Erlaubt |
+| --- | --- | --- |
+| Ansehen | keine | Haus ansehen und Geräte schalten |
+| Bearbeiten | Bearbeiten-PIN | Editor, Name oben links, Karten, „+“ an den Rädern, Geräte anpassen, Raum-Szenen |
+| Admin | Admin-PIN | zusätzlich die Admin-Einstellungen mit PINs, Import, Verlauf und Simulation |
+| Tür | Tür-PIN | Schlösser aus Haus 3D heraus entriegeln oder öffnen |
+
+- Zahnrad → **Bearbeiten** 🔒 bzw. **Admin-Einstellungen** 🔒 startet den Modus. Oben steht dann eine grüne
+  Leiste „Bearbeiten“ (mit „Grundriss“) bzw. eine orange „Admin“, jeweils mit „Beenden“; Admin schließt
+  Bearbeiten ein. Freigaben enden mit „Beenden“, beim Schließen der Seite oder nach 10 min ohne Bedienung.
+- Wer eine PIN kennt, darf die jeweilige Stufe nutzen, auch ohne Admin-Konto in Home Assistant; ohne PIN
+  speichert niemand etwas. Haus-Einstellungen wie Energie, Hinweise, Wetter, Norden und Alltag lassen sich nur
+  mit der Admin-PIN ändern.
+- Das PIN-Feld prüft ab 4 Ziffern von selbst; eine falsche PIN löst nichts aus, nach 10 Fehlversuchen gibt es
+  30 s Pause. PINs ändern: Admin-Einstellungen → **PIN & Zugang** (gespeichert wird nur ein Hash).
+- **Tür-PIN**: Aufschließen über Symbol, Raumfenster, 3D-Gerät, Favorit, Kurzwahl oder Funktionsrad fragt die
+  Tür-PIN ab, Home Assistant prüft sie; Abschließen geht ohne. Die Tür-PIN schützt nur die Bedienung in
+  Haus 3D, nicht „Weitere Infos“, Automationen oder die übrige HA-Oberfläche.
+- **Name oben links**: im Bearbeiten-Modus antippen und ändern (leer = „Haus 3D“).
+- **Admin-Einstellungen** gliedern sich in Haus & Wetter, Energie, Karten, Hinweise, Alltag, Abläufe &
+  Sicherheit, Kurzwahl & Funktionsrad, Anzeige, Wandtablet, Daten & Verlauf sowie PIN & Zugang. Unten links
+  steht die installierte Version (bei Vorabversionen mit „Vorabversion“).
+
+## Editor
+
+Zahnrad → **Bearbeiten** (PIN) → **Grundriss** in der grünen Leiste öffnet den Editor – alternativ der
+Lineal-Stift in der Kopfzeile. Er startet mit der gewählten Etage, in der Ansicht „Alle“ mit der untersten.
+
+**Grundeinstellungen**: Beim ersten Öffnen (und immer bei einem leeren Haus) führt ein Fenster durch vier
+Schritte – **Haus** (Name, Norden), **Etagen** (Keller, Vollgeschosse, Dachgeschoss mit Kniestock,
+Geschosshöhe), **Wände & Dach** (Wandstärken, Dachform, Neigung) und **Bauplan** (Foto als Vorlage).
+„Fertig“ legt fehlende Etagen an – vorhandene bleiben immer erhalten – und lässt sich mit einem Schritt
+rückgängig machen. Später wieder über „Grundeinstellungen“ in der Editor-Leiste (am Tablet unter „⋯“) oder
+im Etagen-Feld. Norden lässt sich nur mit der Admin-PIN ändern.
+
+### Ansichten und Werkzeuge
+
+- **Ansicht**: **2D**, **2D + 3D** oder **3D**.
+- **Werkzeuge**: Auswählen, Raum (Rechteck), Raum (frei), Wand, Fenster, Tür, Garagentor, Einrichten, Gerät,
+  Garten, Linie, Leitung, Verteiler, Messen, Vorlage. Am Tablet stehen sie im Werkzeug-Menü (Knopf mit dem aktuellen
+  Werkzeug und ▾), weitere Funktionen unter „⋯“.
+- Ist nichts gewählt, zeigt das Eigenschaftenfeld die Etage: Name, Höhen, „Etage in Home Assistant“,
+  Wanddicken, Flächen, „+ Etage“ und „Etage löschen“.
+
+### Räume, Wände, Fenster und Türen
+
+- **Räume** als Rechteck ziehen oder Punkt für Punkt zeichnen und einem HA-Bereich zuordnen; dazu Bodenbelag,
+  Wandfarben, Texturen (Bilder ohne Relief), eigenes Dach (Schuppen, Carport) und „Energie: Balkonkraftwerk“.
+- **Wände** eines gewählten Raums ziehen (Nachbarräume ziehen mit) oder antippen, um nur diese Wand zu
+  gestalten; das Werkzeug „Wand“ zeichnet freie Wände.
+- **Fenster, Türen, Garagentore**: auf eine Wand tippen und zum Verschieben daran entlangziehen. Einstellbar
+  sind Maße, Anschlag, Flügel, Türart (z. B. Haustür, Glastür, Schiebetür), Rahmenfarbe, Kontakt, Kippsensor
+  und Rollladen. Kellerfenster bekommen auf Wunsch einen **Lichtschacht** außen (Betonschacht mit Gitterrost
+  auf Geländehöhe; Tiefe und Breite einstellbar).
+
+### Einrichten und Geräte
+
+- **Einrichten** (Katalog) mit Suche und 3D-Vorschau: 205 Typen, oben gegliedert in **Drinnen** und
+  **Draußen**, darunter aufklappbare Kategorien – Wohnen, Essen, Küche, Schlafen, Bad & Wäsche, Büro, Technik,
+  Licht, Bau, Möbelserien, LED, Gaming, Wechselrichter & Speicher und Eigene Körper bzw. Garten,
+  Wallbox & E-Auto und Solar-Aufständerung. Welche Bereiche offen sind, merkt sich der Browser. Möbelserien gibt es in den Maßen bekannter
+  Serien, Wallboxen, Speicher und Konsolen in den Maßen gängiger Modelle – alles eigene, vereinfachte Formen.
+- Möbel haben Maße, Drehung, Höhe über Boden, Farbe und eine verknüpfte Entität; Lampen und LEDs leuchten in
+  der Farbe ihres Lichts. Der **Magnet** stellt Möbel beim Ziehen bündig an die nächste Wand.
+- **Raster**: Würfelregale mit „Würfel breit/hoch“, Solar-Aufständerungen mit „Module breit/tief“ (Ost-West:
+  Modulpaare, Fassade: Module hoch) – die Maße folgen der Anzahl.
+- **Info-Hologramm**: bis zu 6 Werte (Entität und Name) je Gegenstand, z. B. CPU-Temperatur am PC, Fortschritt
+  am 3D-Drucker oder Vorlauf am Heizkessel. Neu im Katalog unter Technik: 3D-Drucker und NAS / Heimserver.
+- Werkzeug **Gerät**: setzt Entitäten der Bereiche dieser Etage an ihre echte Stelle; Kameras bekommen
+  Blickrichtung, Sichtfeld, Neigung und Reichweite.
+
+### Garten
+
+- **Gartenflächen**: Rasen, Terrasse, Weg, Einfahrt, Pool, Beet, Hecke, Zaun, Balkon, Kies, Pflaster oder
+  Steingarten – mit HA-Bereich für Gartenlicht und Sensoren und mit Geländer oder Zaun am Rand.
+- **Linie** zeichnet Wege, Hecken, Zäune und Mauern; **Höhen automatisch** verbindet Gartenflächen
+  verschiedener Etagen zu einem Hang. Bäume, Büsche, Grill und mehr stehen im Katalog unter „Garten“.
+
+### Dach und Dachgeschoss
+
+- **Hausdach** unter Admin-Einstellungen → Haus & Wetter: Flach-, Sattel-, Walm- oder Pultdach mit Neigung,
+  Überstand, First, Flügel-Ende und Dachfarbe; L-, T- und U-Häuser bekommen automatisch ein zusammengesetztes
+  Dach. Dort auch PV-Module je Himmelsrichtung oder als PV-Felder (Spalten × Reihen); genauer und
+  verschiebbar geht es auf der Dach-Ebene.
+- **Dach-Ebene** (Etagen-Auswahl → „Dach“): Kamin, Dachfenster, PV-Feld und Gaube setzen, Dachdeckung und
+  Norden einstellen (Norden nur im Admin-Modus), Dachflächen auf die Hauswände ziehen; PV-Module, die nicht
+  passen, werden rot.
+- **Dachgeschoss**: „+ Dachgeschoss“ in der Etagen-Auswahl; das Hausdach setzt dann auf dem Kniestock an.
+
+### Treppen
+
+Einrichten → Drinnen → **Bau** → **Treppe**: gerade, L oder U mit Podest, L gewendelt oder Wendeltreppe, mit Geländer und
+„Bis zur nächsten Etage“; die Deckenöffnung darüber entsteht automatisch. Dazu gibt es Treppenloch, Säule,
+Stütze, Unterzug und Stellplatz.
+
+### Leitungen und Verteiler
+
+- **Leitung**: Strom, Wasser kalt, Wasser warm oder Netzwerk, am Boden oder an der Wand (Höhe je Punkt).
+  Punkte rasten an Wänden ein, an Verteilern und gleichartigen Leitungen als „Abzweig“ – auch Zwischenpunkte
+  werden dort verbunden, am Finger mit größerem Fangkreis. Vom Anfang
+  (Zählerschrank, Hauswasser) zum Verbraucher zeichnen; am Ende hängt ein Raum, ein Gerät oder ein Sensor.
+  Gewählte Leitung bearbeiten: Punkte ziehen, Strecke erneut antippen fügt einen Punkt ein, Punkt antippen
+  ändert seine Höhe oder löscht ihn; „Alle Punkte auf Höhe“ setzt alle auf einmal.
+- **Verteiler**: Haupt- und Unterverteilung (optional mit eigenem Zähler – zeigt dann, was „nicht zugeordnet“
+  ist), Einspeisung, **Abzweigdose** (verbindet alle Stromleitungen, die dort beginnen, enden oder
+  durchlaufen – z. B. Zuleitung eines Raums mit Steckdosen und Licht), Router, Switch, Wasser-Hausanschluss,
+  Warmwasser und Durchführung zwischen Etagen (das Gegenstück entsteht automatisch). Verteiler rasten beim
+  Setzen an Leitungen ihres Mediums ein; „als Gegenstand zeigen“ aus macht daraus einen reinen
+  Verbindungspunkt ohne 3D-Modell.
+
+### Hilfen
+
+- Werkzeug **Vorlage**: Bauplan-Foto unter den Grundriss legen, zwei Punkte mit bekanntem Abstand antippen
+  und die echte Länge eingeben – so bekommt das Bild die richtigen Maße; drehen (±90° oder gradgenau) oder
+  „An Linie ausrichten“, damit eine Wand im Bild genau waagrecht liegt. **Maße** und **Messen** zeigen Längen,
+  Winkel und Flächen; beim Zeichnen lassen sich Länge und Winkel eintippen.
+- **Fang-Hilfen**: Raster und Fluchtlinien; unten links die Schalter „Frei“ (ohne Einrasten), „Einzeln“ (nur
+  dieses Teil) und „Mehrfach“ (mehrere Teile wählen). Mehrere Teile lassen sich kopieren oder als eigener
+  Baustein speichern. **Aufräumen** und **Lücken schließen** (Spalt bis 45 cm) gleichen kleine Versätze aus.
+  **Außenwände bündig** (Etage gewählt, nichts markiert) setzt Außenwände, die bis 15 cm neben denen der Etage
+  darunter liegen, genau darüber.
+- **Tastatur**: Esc, Entf, Strg+Z/Y, Pfeiltasten, R dreht 90°, Strg+C/V/D. Am Tablet öffnet Gedrückthalten
+  ein Kurzmenü.
+
+### Speichern, Entwurf und Verlauf
+
+**Speichern** speichert und schließt, **Zwischenspeichern** (Diskette) lässt den Editor offen, **Abbrechen**
+fragt bei Änderungen nach. Ein Entwurf wird laufend im Browser gesichert; beim nächsten Öffnen des Editors
+wählst du „Fortsetzen“ oder „Verwerfen“. Beim Speichern landet der alte Stand im Verlauf. Hat inzwischen ein
+anderes Gerät gespeichert, meldet Haus 3D das.
+
+## Energie
+
+Einrichtung unter Admin-Einstellungen → **Energie**:
+
+- **Aus HA-Energie übernehmen** schlägt Netz-, Solar- und Speicher-Entitäten aus dem Energie-Dashboard vor –
+  Vorschläge prüfen und **Speichern**. Den Hausverbrauch trägst du selbst ein oder lässt ihn berechnen.
+- **Netz**: ein Sensor mit Vorzeichen (+ Bezug, − Einspeisung) oder Bezug und Einspeisung getrennt. Zeigt ein
+  Wert das falsche Vorzeichen (Netz oder Speicher), „Vorzeichen umkehren“ anhaken.
+- **Erweiterungen**: beliebig viele PV-Anlagen, Balkonkraftwerke und AC-Speicher, auch PV mit eigenem Speicher
+  (Hybrid-Anlage, Balkonspeicher); alles wird zusammengerechnet, kW und Wh werden umgerechnet.
+- **Gerätevorlagen** (Auswahl „Gerät“) gibt es für über 20 gängige Wechselrichter-, Speicher- und
+  Balkonkraftwerk-Integrationen, z. B. für Anlagen von Fronius, SMA oder Huawei. Haus 3D schlägt passende
+  Sensoren vor und setzt beim Speicher Vorzeichen und Kapazität – bitte prüfen.
+
+Die **Energie-Karte** oben rechts zeigt Verbrauch, Netz, Erzeugung, Speicher mit Restzeit („reicht bis ca. …“)
+und Ertrag heute; „Tagesverlauf“ zeigt heute und gestern. Ihre Zeilen stellst du unter Admin-Einstellungen →
+Karten → Tab „Energie“ ein.
+
+Der **Energiefluss** läuft als Punkte durch die gezeichneten Leitungen; die Menge kommt vom Leitungsende
+(Sensor, Gerät oder Raum). Eine Leitung oder ein Verteiler zeigt beim Antippen Wert, Richtung und
+„Daran hängt“. **PV-Felder** auf dem Dach zeigen ihre Leistung, ohne eigenen Sensor anteilig geschätzt („ca.“).
+
+## Alltag
+
+Admin-Einstellungen → **Alltag**:
+
+- **Waschmaschine, Trockner, Spülmaschine**: am Leistungssensor erkannt – Chip „läuft 42 min“ (ab 1 h z. B.
+  „1:05 h“, mit Restzeit-Sensor „noch …“), dann „fertig“.
+- **Termine & Müllabfuhr**: Kalender und Abfall-Sensoren; Chip mit dem nächsten Termin, Erinnerung am Vorabend.
+- **Strompreis** fest oder dynamisch: „Kosten jetzt“ und „Günstig“ in der Energie-Karte, Kosten je Raum.
+- **Lüften & Heizen**: Lüften-Timer (Standard 10 min), Schimmelgefahr an der kalten Wand und automatische
+  Heizungspause bei offenem Fenster (nach 3 min; zurück, sobald alle Fenster zu sind).
+- **Urlaub**: Funktionsrad → „Gute Nacht“ → „Haus verlassen“ → „Urlaub: Anwesenheit simulieren …“. Die
+  Anwesenheitssimulation schaltet dann nach Sonnenuntergang bis 23:30 Uhr alle 10 min höchstens 2 Lichter
+  zufällig.
+
+Heizungspause und Urlaub laufen in Home Assistant, auch ohne offenes Tablet; die übrigen Hinweise prüft der
+Browser, solange Haus 3D irgendwo offen ist.
+
+## Wandtablet und Dienste
+
+- **Kiosk-Adresse**: `/haus3d?kiosk` öffnet ohne Kopfzeile (das Zahnrad sitzt dann oben links).
+  `&etage=<Etagen-ID>` (z. B. `eg` oder `all`) wählt die Etage, `&quality=akku` die Qualität.
+- **Einstellungen für dieses Gerät** unter Admin-Einstellungen → **Wandtablet**: „Name dieses Geräts“ (Ziel
+  der Dienste), „Eigene Ansicht“, „Kopfzeile ausblenden“, „Bildschirm anlassen“ (nur über https; sonst die
+  Einstellung der HA-App bzw. des Kiosk-Browsers nutzen), „Startetage“, „Ruhe nach (min)“ (im Kiosk
+  Standard 5) und „Dimmen“ von–bis.
+- **Aufwecken**: Warnungen, die Klingel und Dienst-Befehle wecken das Tablet.
+
+Die **Dienste** wirken auf alle offenen Haus-3D-Seiten; mit `target` nur auf das Gerät, dessen „Name dieses
+Geräts“ damit übereinstimmt.
 
 ```yaml
-# Klingel: Flur-Tablet zeigt das EG von oben und einen Hinweis
+# Flur-Tablet: EG von oben zeigen und einen Hinweis einblenden
 - action: haus3d.show
   data: { floor: eg, view: oben, target: flur-tablet }
 - action: haus3d.notify
   data: { message: "Paket an der Haustür", level: info, room: flur, target: flur-tablet }
-# Raum kurz blinken lassen
+# Raum 15 s blinken lassen
 - action: haus3d.highlight
   data: { room: kueche, seconds: 15 }
+# Urlaub: Anwesenheit simulieren
+- action: haus3d.away
+  data: { on: true }
 ```
 
-`view` ist `iso`, `oben`, `sued`, `nord`, `ost`, `west` oder der Name einer gemerkten Ansicht; `room` die
-Raum-ID oder der Raumname. `haus3d.reload` lädt den Grundriss neu.
+| Dienst | Felder |
+| --- | --- |
+| `haus3d.show` | `floor` (Etagen-ID oder `all`), `view` (`iso`, `oben`, `sued`, `nord`, `ost`, `west` oder gemerkte Ansicht), `room` (Raum-ID, Raumname oder Bereichs-ID; öffnet das Raumfenster), `target` |
+| `haus3d.notify` | `message` (Pflicht), `level` (`info`/`warn` schließen nach 2 min, `critical` bleibt; Standard `warn`), `room`, `icon`, `target` |
+| `haus3d.highlight` | `room` (Pflicht), `seconds` (1–600, Standard 10), `target` |
+| `haus3d.reload` | `target` – lädt den Grundriss neu |
+| `haus3d.away` | `on` (Pflicht, `true`/`false`) – Anwesenheitssimulation, läuft in Home Assistant |
 
-`haus3d.away` (`on: true/false`) schaltet die Anwesenheitssimulation – z. B. in einer Automation „alle weg
-seit 24 h“. Sie läuft in Home Assistant selbst, ohne offenes Tablet.
+## Ausprobieren: Simulation und Testhaus
 
-## Neu in 0.14
+- **Simulation** (im Admin-Modus Zahnrad → Kachel „Simulation“): Nichts wird wirklich geschaltet oder
+  gespeichert. Die orange Leiste unten stellt Wetter, Uhrzeit und Solarleistung ein, „Beispielgeräte“ füllt
+  Räume ohne Geräte. Gedrückthalten auf einem Gerät öffnet einen Simulationsdialog (an/aus, offen/zu,
+  Rollladen-Position, Soll, Messwert). Die Simulation gilt nur in diesem Browser und endet mit dem
+  Admin-Modus; danach lädt der echte Stand neu.
+- **Testhaus**: Entwickler-Funktion (nur in einer bestätigten Entwickler-Instanz) mit bis zu 5 getrennten
+  Häusern zum Ausprobieren (Admin-Einstellungen → Entwickler; Beispielhaus, Kopie oder leer). Das echte Haus
+  bleibt unberührt, Geräte schalten nur mit „Geräte echt schalten“, „Mein Haus“ wechselt zurück. Normale
+  Nutzer sehen sie nicht; sie schaltet nichts frei.
 
-Statusleiste, Hinweise am Modell, Gute-Nacht-Check, Anwesenheit, Energie-Karte 2.0 mit Tagesverlauf,
-PV-Leistung je Dachfeld, Raumklima und Bodenfarbe, echter Sonnenstand und echtes Licht, Blickwinkel,
-Wandtablet mit Ruhemodus sowie im Editor Tablet-Bedienung, Entwurfssicherung, Maße, Treppen mit Deckenloch
-und Garten-Linien. Alle Einzelheiten in [CHANGELOG.md](CHANGELOG.md).
+## Daten: Import, Export und Verlauf
 
-**Tippen auf Geräte:** Licht, Schalter, Lüfter und Rollladen schalten um; Schloss, Garagentor und Sirene
-fragen vorher nach; Automationen, Klima, Alarm und Sensoren öffnen die Details (Automationen löst man
-über Kurzwahl oder Funktionsrad aus). Lange drücken öffnet immer „Weitere Infos“.
+Admin-Einstellungen → **Daten & Verlauf**:
 
-**Wandtablet:** `/haus3d?kiosk&etage=eg` öffnet ohne Kopfzeile auf der Etage EG. „Bildschirm anlassen“
-funktioniert nur über https; in der Companion-App bzw. Fully Kiosk die eigene Einstellung nutzen.
-Hinweise (Regen bei offenem Fenster …) prüft der Browser – sie erscheinen, solange ein Gerät Haus 3D
-offen hat.
+- **Exportieren (JSON)** lädt `haus3d-JJJJ-MM-TT.json` herunter (ohne Bauplan-Fotos).
+- **Importieren (JSON) …** liest rohe Grundrisse (`version: 1`, `floors`) und Exporte
+  (`{format: "haus3d", building}`), bietet Lücken bis 45 cm zum Schließen an und ersetzt Grundriss und
+  Einstellungen.
+- **Verlauf …** stellt einen der letzten 20 Stände wieder her. Gesichert wird vor jedem Speichern, vor jedem
+  Wiederherstellen und mit „Stand sichern“.
 
-## Funktionen
+Alle Daten liegen in `<config>/.storage/haus3d.*`.
 
-- **3D-Modell ohne Decken**, damit man von oben hineinschaut: Böden je Raum in der Farbe des Bodenbelags,
-  Wände als Volumen mit echten Aussparungen für Fenster und Türen (Brüstung und Sturz als eigene Stücke),
-  halbtransparente Glasscheiben, Garagentor, Gartenflächen (Rasen, Terrasse, Weg, Einfahrt, Pool mit
-  Wasser, Beet, Hecke, Zaun).
-- **Dach** (Zahnrad → Haus & Wetter): Flach-, Sattel-, Walm- oder Pultdach mit Neigung, Überstand und
-  Firstrichtung. Es sitzt über der obersten Etage, ausgerichtet am Haus, und deckt nur die
-  zusammenhängenden Räume ab (ein abseits stehender Schuppen bleibt frei). **L-, T- und U-Häuser**
-  bekommen automatisch ein zusammengesetztes Dach: Hauptdach plus Flügel, die bis zum First laufen.
-  **Dachfarbe** frei wählbar. **PV-Module auf dem Dach**: Anzahl je Himmelsrichtung (Ost, Süd, West,
-  Nord); sie liegen hochkant von der Traufe aufwärts auf den Dachflächen, die in diese Richtung zeigen
-  (beim L-Dach z. B. Süd auf dem Hauptdach, Ost und West auf dem Flügel), ohne die Bereiche, über denen
-  ein anderes Dachteil liegt (beim L-Dach nur die Kehle). Dazu „Norden“ einstellen (oben, rechts, unten
-  oder links im Plan). **PV-Felder** für die genaue Anordnung: je Feld Richtung, Spalten × Reihen, hoch
-  oder quer, Abstand von links in Metern (von außen auf die Dachfläche gesehen) und Startreihe ab der
-  Traufe; Felder ersetzen die Anzahl je Richtung. **Flügel-Ende** beim L-Dach: Giebel oder Walm. Sichtbar nur in der Ansicht
-  „Alle“; wählt man eine Etage, schaut man hinein – die Etagen darunter bleiben dabei stehen (z. B. EG
-  gewählt: KG mit seinen Außenwänden bleibt sichtbar). Genauer geht es im Editor auf der **Dach-Ebene**.
-- **Balkon und Geländer**: Gartenfläche der Art „Balkon“ wird als Platte auf Höhe der Etage gebaut, mit
-  Geländer an allen Kanten, die nicht am Haus liegen (Glas, Stäbe oder Holz, Höhe einstellbar). Auch
-  Terrassen und andere Flächen können so ein Geländer oder einen Zaun bekommen.
-- **Garten**: Bäume (Laub-, Nadel-, Obstbaum), Büsche, Blumen, Ziergras, Pflanzkübel, Whirlpool,
-  Komposter, Findling,
-  Steingruppe, Trittstein, Liege, Sonnenschirm, Gartentisch und Grill als Möbel. Gartenflächen auch als
-  Kies, Pflaster oder Steingarten. Beete werden automatisch bepflanzt.
-- **Wetter**: Bei Regen, Schauer, Gewitter, Schnee oder Hagel (Zustand einer `weather.*`-Entität) fällt
-  draußen Regen oder Schnee, nicht in den Räumen. Bei Schnee werden Rasen, Wege und Dach weiß, bei
-  Gewitter blitzt es. Die Wetter-Entität ist einstellbar (Standard: die erste vorhandene).
-- **Bedienung über der 3D-Ansicht**:
-  - **Etagen-Leiste rechts** (▲ Alle mit Dach / EG / KG … ▼).
-  - **Karten oben rechts**: „Energie“ plus bis zu **5 eigene Karten** (Stift: Titel, Symbol, Werte;
-    „+“ legt eine neue an). Jede Karte klappt einzeln auf und zu, eingeklappt zeigt sie einen Kurzwert.
-  - **Weißer Punkt unten links – Kurzwahl**: Automationen (werden ausgelöst), Skripte, Szenen, Taster,
-    Schalter, Lichter. Antippen führt aus, lange drücken zeigt Details. Hinzufügen über das „+“.
-  - **Weißer Punkt unten rechts – Funktionen**: Energiefluss, Temperaturansicht, Stil durchschalten
-    (Auto → Tag → Nacht → Cyberpunk), Dach, Raster, Wetter, Raumnamen, Geräte, Möbel, Ansicht einpassen.
-    Über das „+“ lassen sich Funktionen ausblenden, umsortieren und eigene Einträge (Skripte,
-    Automationen, Schalter …) hinzufügen.
-  - Beide Menüs zeigen **4 Einträge** im Viertelkreis, dahinter fest das **„+“**. Sind es mehr, dreht man
-    sie wie ein Rad (Mausrad, wischen oder die kleinen Pfeile). Beschriftungen stehen immer nach außen.
-  - **Raster im Hintergrund** in allen Stilen (abschaltbar).
-- Kamera drehen, zoomen und verschieben mit Maus oder Fingern.
-  Auf schmalen Bildschirmen gibt es einen Menü-Knopf für die HA-Seitenleiste. Hell/Dunkel folgt HA.
-- **Geräte automatisch im Raum**: Für jeden Raum mit `area_id` erscheinen die Entitäten des Bereichs
-  (Licht, Schalter, Lüfter, Rollladen, Klima, Fenster-/Tür-/Garagenkontakte). Versteckte Entitäten sowie
-  Diagnose- und Konfigurations-Entitäten werden ausgeblendet. Positionen aus `placements[]` haben Vorrang.
-  - **Tippen/Klick**: Licht, Schalter, Lüfter und Rollladen umschalten; Schloss, Garagentor und Sirene
-    mit Nachfrage; Automationen und alles andere öffnen den Dialog.
-  - **Lange drücken oder Rechtsklick**: der normale HA-Dialog („Weitere Infos“).
-- **Live-Status**: Räume mit eingeschaltetem Licht leuchten warm, offene Fenster/Türen werden rot
-  markiert. Türblätter und Fensterflügel schwenken **animiert** auf, Rollläden fahren sichtbar hoch und
-  runter. Raumbeschriftung mit Name, Temperatur und Luftfeuchte (Mittelwert der Sensoren im Bereich).
-- **Raumfenster**: Etage wählen, dann auf einen Raum tippen. Es öffnet sich ein Fenster mit allen Geräten
-  des Raums. Bis zu **3 Raumfenster** gleichzeitig, jedes lässt sich an der Titelleiste verschieben.
-- **Geräte anpassen** (Stift im Raumfenster, nur Admins): einzelne Entitäten ausblenden (Haken weg) oder
-  weitere Entitäten hinzufügen, auch aus anderen Bereichen. Gespeichert im Raum (`hidden_entities`,
-  `panel`).
-- **Temperaturansicht** (Thermometer-Knopf): Böden von blau (18 °C) bis rot (26 °C).
-- **Energie**: Der Raum mit Balkonkraftwerk (im Editor beim Raum „Energie: Balkonkraftwerk“, früher Bereich `balkonkraftwerk` oder Name „Schuppen“) bekommt Solarmodule aufs
-  Dach. Eine animierte Linie zeigt den Energiefluss zum Haus, ihre Geschwindigkeit folgt der
-  Einspeiseleistung. Die Karte „Energie“ oben rechts lässt sich einklappen; welche Werte sie zeigt
-  (auch zusätzliche Sensoren mit eigenem Namen), stellt man im Zahnrad-Menü ein.
-- **Einstellungen** (Zahnrad): Stil **Auto** (Tag/Nacht nach `sun.sun`), **Tag**, **Nacht** oder
-  **Cyberpunk**, Geräte als Symbole oder 3D-Objekte, Ebenen (Wände, Möbel, Geräte, Garten …) ein/aus.
-- **Tablet-tauglich**: größere Schaltflächen bei Touch-Bedienung.
-- **Simulationsmodus** (nur im Admin-Modus: Zahnrad → Simulation, gilt nur für diesen Browser und endet mit
-  dem Admin-Modus): zum gefahrlosen
-  Ausprobieren. Schalten ändert nur simulierte Zustände, es geht **kein Dienstaufruf** an Home
-  Assistant. Langes Drücken öffnet statt „Weitere Infos“ einen Simulationsdialog (an/aus, Fenster
-  offen/zu, Rollladen-Position, Solltemperatur, Messwerte). Ein oranges Band oben zeigt den Modus und
-  stellt Wetter (Sonne bis Gewitter, Schnee, Hagel), Tag/Nacht und Solarleistung ein. „Beispielgeräte“
-  gibt Räumen ohne eigene Geräte ein Licht, einen Temperatursensor, einen Fensterkontakt und eine Leistung
-  (folgt dem Licht, Leitungen zeigen Fluss). Der Solar-Regler rechnet Haus, Netz und Speicher passend. Änderungen
-  am Grundriss bleiben in der Simulation lokal; beim Beenden wird der echte Stand neu geladen.
-- **Import/Export, Verlauf** (Zahnrad → Admin-Einstellungen → „Daten & Verlauf“): JSON exportieren/importieren, Stand sichern, einen
-  der letzten 20 Stände wiederherstellen. Vor jedem Speichern wird der alte Stand automatisch gesichert.
-- Läuft **komplett offline**: Three.js und OrbitControls liegen im Paket, kein CDN.
+<details><summary>Datenformat</summary>
 
-## Editor (für Admins)
-
-Über den Stift in der Kopfzeile öffnet sich der Editor für die gewählte Etage. Oben rechts wählt man die
-Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander) oder **3D**.
-
-- **Dachgeschoss** (Etagenauswahl → „+ Dachgeschoss“): normale Etage für Zimmer unter dem Dach; mit Dach
-  setzt dieses auf dem Kniestock an (Etagen-Eigenschaften).
-- **Dach-Ebene** (Etagenauswahl → „Dach“, nur wenn in den Einstellungen ein Dach an ist): das Hausdach von oben mit Flächen, First und Nordpfeil.
-  Werkzeuge **Kamin**, **Dachfenster** und **PV-Feld**: aufs Dach tippen, dann ziehen oder mit den
-  Pfeilen schieben. PV-Felder (Spalten × Reihen, hochkant oder quer) richten sich nach der Dachfläche
-  unter ihrer Mitte, Reihe 1 liegt an der Traufe; Module, die über First, Kehle oder Rand hinausragen,
-  werden rot angezeigt und in 3D weggelassen. Rechts: Dachform, Neigung, Überstand, First, Flügel-Ende,
-  Norden, Dachfarbe, **Dachdeckung** (Ziegel, Schiefer, Blech, Schindeln) sowie Farbe und Textur der
-  **Giebel**. Kamin: Maße, Höhe über Dach, Drehung, Farbe, Textur. „Bisherige PV hier verschiebbar
-  machen“ übernimmt die PV nach Himmelsrichtung als einzelne Felder.
-  **Dachflächen anpassen**: Fläche antippen, die orangen Punkte an den Kanten ziehen (oder Werte
-  eintragen), bis die Fläche genau auf den Hauswänden sitzt (gelb gestrichelt); die ganze Fläche ziehen
-  oder mit den Pfeilen schieben. Gespeichert als `roof.adjust` je Dachteil.
-- **Texturen** (nur Bild, kein Relief – schont Tablets): Auswahl neben jeder Farbe. Wände außen und innen
-  (Putz, Klinker, Fachwerk, Naturstein, Holz senkrecht/waagerecht, Fassadenpaneele, Beton, Fliesen, Schiefer),
-  Böden (nach Belag automatisch: Dielen, Fliesen, Teppich, Stein, Beton), Gartenflächen (Rasen, Kies,
-  Pflaster, Platten, Holzdeck, Asphalt, Erde) und Dach. „Standard“ wählt passend, „glatt“ schaltet ab.
-  Die Farbe tönt die Textur. Im Cyberpunk-Stil bleibt alles glatt.
-- **Einzelne Wand gestalten**: Raum wählen, eine blaue Wand **antippen** (nicht ziehen) – oben erscheint
-  „Wand x von y“ mit Farbe und Textur innen (bei Außenwänden auch außen) nur für diese Wand, z. B.
-  **Fachwerk** an einer Wohnzimmerwand. Ein oranger Punkt markiert gestaltete Wände.
-- **Räume zeichnen**: Rechteck ziehen oder freie Form Punkt für Punkt. Eckpunkte rasten am Raster
-  und an vorhandenen Ecken ein. Ecken ziehen, über „+“ neue Ecken einfügen.
-- **Einzelne Wände** (Werkzeug „Wand“): Anfang antippen, Ende antippen – fertig ist eine gerade Wand,
-  ohne Raum. Sie rastet bei 0/45/90° und an Raumecken und Wandenden ein (Umschalt = frei); weiter
-  tippen setzt die nächste Wand an, Esc oder Doppelklick beendet. Angeklickt: Enden ziehen, ganze Wand
-  ziehen oder mit Pfeilen schieben, Länge, Dicke, Höhe (leer = Raumhöhe) und Farbe einstellen. Fenster
-  und Türen lassen sich genauso hineinsetzen wie in Raumwände. Gespeichert in `walls[]`.
-- **Wände verschieben**: Raum wählen, dann eine blau markierte Wand ziehen. Sie wandert senkrecht (im
-  Rasterschritt), angrenzende Räume ziehen mit, damit keine Lücke entsteht. Gemeinsame Ecken wandern
-  ebenfalls in allen Räumen mit. Alt beim Ziehen = nur dieser Raum.
-- **Eigenes Dach je Raum** (Schuppen, Carport, Anbau): Art, Neigung, Überstand, Firstrichtung bzw.
-  Neigungsrichtung, beim Pultdach „hohe Seite tauschen“, Dachfarbe und Deckung. Wählt man die Etage,
-  verschwindet das Raumdach samt Solarmodulen (man schaut hinein), ebenso mit „Dach“ aus; dazu eine
-  **Außenfarbe** der Wände je Raum. Beim Schuppen mit Balkonkraftwerk liegen die Solarmodule auf den
-  Dachflächen (Anzahl einstellbar).
-- **Räume zuordnen**: Name, Home-Assistant-Bereich, Bodenbelag (18 Beläge) oder eigene Bodenfarbe,
-  Wandfarbe innen. Außen- und Innenwandfarbe für das ganze Haus stehen bei der Etage (nichts gewählt).
-- **Fenster, Türen, Garagentore**: auf eine Wand tippen, entlang der Wand ziehen. Maße, Anschlag,
-  Aufschlagrichtung, Flügel, Aussehen sowie Kontakt und Rollladen (automatisch, keiner oder bestimmt).
-- **Möbelkatalog**: 84 Typen in Kategorien (Wohnen, Essen, Küche, Schlafen, Bad, Büro, Technik, Licht,
-  Garten, Bau, eigene Körper) mit 3D-Vorschaubild und Suche. Neu u. a. Netzwerk- und Serverschrank,
-  Heizkessel, Warmwasserspeicher, Wärmepumpe, Sicherungskasten, **Säule** (rund), **Stütze** (eckig) –
-  beide mit Höhe 0 bis zur Decke – und **Unterzug/Träger** (hängt unter der Decke).
-- **Eigene Körper**: Quader und Zylinder mit frei wählbaren Maßen, Höhe über Boden, Farbe und Namen.
-  Jedes Möbelstück kann außerdem eine eigene Farbe bekommen.
-- **Magnet** (Magnet-Knopf, an): Möbel rasten beim Ziehen an Wänden ein, drehen sich mit der
-  Vorderseite zum Raum und lassen sich an der Wand entlang schieben; in Ecken auch seitlich bündig.
-  Alt beim Ziehen = frei.
-- **Feinjustieren**: Pfeiltasten schieben die Auswahl (5 cm, mit Umschalt 1 cm), R dreht um 90°
-  (Umschalt+R: 15°). Für Tablets gibt es im Eigenschaftenfeld ein Steuerkreuz mit Schrittweite,
-  Drehknöpfen und „an die Wand stellen“.
-- **3D-Ansicht im Editor**: zeigt jede Änderung sofort. Möbel lassen sich dort anklicken und auf dem
-  Boden verschieben (mit Magnet), ein Klick auf einen Boden wählt den Raum.
-- **Geräte platzieren**: Lampen, Steckdosen usw. an ihre echte Stelle setzen (`placements[]`).
-- **Gartenflächen** zeichnen (auch Balkon), Art, Bereich und Geländer wählen.
-- **Hang zwischen zwei Gartenebenen** (z. B. Garten am KG unten, Vorgarten am EG oben): Böschung als
-  Gartenfläche der unteren Etage zeichnen, so dass ihre Ecken oben an die Fläche der oberen Etage
-  stoßen, dann **Höhen automatisch**. Ecken oben bekommen den Höhenunterschied, unten 0, dazwischen
-  wird verteilt. Alternativ Höhe je Ecke von Hand. Beim Verschieben von Ecken bleiben die Höhen.
-- **Aufräumen** (Besen): gleicht Versätze von wenigen Zentimetern zwischen Räumen an (die 3D-Ansicht tut
-  das ohnehin, sonst entstünden doppelte Wände mit Spalt), entfernt doppelte Eckpunkte und „Spitzen“ (Kanten, die auf sich selbst
-  zurücklaufen), ohne Fenster und Türen zu verschieben, und rückt Möbel, die in Wände ragen, davor.
-- **Außenwände bündig** (bei der Etage, nichts gewählt): setzt Außenwände, die bis 15 cm neben denen der
-  Etage darunter liegen, genau darüber (z. B. EG auf KG). Fenster und Türen bleiben an ihrer Stelle.
-- Rückgängig/Wiederholen (Strg+Z), Lücken schließen, Etagen anlegen/löschen.
-  Gespeichert wird erst mit „Speichern“, der alte Stand landet im Verlauf.
-
-## Update einspielen
-
-Neue Versionen landen auf dem Zweig `main` von
-[tollzockt/Haus3d-HomeAssistant](https://github.com/tollzockt/Haus3d-HomeAssistant).
-Damit HACS sie als Update anbietet, braucht es ein **Release**:
-
-1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
-2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.16.0` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.16.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
-   **Publish release**.
-4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
-   **Aktualisieren** → Home Assistant **neu starten**.
-5. Im Browser die Seite einmal neu laden (Strg+F5 bzw. App neu öffnen).
-
-Ohne Release kann man in HACS unter ⋮ → **Erneut herunterladen** auch den Stand von `main` wählen.
-Der Grundriss bleibt bei Updates erhalten (er liegt in `.storage/haus3d.building`).
-
-## Installation über HACS
-
-1. In Home Assistant **HACS** öffnen.
-2. Oben rechts ⋮ → **Benutzerdefinierte Repositories**.
-3. Repository `https://github.com/tollzockt/Haus3d-HomeAssistant` eintragen, Kategorie **Integration**, hinzufügen.
-4. In HACS nach **Haus 3D** suchen und **Herunterladen**.
-5. Home Assistant **neu starten**.
-6. **Einstellungen → Geräte & Dienste → Integration hinzufügen → Haus 3D**. Es sind keine Eingaben nötig.
-7. In der Seitenleiste erscheint **Haus 3D**.
-
-Voraussetzung: Home Assistant **2024.7** oder neuer.
-
-### Manuelle Installation
-
-Den Ordner `custom_components/haus3d` nach `<config>/custom_components/haus3d` kopieren, neu starten und
-die Integration wie oben hinzufügen.
-
-## Startstand und Datenformat
+Gebäude-JSON mit `version: 1`; Pflichtfelder sind mit `*` markiert, Längen in Metern, Punkte als `[x, z]`.
+Unbekannte Felder bleiben erhalten; ungültige Werte in neueren, optionalen Einstellungen ersetzt Haus 3D durch
+den Standard, statt den Stand abzulehnen.
 
 ```text
-floors[]          id, name, elevation, height, ha_floor, attic (Dachgeschoss), knee (Kniestock, m)
-  rooms[]         id, name, area_id, points [[x, z], …] in Metern, floor_material,
-                  floor_color, wall_color, exterior_color ("#rrggbb", optional),
-                  floor_texture, wall_texture, exterior_texture (Textur, "none" = glatt),
-                  edge_styles {Kante: {color, texture, exterior_color, exterior_texture}},
-                  roof {type, pitch, overhang, color, direction, flip, texture},
-                  solar_panels (eigenes Dach je Raum), scenes [{id, name, icon}] (Raum-Szenen)
-  openings[]      id, room_id, edge, offset, width, type (window|door|garage), sill, height,
-                  hinge, swing, style (passage|glass|front_glass|…), contact, cover,
-                  frame_color ("#rrggbb")
-  outdoor[]       id, type (lawn|terrace|path|driveway|pool|bed|hedge|fence|balcony|gravel|paving|
-                  rockery), points,
-                  railing (glass|bars|wood|none), railing_height, texture
-  placements[]    entity_id, x, z, y
-  walls[]         id, a [x, z], b [x, z], thickness, height, color, texture (freistehende Wände)
-  furniture[]     id, type, x, z, rotation, w, d, h, mount_y, entity, color, name
-settings          wall_exterior (0.24), wall_interior (0.12), wall_colors {exterior, interior},
-                  wall_textures {exterior, interior},
-                  energy {…, extra: [{entity, name}]},
-                  roof {type (none|flat|gable|hip|shed), pitch, overhang, direction (auto|x|z),
-                        color, solar {N, E, S, W}, solar_arrays [{dir, cols, rows, orient, left, row}],
-                        wing_end (gable|hip), floor, rooms, texture, gable_color, gable_texture,
-                        items [{id, type (chimney|skylight|pv), x, z, …}],
-                        adjust [{lo, hi, a, b}] (Dach-Ebene)}, north (Grad),
-                  cards [{id, title, icon, entities [{entity, name}]}] (bis 5), quick [{entity, name}],
-                  weather (Entität oder "none"), title (Name oben links),
-                  daily {appliances [{id, name, kind, power, remaining}], calendars, price, price_entity,
-                         kwp, vent_min, mold, waste_hour, window_heat {auto, minutes}}
+floors[] ≤ 20    id*, name*, elevation*, height*, cut_height, ha_floor, attic, knee, background
+  rooms[] ≤ 200  id*, name*, points* (3–200), area_id, floor_material (wood), floor_color, wall_color,
+                 exterior_color, floor_texture, wall_texture, exterior_texture, edge_styles, roof,
+                 solar_panels, energy_role, hidden_entities, panel, scenes
+  openings[]     id*, room_id*, edge*, offset*, width*, height*, type* (window|door|garage), sill, hinge,
+                 swing, leaves, style, contact, contact2, tilt, cover, frame_color, wall,
+                 well {depth (0.4), width}
+  outdoor[]      id*, type* (lawn|terrace|path|driveway|pool|bed|hedge|fence|balcony|gravel|paving|rockery),
+                 points*, name, area_id, railing, railing_height, texture, heights, line, fence_style
+  placements[]   entity_id*, x*, z*, y
+  walls[]        id, a, b, thickness, height, color, texture
+  furniture[]    id, type, x, z, rotation, w, d, h, mount_y, entity, color, name, variant,
+                 info [{entity, name}] (≤ 6), cols, rows
+                 (Treppe: stair_shape, railing, run_width, cut)
+  pipes[]        id*, type* (strom|wasser_kalt|wasser_warm|netzwerk), points*, heights, entity, room, device,
+                 joints
+  nodes[]        id*, kind* (hv|uv|einspeisung|abzweig|router|switch|wasser_in|warm_in|durch), x*, z*, y,
+                 name, entity, link, model
+settings         wall_exterior (0.24), wall_interior (0.12), grid (0.05), wall_colors, wall_textures, title,
+                 setup_done,
+                 north, weather, season, house_flow, templates, energy_card, cards (≤ 5), quick, functions,
+                 alerts, routines, security, safety, climate, presence, doorbell
+  roof           type (none|flat|gable|hip|shed), pitch (35), overhang (0.4), direction (auto|x|z), wing_end,
+                 color, texture, items [{type (chimney|skylight|pv|dormer), …}], adjust
+  energy         haus, netz, netz_invert, netz_bezug, netz_einspeisung, sources [{type (pv|bkw|speicher),
+                 power, energy, soc, capacity, reserve, …}], extra, kurz, ueberschuss
+  daily          appliances, calendars, price, price_entity, kwp, vent_min, mold, waste_hour, window_heat
 ```
-Eigenen Grundriss einlesen: Zahnrad → Admin-Einstellungen → Daten & Verlauf → Importieren. Gelesen werden
-rohe Grundriss-Dateien (`version: 1`, `floors`) und Haus-3D-Exporte (`{format: "haus3d", building}`); Lücken
-zwischen Räumen (bis 45 cm) bietet der Import zum Schließen an.
 
-### Energie-Entitäten
+</details>
 
-Admin-Einstellungen → Energie: **Haus** (Verbrauch, optional), **Netz** (ein Sensor mit Vorzeichen,
-+ = Bezug, oder getrennt Bezug/Einspeisung) und darunter **PV, Balkonkraftwerk, AC-Speicher** über
-„+“ (je Leistung, Ertrag heute bzw. Ladestand, Kapazität). Alle Erzeuger und Speicher werden
-zusammengerechnet; die Summen stehen live darunter. „Aus HA-Energie übernehmen“ schlägt Entitäten aus
-dem Energie-Dashboard vor. Zeigt etwas mit falschem Vorzeichen, „umkehren“ anhaken. Leistungen in kW und
-Energien in Wh werden automatisch umgerechnet.
+## Update
+
+Neue Versionen bietet HACS als Update an: **HACS → Haus 3D → Aktualisieren** (fehlt das Update noch:
+⋮ → „Informationen aktualisieren“; eine bestimmte Version über ⋮ → „Erneut herunterladen“), danach Home
+Assistant neu starten und die Seite bzw. App einmal neu laden. Deine Daten bleiben erhalten, denn sie liegen
+in `.storage` – auch wenn du die Integration entfernst und später wieder hinzufügst.
+
+Vorabversionen (z. B. `0.23.0b1`) zeigt HACS nur, wenn bei Haus 3D unter ⋮ → **Erneut herunterladen** die
+Option „Betaversionen anzeigen“ an ist.
 
 ## Entwicklung und Tests
 
 ```bash
-# Wandberechnung, Gerätelogik, Import (node 20+)
-node --test tests/js/*.test.mjs
-
-# Backend gegen Home Assistant 2024.7 (Python 3.12)
-pip install -r requirements_test.txt
-python -m pytest -q
-
-# Oberfläche mit nachgebautem hass-Objekt (Playwright): alle Browser-Tests samt Screenshots
-NODE_PATH="$(npm root -g)" node tests/browser/run.mjs /tmp/shots
+node --test tests/js/*.test.mjs                          # Wände, Geräte, Import, Marken-Regeln (Node 20+)
+pip install -r requirements_test.txt && python -m pytest -q tests/python   # Backend (HA 2024.7, Python 3.12)
+NODE_PATH="$(npm root -g)" node tests/browser/run.mjs <ausgabeordner> [filter]   # Oberfläche (Playwright)
 ```
 
-Die Wandberechnung (`frontend/walls.js`) ist ein eigenes Modul ohne Three.js. Die Tests prüfen gegen
-`haus-daten.json`, dass es keine doppelten Innenwände gibt und jede Öffnung auf genau einem Wandsegment
-landet.
+Regeln für Beiträge (kostenlos, eigenständig, Marken, Datenschutz) stehen in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+**Neue Version veröffentlichen** (Maintainer):
+
+1. Version in `custom_components/haus3d/const.py` und `manifest.json` erhöhen, Eintrag in `CHANGELOG.md`
+   ergänzen.
+2. Alle Tests grün, dann den Stand auf `main` von `tollzockt/Haus3d-HomeAssistant` bringen.
+3. Auf GitHub **Releases → Draft a new release**: Tag `v<version>` wie in `manifest.json`, Ziel `main`.
+   Stabile Versionen als normales Release veröffentlichen (erst dann bietet HACS das Update an),
+   Vorabversionen (`x.y.zbN`) als **Pre-release** markieren.
+
+## Unterstützen
+
+Haus 3D ist kostenlos und bleibt es – mit allen Funktionen und auch allen künftigen Erweiterungen und
+Zusatzpaketen. Wenn es dir gefällt, freue ich mich über eine Spende – über den **„Sponsor“-Knopf** oben im Repo
+oder im Panel unter **Zahnrad → ♥ Haus 3D unterstützen**. Spenden sind freiwillig und schalten nichts frei. Das
+Panel zeigt 14 Tage nach dem ersten Öffnen einmalig einen dezenten Hinweis, nie auf dem Wandtablet.
 
 ## Marken & Hinweise
 

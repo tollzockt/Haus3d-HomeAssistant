@@ -56,6 +56,7 @@ import { PIPENET_STYLE, PipeNetMethods } from "./panel-pipes.js";
 import { SMART_STYLE, SmartMethods } from "./panel-smart.js";
 import { TIMELINE_STYLE, TimelineMethods } from "./panel-timeline.js";
 import { SCENES_STYLE, SceneMethods } from "./panel-scenes.js";
+import { HOLO_STYLE, HoloMethods } from "./panel-holo.js";
 import { HOUSE_KEY, doorGuard, houseGuard, loadHouse } from "./access.js";
 import { ENERGYCFG_STYLE, EnergyCfgMethods } from "./panel-energycfg.js";
 import { energyEntities, energyTotals } from "./energymodel.js";
@@ -102,7 +103,7 @@ class Haus3DPanel extends HTMLElement {
     this._overlays = new Map(); // key -> {el, position: Vector3, floorId}
     this._watched = [];
     this._watchedRefs = [];
-    this._extraWatched = () => [...this._panelIds(), ...this._smartIds()];
+    this._extraWatched = () => [...this._panelIds(), ...this._smartIds(), ...this._holoIds()];
   }
 
   set hass(real) {
@@ -389,7 +390,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${SUPPORT_STYLE}${PIPENET_STYLE}${SMART_STYLE}${TIMELINE_STYLE}${SCENES_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${SUPPORT_STYLE}${PIPENET_STYLE}${SMART_STYLE}${TIMELINE_STYLE}${SCENES_STYLE}${HOLO_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -555,7 +556,7 @@ class Haus3DPanel extends HTMLElement {
     this._building = normalize(building);
     this._revision = revision;
     if (!this._building.floors.length) {
-      this._showMessage("Noch kein Grundriss vorhanden. Als Admin über Zahnrad → Admin-Einstellungen → Daten & Verlauf → Importieren eine JSON-Datei einlesen.");
+      this._showMessage("Noch kein Grundriss vorhanden. Bearbeiten → Grundriss öffnet den Editor mit den Grundeinstellungen (Etagen, Wände, Dach, Bauplan) – oder als Admin über Zahnrad → Admin-Einstellungen → Daten & Verlauf → Importieren.");
     } else if (this._scene) {
       this._els.msg.hidden = true;
     }
@@ -653,6 +654,7 @@ class Haus3DPanel extends HTMLElement {
 
   _setFilter(id) {
     this._filter = id;
+    if (this._holo && id !== this._holo.floorId) this._holoClear();
     if (id !== "all" && (this._panels ?? []).some((p) => p.floorId !== id)) {
       for (const p of this._panels.filter((x) => x.floorId !== id)) p.el?.remove();
       this._panels = this._panels.filter((x) => x.floorId === id);
@@ -845,6 +847,7 @@ class Haus3DPanel extends HTMLElement {
       el.hidden = this._settings.layers.energy === false;
     }
     this._renderCards();
+    this._holoBuild();
     this._positionOverlays();
   }
 
@@ -1114,6 +1117,7 @@ class Haus3DPanel extends HTMLElement {
     this._updatePeople();
     // „vor n min“ weiterzählen, solange ein Raum „kürzlich“ ist
     this._needTick("presence", recent);
+    this._holoUpdate();
   }
 
   /** PV-Felder (roof.items) mit Kenndaten: Name, kWp, Ausrichtung, Neigung, Entitäten. */
@@ -1487,38 +1491,48 @@ class Haus3DPanel extends HTMLElement {
     this._closeDialog();
     this._selectRoom(null);
     const floorId = this._filter !== "all" ? this._filter : [...this._building.floors].sort((a, b) => a.elevation - b.elevation).find((f) => f.height >= 1)?.id;
-    this._editor = new FloorEditor({
-      container: this._els.stage,
-      building: this._building,
-      hass: this._hass,
-      floorId,
-      sceneStyle: this._appliedStyle === "cyber" ? "cyber" : this._appliedStyle === "night" ? "night" : "standard",
-      dark: !!this._hass.themes?.darkMode,
-      revision: this._revision,
-      draftKey: this._sim ? "haus3d.editorDraft.sim" : this._house ? `haus3d.editorDraft.${this._house.id}` : undefined, // Entwurf je Haus, Simulation getrennt
-      onSave: async (building, { keepOpen = false } = {}) => {
-        if ((this._house?.id ?? null) !== houseId || this._switching || !!this._sim !== simAtOpen) throw new Error("Inzwischen wurde das Haus gewechselt oder die Simulation umgeschaltet – nicht gespeichert.");
-        try {
-          const res = await this._callLocked({ type: "haus3d/building/save", building, revision: this._revision }, "edit");
-          this._setBuilding(res.building, res.revision, { keepCamera: true });
-          if (!keepOpen) this._toast("Gespeichert.");
-          return res.revision;
-        } catch (err) {
-          if (err.code === "conflict") throw new Error("Der Stand wurde inzwischen woanders geändert. Bitte Seite neu laden.");
-          throw err;
-        }
-      },
-      confirm: (text, ok, o) => this._confirm(text, ok, o),
-      onClose: () => {
-        this._editor?.destroy();
-        this._editor = null;
-        if (this._editBand) this._editBand.hidden = false;
-        this._els.stage.classList.remove("planning");
-        this._els.overlay.hidden = false;
-        this._scene?.start();
-        this._refreshEntities();
-      },
-    });
+    let ed;
+    try {
+      ed = new FloorEditor({
+        container: this._els.stage,
+        building: this._building,
+        hass: this._hass,
+        floorId,
+        sceneStyle: this._appliedStyle === "cyber" ? "cyber" : this._appliedStyle === "night" ? "night" : "standard",
+        dark: !!this._hass.themes?.darkMode,
+        revision: this._revision,
+        draftKey: this._sim ? "haus3d.editorDraft.sim" : this._house ? `haus3d.editorDraft.${this._house.id}` : undefined, // Entwurf je Haus, Simulation getrennt
+        onSave: async (building, { keepOpen = false } = {}) => {
+          if ((this._house?.id ?? null) !== houseId || this._switching || !!this._sim !== simAtOpen) throw new Error("Inzwischen wurde das Haus gewechselt oder die Simulation umgeschaltet – nicht gespeichert.");
+          try {
+            const res = await this._callLocked({ type: "haus3d/building/save", building, revision: this._revision }, "edit");
+            this._setBuilding(res.building, res.revision, { keepCamera: true });
+            if (!keepOpen) this._toast("Gespeichert.");
+            return res.revision;
+          } catch (err) {
+            if (err.code === "conflict") throw new Error("Der Stand wurde inzwischen woanders geändert. Bitte Seite neu laden.");
+            throw err;
+          }
+        },
+        confirm: (text, ok, o) => this._confirm(text, ok, o),
+        onClose: () => {
+          this._editor?.destroy();
+          this._editor = null;
+          if (this._editBand) this._editBand.hidden = false;
+          this._els.stage.classList.remove("planning");
+          this._els.overlay.hidden = false;
+          this._scene?.start();
+          this._refreshEntities();
+        },
+        sim: !!this._sim,
+      });
+    } catch (err) {
+      console.error("Haus 3D: Editor", err);
+      this._els.stage.querySelectorAll(":scope > .ed").forEach((n) => n.remove());
+      this._toast(`Der Editor ließ sich nicht öffnen: ${err?.message ?? err}`);
+      return;
+    }
+    this._editor = ed;
     // Hauptansicht ruht, solange der Editor offen ist (der hat seine eigene 3D-Ansicht)
     this._scene?.stop();
     if (this._editBand) this._editBand.hidden = true;
@@ -1632,7 +1646,7 @@ class Haus3DPanel extends HTMLElement {
         // Tipp: Kamera fährt zum Raum (in „Alle“ erst die Etage); Raumfenster per Gedrückthalten
         if (this._filter === "all") this._setFilter(hit.floorId);
         this._focusRoom(hit);
-      }
+      } else this._holoClear(); // Tipp ins Leere: Info-Tafeln weg
     });
     target.addEventListener("contextmenu", (ev) => {
       const hit = this._scene?.pick(ev.clientX, ev.clientY);
@@ -1654,6 +1668,7 @@ class Haus3DPanel extends HTMLElement {
       this._focusHinted = true;
       this._toast(`${room.name} – gedrückt halten öffnet das Raumfenster`);
     }
+    this._holoShow(hit.floorId, hit.roomId);
   }
 
   /** Raum öffnen/schließen (null = alle schließen). Bis zu 3 Raumfenster gleichzeitig. */
@@ -1674,6 +1689,8 @@ class Haus3DPanel extends HTMLElement {
     }
     this._selected = this._panels.at(-1) ?? null;
     this._scene?.selectRooms(this._panels.map((p) => ({ floorId: p.floorId, roomId: p.roomId })), { focus: !!sel && !toggle });
+    if (sel && !toggle) this._holoShow(sel.floorId, sel.roomId);
+    else if (!sel) this._holoClear({ rewatch: false });
     this._rewatch(); // Geräte der offenen Raumfenster mit beobachten
     this._renderRoomPanel();
   }
@@ -2097,6 +2114,7 @@ class Haus3DPanel extends HTMLElement {
 
   _positionOverlays() {
     if (!this._scene) return;
+    this._holoCheck();
     for (const ov of this._overlays.values()) {
       const visible = ov.roof ? this._scene._roofShown() && this._settings.layers.solar !== false && this._settings.layers.labels !== false : this._scene.isFloorVisible(ov.floorId);
       const p = visible ? this._scene.project(ov.position) : null;
@@ -2130,7 +2148,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods, SupportMethods, PipeNetMethods, SmartMethods, TimelineMethods, SceneMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods, SupportMethods, PipeNetMethods, SmartMethods, TimelineMethods, SceneMethods, HoloMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

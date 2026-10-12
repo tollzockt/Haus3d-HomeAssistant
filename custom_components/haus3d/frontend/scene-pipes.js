@@ -43,6 +43,31 @@ function pipeGeometry(pipe, elev) {
   return { path, len: L, lenAt };
 }
 
+
+/** Höhe der nächstgelegenen Leitung an (x, z) (Punkt-Höhe des nächsten Stücks), sonst 0,3 m. */
+function pipeHeightNear(floor, x, z) {
+  let best = null;
+  for (const p of floor.pipes ?? []) {
+    if (p.type !== "strom") continue;
+    const pts = p.points ?? [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [a, b] = [pts[i], pts[i + 1]];
+      const dx = b[0] - a[0];
+      const dz = b[1] - a[1];
+      const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1e-9)));
+      const d = Math.hypot(x - a[0] - dx * t, z - a[1] - dz * t);
+      const hAt = (k) => {
+        const v = Number(p.heights?.[k]);
+        return Number.isFinite(v) ? v : Number(p.height) || 0.03; // wie die Leitung selbst
+      };
+      const h0 = hAt(i);
+      const h1 = hAt(i + 1);
+      if (d < 0.3 && (!best || d < best.d)) best = { d, h: h0 + (h1 - h0) * t };
+    }
+  }
+  return best?.h ?? 0.3;
+}
+
 export const ScenePipes = {
   _pipeMats() {
     return (this._pMats ??= Object.fromEntries(
@@ -92,6 +117,7 @@ export const ScenePipes = {
 
   /** Einfaches 3D-Modell eines Verteilers. */
   _buildPipeNode(n, elev, floor) {
+    if (n.model === false) return null; // nur Verbindungspunkt, kein Gegenstand
     const M = this.furnMats;
     const g = new THREE.Group();
     const box = (w, h, d, mat, y = 0, z = 0) => {
@@ -114,6 +140,13 @@ export const ScenePipes = {
         box(n.kind === "hv" ? 0.6 : 0.45, n.kind === "hv" ? 0.9 : 0.6, 0.16, M.white, y ?? 0.9);
         box(n.kind === "hv" ? 0.6 : 0.45, 0.04, 0.005, stripe(0xfbc02d), (y ?? 0.9) + (n.kind === "hv" ? 0.8 : 0.52), 0.083);
         break;
+      case "abzweig": {
+        // kleine Abzweigdose auf Höhe der Leitung, die durch sie läuft
+        const at = y ?? Math.max(0, pipeHeightNear(floor, n.x, n.z) - 0.03);
+        box(0.1, 0.06, 0.1, M.light ?? M.white, at);
+        box(0.06, 0.006, 0.06, stripe(0x9e9e9e), at + 0.06);
+        break;
+      }
       case "einspeisung":
         box(0.35, 0.45, 0.15, M.white, y ?? 1.0);
         box(0.35, 0.05, 0.005, stripe(0xff9800), (y ?? 1.0) + 0.36, 0.078);

@@ -33,6 +33,8 @@ import {
 import { FURNITURE, FURNITURE_CATEGORIES } from "./furniture.js";
 import { COLOR_SWATCHES, FLOOR_MATERIALS, floorColor, normalize } from "./model.js";
 import { ROOF_TYPES, autoHeights, isPvShed, roofFloor, roofSettings } from "./exterior.js";
+import { newFloor } from "./setup.js";
+import { isCubeShelf } from "./catalog-extra.js";
 import { ROOF_HINTS, ROOF_TOOLS, roofMoveDrag, roofNudgePart, roofProps, roofStartDrag, roofSvg, textureField } from "./editor-roof.js";
 import { HouseScene } from "./scene.js";
 import { GRID_CHOICES, TOUCH_STYLE, TouchMethods } from "./editor-touch.js";
@@ -42,7 +44,9 @@ import { PIPE_HINT, PipeMethods } from "./editor-pipes.js";
 import { NODE_HINT, NODE_STYLE, NodeMethods } from "./editor-nodes.js";
 import { AtticMethods } from "./editor-attic.js";
 import { PLAN_HINTS, PLAN_STYLE, PlanMethods } from "./editor-plan.js";
-import { furnitureThumb, renderThumbs } from "./thumbs.js";
+import { CATALOG_STYLE, CatalogMethods } from "./editor-catalog.js";
+import { ITEMS_STYLE, ItemMethods } from "./editor-items.js";
+import { SETUP_STYLE, SetupMethods } from "./editor-setup.js";
 import { closeGaps, computeWalls, labelPoint, pieceFootprint, signedArea } from "./walls.js";
 
 const SVGNS = "http://www.w3.org/2000/svg";
@@ -85,13 +89,14 @@ const TOOLS = [
   ["window", "mdi:window-closed-variant", "Fenster"],
   ["door", "mdi:door", "Tür"],
   ["garage", "mdi:garage", "Garagentor"],
-  ["furniture", "mdi:sofa-outline", "Möbel"],
+  ["furniture", "mdi:sofa-outline", "Einrichten"],
   ["device", "mdi:lightbulb-on-outline", "Gerät"],
   ["outdoor", "mdi:tree-outline", "Garten"],
   ["line", "mdi:vector-polyline", "Linie"],
   ["pipe", "mdi:pipe", "Leitung"],
   ["node", "mdi:fuse", "Verteiler"],
   ["measure", "mdi:tape-measure", "Messen"],
+  ["bgmove", "mdi:image-outline", "Vorlage"],
 ];
 const HINTS = {
   select: "Antippen zum Auswählen, Ziehen zum Verschieben. Raum gewählt: blaue Wand ziehen verschiebt die Wand (Nachbarräume gehen mit, Alt = nur dieser Raum) (Möbel rasten mit dem Magnet an Wänden ein, Alt = frei). Pfeiltasten schieben (Umschalt = 1 cm), R dreht. Leere Fläche ziehen = Ansicht verschieben.",
@@ -101,7 +106,7 @@ const HINTS = {
   window: "Auf eine Wand tippen: Fenster einsetzen.",
   door: "Auf eine Wand tippen: Tür einsetzen.",
   garage: "Auf eine Wand tippen: Garagentor einsetzen.",
-  furniture: "Rechts ein Möbel wählen (Suche oder Kategorie), dann in den Plan tippen.",
+  furniture: "Rechts etwas zum Einrichten wählen (Suche, Drinnen oder Draußen), dann in den Plan tippen.",
   device: "Rechts ein Gerät wählen, dann an seine Stelle tippen. Ziehen im Auswahl-Modus verschiebt es.",
   outdoor: "Punkte der Gartenfläche antippen, ersten Punkt erneut antippen zum Abschließen.",
   line: "Weg, Hecke, Zaun oder Mauer: Punkte antippen (0/45/90°, „Frei“ ohne Einrasten), „Fertig“ beendet.",
@@ -151,12 +156,6 @@ export const EDITOR_STYLE = NODE_STYLE + `
 .ed-bar .seg { display: inline-flex; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); border-radius: 8px; overflow: hidden; }
 .ed-bar .seg button { border-radius: 0; min-height: 32px; padding: 4px 9px; white-space: nowrap; }
 .ed-props .search { margin: 6px 0 4px; }
-.ed-props .cat { margin: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .04em; }
-.ed-props .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
-.ed-props .tile { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 2px 6px; border: 1px solid var(--divider-color, rgba(127,127,127,.3)); border-radius: 10px; background: none; color: inherit; font: inherit; font-size: 11px; line-height: 1.15; cursor: pointer; text-align: center; min-height: 92px; }
-.ed-props .tile img, .ed-props .tile .ph { width: 64px; height: 64px; object-fit: contain; }
-.ed-props .tile .ph { border-radius: 8px; background: rgba(127,127,127,.12); }
-.ed-props .tile.sel { border-color: var(--primary-color, #03a9f4); background: rgba(3,169,244,.12); }
 .ed-props .swatches { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .ed-props .swatches button { width: 22px; height: 22px; border-radius: 6px; border: 1px solid rgba(127,127,127,.5); padding: 0; cursor: pointer; }
 .ed-props .swatches button.sel { outline: 2px solid var(--primary-color, #03a9f4); outline-offset: 1px; }
@@ -180,7 +179,7 @@ export const EDITOR_STYLE = NODE_STYLE + `
   .ed-props { width: auto; max-height: 42%; border-left: none; border-top: 1px solid var(--divider-color, rgba(127,127,127,.25)); }
   .ed-bar button span { display: none; }
 }
-${TOUCH_STYLE}${MEASURE_STYLE}${PLAN_STYLE}`;
+${TOUCH_STYLE}${MEASURE_STYLE}${PLAN_STYLE}${CATALOG_STYLE}${ITEMS_STYLE}${SETUP_STYLE}`;
 
 export class FloorEditor {
   /**
@@ -192,8 +191,14 @@ export class FloorEditor {
    * @param {(b: object) => Promise<void>} o.onSave
    * @param {() => void} o.onClose
    */
-  constructor({ container, building, hass, floorId, onSave, onClose, confirm = async (text) => window.confirm(text), sceneStyle = "standard", dark = false, revision = null, draftKey = undefined }) {
+  constructor({ container, building, hass, floorId, onSave, onClose, confirm = async (text) => window.confirm(text), sceneStyle = "standard", dark = false, revision = null, draftKey = undefined, sim = false }) {
     this.b = structuredClone(building);
+    // leeres Haus (z. B. neues Testhaus): ein Erdgeschoss zum Loslegen – nicht im Verlauf, erst „Speichern“ übernimmt es
+    if (!this.b.floors?.length) {
+      this.b.floors = [newFloor("eg", "Erdgeschoss", 0, 2.5)];
+      this._autoFloor = true;
+    }
+    this.sim = sim; // Simulation: keine Bauplan-Fotos hochladen
     this.draftKey = draftKey; // Testhaus: eigener Entwurf, nie der des echten Hauses
     this.revision = revision; // Stand beim Öffnen (Entwurfssicherung)
     this.hass = hass;
@@ -236,6 +241,15 @@ export class FloorEditor {
     this.root.dataset.view = this.viewMode;
     this.root.innerHTML = `<div class="ed-bar"></div><div class="ed-main"><svg class="ed-svg"></svg><div class="ed-3d"><span class="ed-3d-hint">3D: Möbel ziehen · Leere Fläche ziehen dreht · Rad zoomt</span></div><div class="ed-props"></div></div><div class="ed-hint"></div>`;
     container.appendChild(this.root);
+    try {
+      this._init();
+    } catch (err) {
+      this.destroy(); // nichts Halbfertiges im Panel zurücklassen
+      throw err;
+    }
+  }
+
+  _init() {
     this.box3d = this.root.querySelector(".ed-3d");
     this.svg = this.root.querySelector("svg");
     this.props = this.root.querySelector(".ed-props");
@@ -253,13 +267,14 @@ export class FloorEditor {
     this.render();
     this.renderProps();
     this._sync3d();
+    this._maybeSetup(); // neues bzw. leeres Haus: Grundeinstellungen abfragen
   }
 
   destroy() {
     clearTimeout(this._draftTimer);
     this._closeCtx();
     window.removeEventListener("keydown", this._keys);
-    this._resizeObs.disconnect();
+    this._resizeObs?.disconnect();
     clearTimeout(this._3dTimer);
     this.scene3d?.dispose();
     this.scene3d = null;
@@ -455,7 +470,9 @@ export class FloorEditor {
   }
 
   _onKey(ev) {
-    if (ev.target?.closest?.("input, select, textarea")) return;
+    // im Shadow DOM zeigt ev.target auf das Panel – das eigentliche Feld steht vorn in composedPath()
+    const t = ev.composedPath?.()[0] ?? ev.target;
+    if (t?.closest?.("input, select, textarea") || t?.isContentEditable) return;
     if (this._planKey(ev)) return;
     if (ev.key === "Escape") {
       this.draft = null;
@@ -560,12 +577,14 @@ export class FloorEditor {
     const compact = this.coarse || (this.root.clientWidth || 1200) < 1100;
     bar.classList.toggle("compact", compact);
     const tools = this.roofMode ? ROOF_TOOLS : TOOLS;
-    const cur = tools.find(([k]) => k === this.tool) ?? tools[0];
-    const toolsHtml = tools.map(([k, icon, name]) => `<button data-tool="${k}" class="${this.tool === k ? "sel" : ""}" title="${name}"><ha-icon icon="${icon}"></ha-icon><span>${name}</span></button>`).join("");
+    const curTool = this.tool === "bgscale" ? "bgmove" : this.tool;
+    const cur = tools.find(([k]) => k === curTool) ?? tools[0];
+    const toolsHtml = tools.map(([k, icon, name]) => `<button data-tool="${k}" class="${curTool === k ? "sel" : ""}" title="${name}"><ha-icon icon="${icon}"></ha-icon><span>${name}</span></button>`).join("");
     const moreHtml = `${this.roofMode ? "" : `<button data-act="gaps" title="Lücken zwischen Räumen schließen"><ha-icon icon="mdi:vector-combine"></ha-icon><span>Lücken schließen</span></button>
       <button data-act="clean" title="Räume aufräumen: doppelte Punkte und Spitzen entfernen"><ha-icon icon="mdi:broom"></ha-icon><span>Aufräumen</span></button>
       <button data-act="magnet" class="${this.magnet ? "sel" : ""}" title="Magnet: Möbel rasten an Wänden ein (Alt beim Ziehen = frei)"><ha-icon icon="mdi:magnet"></ha-icon><span>Magnet</span></button>
       <button data-act="dims" class="${this.showDims ? "sel" : ""}" title="Maße aller Räume"><ha-icon icon="mdi:ruler"></ha-icon><span>Maße</span></button>`}
+      <button data-act="setup" title="Grundeinstellungen: Name, Norden, Etagen, Wände, Dach, Bauplan"><ha-icon icon="mdi:home-cog-outline"></ha-icon><span>Grundeinstellungen</span></button>
       <button data-act="fit" title="Einpassen"><ha-icon icon="mdi:fit-to-screen-outline"></ha-icon><span>Einpassen</span></button>
       <button data-act="zoomsel" title="Zur Auswahl"${this.sel ? "" : " disabled"}><ha-icon icon="mdi:magnify-scan"></ha-icon><span>Zur Auswahl</span></button>
       ${this.roofMode ? "" : `<select class="gridsel" title="Raster zum Einrasten">${GRID_CHOICES.map(([v, n]) => `<option value="${v}"${Math.abs((this.b.settings?.grid ?? 0.05) - v) < 1e-6 ? " selected" : ""}>Raster ${n}</option>`).join("")}</select>`}`;
@@ -640,6 +659,7 @@ export class FloorEditor {
       return;
     }
     const act = b.dataset.act;
+    if (act === "setup") return this.openSetup();
     if (act === "props") {
       this.root.classList.toggle("noprops");
       requestAnimationFrame(() => {
@@ -1527,6 +1547,7 @@ export class FloorEditor {
     const el = this.props;
     if (this.multi?.length && !this.roofMode) return this._multiProps(el);
     const f = this.floor;
+    if (!f && !this.roofMode) return void (el.innerHTML = `<p class="muted">Keine Etage gewählt.</p>`);
     const sel = this.sel;
     const hass = this.hass;
     const areas = Object.values(hass.areas ?? {}).sort((a, b) => a.name.localeCompare(b.name, "de"));
@@ -1593,42 +1614,8 @@ export class FloorEditor {
       const l = (f.pipes ?? []).find((x) => x.id === sel.id);
       return l ? this._pipeProps(el, l) : this._clearSel();
     }
-    if (this.tool === "furniture") {
-      el.innerHTML = `<h3>Möbel einfügen</h3><p class="muted">Möbel wählen, dann in den Plan tippen.</p><p class="muted brandnote">Produkt- und Herstellernamen nur zur Angabe der Maße bzw. zur Bezeichnung des Geräts – keine Verbindung zu den Herstellern; eigene, vereinfachte Modelle.</p>
-        <input class="search" type="search" placeholder="Suchen …" value="${esc(this.furnSearch)}"><div class="cats"></div>`;
-      const cats = el.querySelector(".cats");
-      const style = this.sceneStyle === "cyber" ? "cyber" : "standard";
-      const draw = () => {
-        const q = this.furnSearch.trim().toLowerCase();
-        cats.innerHTML = FURNITURE_CATEGORIES.map(([cat, types]) => {
-          const list = types.filter((t) => !q || FURNITURE[t][0].toLowerCase().includes(q) || cat.toLowerCase().includes(q));
-          if (!list.length) return "";
-          return `<div class="cat">${esc(cat)}</div><div class="tiles">${list
-            .map((t) => {
-              const img = furnitureThumb(t, style);
-              return `<button class="tile${t === this.furnType ? " sel" : ""}" data-furn="${t}" title="${esc(FURNITURE[t][0])}">${img ? `<img alt="" src="${img}">` : `<span class="ph" data-thumb="${t}"></span>`}<span>${esc(FURNITURE[t][0])}</span></button>`;
-            })
-            .join("")}</div>`;
-        }).join("") || `<p class="muted">Nichts gefunden.</p>`;
-      };
-      draw();
-      el.querySelector(".search").addEventListener("input", (ev) => {
-        this.furnSearch = ev.target.value;
-        draw();
-      });
-      cats.addEventListener("click", (ev) => {
-        const b = ev.target.closest("[data-furn]");
-        if (!b) return;
-        this.furnType = b.dataset.furn;
-        cats.querySelectorAll(".tile").forEach((t) => t.classList.toggle("sel", t === b));
-      });
-      // Vorschaubilder nach und nach einsetzen
-      renderThumbs((type, url) => {
-        const ph = cats.querySelector(`[data-thumb="${type}"]`);
-        if (ph) ph.outerHTML = `<img alt="" src="${url}">`;
-      }, style);
-      return;
-    }
+    if (this.tool === "furniture") return this._furnToolProps(el);
+    if ((this.tool === "bgmove" || this.tool === "bgscale") && !this.roofMode) return this._bgToolProps(el);
     if (this.tool === "device") {
       const icons = buildingIcons(this.b, hass, entitiesByArea(hass)).get(f.id) ?? [];
       const byArea = entitiesByArea(hass);
@@ -1665,7 +1652,8 @@ export class FloorEditor {
         ${this._areaList(f)}
         ${below ? `<div class="btns"><button data-act="alignbelow" title="Außenwände, die bis 15 cm neben denen von ${esc(below.name)} liegen, genau darüber setzen">Außenwände bündig auf ${esc(below.name)}</button></div>` : ""}
         ${this._planFloorProps()}
-        <div class="btns"><button data-act="addfloor">+ Etage</button><button data-act="delfloor" class="danger">Etage löschen</button></div>`;
+        <div class="btns"><button data-act="addfloor">+ Etage</button><button data-act="setupfloors">Grundeinstellungen…</button><button data-act="delfloor" class="danger">Etage löschen</button></div>`;
+      el.querySelector("[data-act=setupfloors]").addEventListener("click", () => this.openSetup(1));
       this._bindPlanFloorProps(el);
       this._bindAtticFields(el);
       el.querySelector("[data-act=alignbelow]")?.addEventListener("click", () => {
@@ -1705,7 +1693,7 @@ export class FloorEditor {
         const top = [...this.b.floors].sort((a, b) => b.elevation - a.elevation)[0];
         const id = newId("floor", allIds(this.b));
         this.changeBuilding((b) => {
-          b.floors.push({ id, name: "Neue Etage", elevation: top ? r3(top.elevation + top.height + 0.25) : 0, height: 2.5, cut_height: 1.15, rooms: [], openings: [], furniture: [], placements: [], background: null, outdoor: [], walls: [], ha_floor: null });
+          b.floors.push(newFloor(id, "Neue Etage", top ? r3(top.elevation + top.height + 0.25) : 0, 2.5));
           this.floorId = id;
         }, { fit: true });
       });
@@ -1878,6 +1866,7 @@ export class FloorEditor {
         ${linkField("cover", o.type === "garage" ? "Tor-Antrieb" : "Rollladen", ["cover"])}
         ${o.type === "window" ? linkField("tilt", "Kippsensor (optional)", ["binary_sensor", "sensor"], undefined, false) : ""}
         ${o.type !== "garage" && o.style !== "passage" ? colorField("frame_color", "Rahmenfarbe", o.frame_color) : ""}
+        ${this._wellFields(o)}
         <p class="muted">Im Plan entlang der Wand ziehen oder mit den Pfeilen schieben.</p>
         ${pad()}
         <div class="btns"><button data-act="del" class="danger">Löschen</button></div>`;
@@ -1914,6 +1903,7 @@ export class FloorEditor {
       bindColors((fl, key, v) => {
         fl.openings.find((y) => y.id === o.id)[key] = v || null;
       });
+      this._bindWellFields(el, o);
       bindNums((fl, k, v) => {
         const x = fl.openings.find((y) => y.id === o.id);
         if (v === null) return;
@@ -1933,6 +1923,7 @@ export class FloorEditor {
         <div class="row3">${num("w", custom && m.type === "custom_cylinder" ? "Ø Breite" : "Breite", m.w)}${num("d", custom && m.type === "custom_cylinder" ? "Ø Tiefe" : "Tiefe", m.d)}${num("h", ["column", "pillar"].includes(m.type) ? "Höhe (0 = Decke)" : "Höhe", m.h)}</div>
         <div class="row2">${num("rotation", "Drehung (°)", m.rotation, 15)}${num("mount_y", "Höhe über Boden", m.mount_y ?? "", 0.05)}</div>
         ${this._stairFields(m)}
+        ${this._itemFields(m)}
         ${colorField("color", custom ? "Farbe" : "Farbe (statt Standard)", m.color)}
         ${pad(true)}
         <label>${lamp ? "Licht (Entität)" : "Verknüpfte Entität (optional)"}</label><input data-m="entity" list="dl_furn" value="${esc(m.entity && m.entity !== "none" ? m.entity : "")}" placeholder="${lamp ? "light.…" : "z. B. media_player.…"}">${entityList("dl_furn", lamp ? ["light", "switch"] : ["light", "switch", "media_player", "fan", "climate", "vacuum", "sensor"])}
@@ -1943,6 +1934,8 @@ export class FloorEditor {
           const x = fl.furniture.find((y) => y.id === m.id);
           const def = FURNITURE[ev.target.value];
           Object.assign(x, { type: ev.target.value, w: def[1], d: def[2], h: def[3] });
+          delete x.cols;
+          delete x.rows;
           this.renderProps();
         }),
       );
@@ -1966,8 +1959,21 @@ export class FloorEditor {
       });
       bindPad();
       this._bindStairFields(el, m);
+      this._bindItemFields(el, m);
       bindNums((fl, k, v) => {
-        fl.furniture.find((y) => y.id === m.id)[k] = k === "mount_y" ? v : v ?? 0;
+        const x = fl.furniture.find((y) => y.id === m.id);
+        x[k] = k === "mount_y" ? v : v ?? 0;
+        if (["w", "d", "h"].includes(k)) {
+          if (isCubeShelf(x.type)) {
+            // Würfelregal: Breite/Höhe ergeben die Würfelzahl (0,35 m je Fach plus Rahmen), Tiefe ändert nichts
+            const n = Math.max(1, Math.min(8, Math.round(((v ?? 0) - 0.07) / 0.35)));
+            if (k === "w") x.cols = n;
+            else if (k === "h") x.rows = n;
+          } else {
+            delete x.cols; // eigene Maße: Raster folgt wieder den Maßen
+            delete x.rows;
+          }
+        }
       });
       el.querySelector("[data-act=dup]").addEventListener("click", () => {
         const copy = { ...structuredClone(m), id: newId("m", allIds(this.b)), x: r3(m.x + 0.3), z: r3(m.z + 0.3) };
@@ -2106,4 +2112,4 @@ export class FloorEditor {
 }
 
 // Tablet: Schalter, Zeichen-Leiste, Langdruck, Entwurf sichern (editor-touch.js)
-Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods, PlanMethods, PipeMethods, NodeMethods, AtticMethods);
+Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods, PlanMethods, PipeMethods, NodeMethods, AtticMethods, CatalogMethods, ItemMethods, SetupMethods);

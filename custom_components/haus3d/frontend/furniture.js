@@ -91,6 +91,8 @@ export const FURNITURE = {
   // Technik
   network_cabinet: ["Netzwerkschrank", 0.6, 0.6, 1.2],
   server_rack: ["Serverschrank", 0.6, 1.0, 2.0],
+  nas: ["NAS / Heimserver", 0.22, 0.25, 0.25],
+  printer_3d: ["3D-Drucker", 0.45, 0.45, 0.5],
   boiler: ["Heizkessel", 0.6, 0.65, 1.8],
   water_tank: ["Warmwasserspeicher", 0.65, 0.65, 1.7],
   heat_pump: ["Wärmepumpe (außen)", 1.0, 0.4, 0.8],
@@ -109,12 +111,19 @@ export const FURNITURE_CATEGORIES = [
   ["Schlafen", ["bed", "bunk_bed", "nightstand", "wardrobe", "dresser"]],
   ["Bad & Wäsche", ["bathtub", "shower", "wc", "washbasin", "washer", "dryer"]],
   ["Büro", ["desk", "office_chair", "tall_cabinet", "coat_rack"]],
-  ["Technik", ["network_cabinet", "server_rack", "boiler", "water_tank", "heat_pump", "fuse_box", "robot_vacuum"]],
+  ["Technik", ["network_cabinet", "server_rack", "nas", "printer_3d", "boiler", "water_tank", "heat_pump", "fuse_box", "robot_vacuum"]],
   ["Licht", ["lamp_ceiling", "lamp_downlight", "lamp_spot", "lamp_panel", "lamp_pendant", "lamp_floor", "lamp_table", "lamp_wall", "led_strip", "lamp_uplight", "lamp_bollard", "lamp_garden", ...EXTRA_LAMPS]],
   ["Garten", ["tree", "tree_conifer", "tree_fruit", "bush", "flowers", "grass", "planter", "hot_tub", "composter", "rock", "rock_group", "stepping_stone", "lounger", "parasol", "garden_table", "bbq"]],
   ["Bau", ["stairs", "stairwell", "column", "pillar", "beam", "parking"]],
   ...EXTRA_CATEGORIES,
   ["Eigene Körper", ["custom_box", "custom_cylinder"]],
+];
+
+/** Oberste Ebene im Katalog „Einrichten“: Drinnen und Draußen mit ihren Kategorien. */
+const OUTDOOR_CATEGORIES = new Set(["Garten", "Solar-Aufständerung", "Wallbox & E-Auto"]);
+export const FURNITURE_GROUPS = [
+  ["Drinnen", FURNITURE_CATEGORIES.filter(([c]) => !OUTDOOR_CATEGORIES.has(c)).map(([c]) => c)],
+  ["Draußen", FURNITURE_CATEGORIES.filter(([c]) => OUTDOOR_CATEGORIES.has(c)).map(([c]) => c)],
 ];
 
 /** Farben je Stil; im Cyberpunk-Stil dunkel mit Neon-Kanten. */
@@ -618,7 +627,7 @@ function buildModel(type, w, d, h, M, item = {}) {
       break;
     }
     default:
-      if (!buildExtra(type, w, d, h, M, g, bulbs)) box(g, M.light, w, h, d);
+      if (!buildExtra(type, w, d, h, M, g, bulbs, item)) box(g, M.light, w, h, d);
   }
   g.userData.bulbs = bulbs;
   return g;
@@ -643,6 +652,19 @@ function colored(M, color) {
  * @param {number} elev Höhe des Etagenbodens
  * @param {number} floorHeight Raumhöhe (Deckenleuchten hängen unter der Decke)
  */
+/** Unterkante eines Möbelstücks über dem Etagenboden (Montagehöhe; Decken- und Wandtypen eigene Standards). */
+export function furnitureBaseY(item, floorHeight, h = null) {
+  const def = FURNITURE[item.type] ?? ["Möbel", 0.6, 0.6, 0.8];
+  h ??= item.h || def[3] || floorHeight;
+  const ceiling = ["lamp_ceiling", "lamp_panel", "lamp_downlight", "lamp_pendant", "kitchen_wall", "beam"].includes(item.type);
+  const wall = ["lamp_wall", "lamp_spot", "tv_wall", "radiator", "fuse_box"].includes(item.type);
+  const em = EXTRA_MOUNT[item.type];
+  let y = item.mount_y ?? (ceiling || em === "ceiling" ? floorHeight - h - 0.01 : typeof em === "number" ? em : wall ? (item.type === "radiator" ? 0.1 : item.type === "fuse_box" ? 1.2 : 1.6) : 0);
+  if (item.type === "kitchen_wall" && item.mount_y == null) y = 1.45;
+  if (item.type === "radiator" && item.mount_y == null) y = 0;
+  return y;
+}
+
 export function buildFurniture(item, M, elev, floorHeight) {
   const def = FURNITURE[item.type] ?? ["Möbel", 0.6, 0.6, 0.8];
   const w = item.w || def[1];
@@ -650,12 +672,7 @@ export function buildFurniture(item, M, elev, floorHeight) {
   // Höhe 0 (Säule, Stütze): bis zur Decke
   const h = item.h || def[3] || floorHeight;
   const g = buildModel(item.type, w, d, h, colored(M, item.color), item);
-  const ceiling = ["lamp_ceiling", "lamp_panel", "lamp_downlight", "lamp_pendant", "kitchen_wall", "beam"].includes(item.type);
-  const wall = ["lamp_wall", "lamp_spot", "tv_wall", "radiator", "fuse_box"].includes(item.type);
-  const em = EXTRA_MOUNT[item.type];
-  let y = item.mount_y ?? (ceiling || em === "ceiling" ? floorHeight - h - 0.01 : typeof em === "number" ? em : wall ? (item.type === "radiator" ? 0.1 : item.type === "fuse_box" ? 1.2 : 1.6) : 0);
-  if (item.type === "kitchen_wall" && item.mount_y == null) y = 1.45;
-  if (item.type === "radiator" && item.mount_y == null) y = 0;
+  const y = furnitureBaseY(item, floorHeight, h);
   g.position.set(item.x, elev + y, item.z);
   g.rotation.y = -THREE.MathUtils.degToRad(item.rotation || 0);
   if (M.edge) {

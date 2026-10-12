@@ -2,6 +2,7 @@
 // Sichtbarkeit und Skalierung (kein Neuaufbau der Geometrie).
 
 import * as THREE from "./vendor/three.module.min.js";
+import { buildLightWell } from "./well.js";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
 import { angleBetween, sunLook, sunVector } from "./sun.js";
@@ -1096,6 +1097,9 @@ export class HouseScene {
     if (o.type !== "garage") {
       const outside = seg.kind === "exterior" ? (seg.left > 0 ? 1 : -1) : -rs;
       const z = outside * (thick / 2 + 0.03);
+      // Lichtschacht vor Kellerfenstern in Außenwänden (well.js)
+      const well = o.well && o.type === "window" && seg.kind === "exterior" ? buildLightWell({ width, thick, outside, elev, sill, well: o.well }, this.furnMats) : null;
+      if (well) group.add(well);
       const blind = box(width, h, 0.025, this.mats.blind, 0, 0, z);
       blind.geometry.translate(0, -h / 2, 0);
       blind.position.set(0, h, z);

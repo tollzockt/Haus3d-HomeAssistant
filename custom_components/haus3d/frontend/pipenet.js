@@ -7,7 +7,7 @@ const TOL = 0.05; // m: so nah = verbunden
 
 /** Medien: Leitungstyp → {Verteiler-Arten, Wurzel-Arten, Einheit}. */
 export const MEDIA = {
-  strom: { kinds: ["hv", "uv", "einspeisung", "durch"], roots: ["hv"], unit: "W" },
+  strom: { kinds: ["hv", "uv", "einspeisung", "abzweig", "durch"], roots: ["hv"], unit: "W" },
   wasser_kalt: { kinds: ["wasser_in", "durch"], roots: ["wasser_in"], unit: "l/min" },
   wasser_warm: { kinds: ["warm_in", "durch"], roots: ["warm_in"], unit: "l/min" },
   netzwerk: { kinds: ["router", "switch", "durch"], roots: ["router"], unit: "Mbit/s" },
@@ -18,6 +18,7 @@ export const NODE_KINDS = [
   ["hv", "Hauptverteilung", "mdi:home-lightning-bolt", "strom"],
   ["uv", "Unterverteilung", "mdi:fuse", "strom"],
   ["einspeisung", "Einspeisung (PV/BKW/Speicher)", "mdi:solar-power-variant", "strom"],
+  ["abzweig", "Abzweigdose", "mdi:source-branch", "strom"],
   ["router", "Router", "mdi:router-network", "netzwerk"],
   ["switch", "Switch / Netzwerk-Verteiler", "mdi:switch", "netzwerk"],
   ["wasser_in", "Wasser-Hausanschluss", "mdi:water-pump", "wasser_kalt"],
@@ -26,6 +27,24 @@ export const NODE_KINDS = [
 ];
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+/** Gültige Zwischenpunkte einer Leitung, die als Abzweig gelten (pipe.joints). */
+export function jointsOf(p) {
+  const n = p.points?.length ?? 0;
+  return [...new Set((Array.isArray(p.joints) ? p.joints : []).filter((j) => Number.isInteger(j) && j > 0 && j < n - 1))];
+}
+
+/** Abzweig-Punkte nach Einfügen (+1 ab at), Löschen (at fällt weg) oder Umdrehen einer Leitung mit n Punkten. */
+export function remapJoints(joints, { insert = null, remove = null, flip = false, n }) {
+  let out = Array.isArray(joints) ? [...joints] : [];
+  if (insert !== null) out = out.map((j) => (j >= insert ? j + 1 : j));
+  if (remove !== null) out = out.filter((j) => j !== remove).map((j) => (j > remove ? j - 1 : j));
+  if (flip) out = out.map((j) => n - 1 - j);
+  return [...new Set(out)].filter((j) => j > 0 && j < n - 1).sort((a, b) => a - b);
+}
+
+/** Medium einer Verteiler-Art (null = Durchführung, passt zu allen). */
+export const nodeMedium = (kind) => NODE_KINDS.find((k) => k[0] === kind)?.[3] ?? null;
 
 /** Nächster Punkt einer Strecke: {t (0..1), d}. */
 function onSegment(p, a, b) {
@@ -96,12 +115,15 @@ export function computeNet(building, { load = () => null, nodeValue = () => null
     for (const p of pipes) {
       addCut(p, 0);
       addCut(p, p.points.length - 1);
+      for (const j of jointsOf(p)) addCut(p, j);
     }
     // Punkte, die andere Leitungen berühren können: Enden aller Leitungen und alle Verteiler
     const probes = [
       ...pipes.flatMap((p) => [
         { k: key(p, 0), floorId: p.floorId, xz: p.points[0], own: p.id },
         { k: key(p, p.points.length - 1), floorId: p.floorId, xz: p.points.at(-1), own: p.id },
+        // Zwischenpunkte, die als Abzweig auf einer anderen Leitung liegen
+        ...jointsOf(p).map((j) => ({ k: key(p, j), floorId: p.floorId, xz: p.points[j], own: p.id })),
       ]),
       ...nodes.map((n) => ({ k: `node:${n.id}`, floorId: n.floorId, xz: [n.x, n.z], own: null })),
     ];
@@ -169,7 +191,7 @@ export function computeNet(building, { load = () => null, nodeValue = () => null
       const v = nodeValue(n);
       if (!Number.isFinite(v)) continue;
       if (n.kind === "einspeisung") addLoad(`node:${n.id}`, -Math.abs(v), { name: n.name || "Einspeisung", nodeId: n.id });
-      else if (n.kind !== "durch") meters.set(dsu.find(`node:${n.id}`), { value: v, node: n });
+      else if (n.kind !== "durch" && n.kind !== "abzweig") meters.set(dsu.find(`node:${n.id}`), { value: v, node: n });
     }
     // 4) Wurzel und Baum (Breitensuche); ohne Wurzel: Anfang der ersten Leitung
     const rootNode = nodes.find((n) => cfg.roots.includes(n.kind));

@@ -136,12 +136,14 @@ await edTool(ed, "window");
 [ax, ay] = await toScreen(13.5, 1.02); await ed.mouse.click(ax, ay);
 await ed.locator("haus3d-panel .ed-props select[data-linkmode=contact]").selectOption("none");
 await edTool(ed, "furniture");
+await ed.locator("haus3d-panel .ed-props .search").fill("Bett");
 await ed.locator("haus3d-panel .ed-props button[data-furn=bed]").click();
 [ax, ay] = await toScreen(13.5, 2.5); await ed.mouse.click(ax, ay);
 await ed.locator("haus3d-panel .ed-props input[data-num=rotation]").fill("90");
 await ed.locator("haus3d-panel .ed-props input[data-num=rotation]").press("Tab");
 // ein zusätzliches Möbel und gleich wieder rückgängig
 await edTool(ed, "furniture");
+await ed.locator("haus3d-panel .ed-props .search").fill("Pflanze");
 await ed.locator("haus3d-panel .ed-props button[data-furn=plant]").click();
 [ax, ay] = await toScreen(14.5, 3.5); await ed.mouse.click(ax, ay);
 await ed.locator("haus3d-panel .ed-bar button[data-act=undo]").click();
@@ -278,7 +280,7 @@ await e3.keyboard.press("ArrowUp"); await e3.keyboard.press("ArrowUp");
 const nudged = await e3.evaluate(() => { const e = window.panel._editor; const m = e.floor.furniture.find((x) => x.id === e.sel.id); return { z: m.z, undo: e.undoStack.length }; });
 // eigener Zylinder mit Farbe
 await edTool(e3, "furniture");
-await e3.locator("haus3d-panel .ed-props .search").fill("");
+await e3.locator("haus3d-panel .ed-props .search").fill("Zylinder");
 await e3.locator("haus3d-panel .ed-props .tile[data-furn=custom_cylinder]").click();
 [px, py] = await plan(5, 2.5); await e3.mouse.click(px, py);
 await e3.locator("haus3d-panel .ed-props button[data-swatch=color][data-c='#4f7fa8']").click();

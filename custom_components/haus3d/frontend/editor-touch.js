@@ -82,6 +82,7 @@ export const TouchMethods = {
       if (d.line) {
         d.line.pop();
         d.heights?.pop();
+        if (d.joints) d.joints = d.joints.filter((j) => j < d.line.length);
         if (!d.line.length) this.draft = null;
       } else if (d.wall) this.draft = null;
       else {
@@ -224,10 +225,12 @@ export const TouchMethods = {
       this.renderBar();
       this.renderProps();
       this._sync3d(true);
+      this._maybeSetup?.();
     });
     el.querySelector('[data-b="drop"]').addEventListener("click", () => {
       this.clearDraft();
       el.remove();
+      this._maybeSetup?.();
     });
     this.root.querySelector(".ed-main").appendChild(el);
     this._bannerEl = el;

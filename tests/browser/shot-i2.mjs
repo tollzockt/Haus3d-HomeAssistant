@@ -10,7 +10,18 @@ await ed.waitForTimeout(500);
 await ed.locator("haus3d-panel .floorsel").selectOption("eg");
 await ed.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
 await ed.waitForTimeout(3000); // Vorschaubilder
-const cats = await E(() => [...window.panel._editor.props.querySelectorAll(".cat")].map((h) => h.textContent.trim()));
+const groups = await E(() => [...window.panel._editor.props.querySelectorAll(".grp")].map((h) => h.querySelector("span").textContent));
+t.check(groups.join() === "Drinnen,Draußen", `Gruppen: ${groups}`);
+t.check(await ed.locator("haus3d-panel .ed-bar button[data-tool=furniture]").getAttribute("title") === "Einrichten", "Werkzeug heißt „Einrichten“");
+await ed.locator('haus3d-panel .ed-props .grp[data-grp="Draußen"]').click();
+const cats = await E(() => [...window.panel._editor.props.querySelectorAll(".cat")].map((h) => (h.querySelector("span") ?? h).textContent.trim()));
+// Kategorie aufklappen zeigt ihre Teile, zuklappen versteckt sie wieder (Zustand je Browser gemerkt)
+await ed.locator('haus3d-panel .ed-props .cat[data-cat="Gaming"]').click();
+const gamingOpen = await ed.locator("haus3d-panel .ed-props .tile[data-furn=gaming_desk]").count();
+await ed.locator('haus3d-panel .ed-props .cat[data-cat="Gaming"]').click();
+const gamingClosed = await ed.locator("haus3d-panel .ed-props .tile[data-furn=gaming_desk]").count();
+const remembered = await E(() => JSON.parse(localStorage.getItem("haus3d.catalogOpen") ?? "{}"));
+t.check(gamingOpen === 1 && gamingClosed === 0 && remembered.g?.["Draußen"] === true && remembered.c?.Gaming === false, `Aufklappen: ${gamingOpen}/${gamingClosed} ${JSON.stringify(remembered)}`);
 t.results.kategorien = cats;
 for (const c of ["Möbelserien", "LED", "Gaming", "Wallbox & E-Auto", "Wechselrichter & Speicher", "Solar-Aufständerung"]) t.check(cats.some((x) => x.startsWith(c)), `Kategorie fehlt: ${c}`);
 await ed.locator("haus3d-panel .ed-props .search").fill("kallax");

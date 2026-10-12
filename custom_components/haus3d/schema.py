@@ -82,6 +82,14 @@ ROOM_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
+WELL_SCHEMA = vol.Schema(
+    {
+        vol.Optional("depth", default=0.4): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=2)),
+        vol.Optional("width", default=None): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0.2, max=6))),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
 OPENING_SCHEMA = vol.Schema(
     {
         vol.Required("id"): _ID,
@@ -101,6 +109,21 @@ OPENING_SCHEMA = vol.Schema(
         vol.Optional("tilt", default=None): _soft(_ENTITY, None),
         # 0.20: eigene Rahmenfarbe (#rrggbb)
         vol.Optional("frame_color"): _soft(vol.Any(None, vol.Match(r"^#[0-9a-fA-F]{6}$")), None),
+        # 0.23: Lichtschacht außen (Kellerfenster)
+        vol.Optional("well"): _soft(vol.Any(None, WELL_SCHEMA), None),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
+# 0.23: Möbel und Geräte – Info-Hologramm (Werte über dem Gegenstand) und Raster (Würfel, Module)
+FURNITURE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("info"): _soft(
+            vol.Any(None, vol.All([vol.Schema({vol.Required("entity"): vol.All(str, vol.Length(min=3, max=255)), vol.Optional("name", default=None): vol.Any(None, vol.All(str, vol.Length(max=40)))}, extra=vol.ALLOW_EXTRA)], vol.Length(max=6))),
+            None,
+        ),
+        vol.Optional("cols"): _soft(vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=20))), None),
+        vol.Optional("rows"): _soft(vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=20))), None),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -133,6 +156,8 @@ PIPE_SCHEMA = vol.Schema(
         vol.Optional("entity", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
         vol.Optional("room", default=None): vol.Any(None, _ID),
         vol.Optional("device", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
+        # 0.23: Zwischenpunkte, die als Abzweig auf einer anderen Leitung liegen
+        vol.Optional("joints"): _soft(vol.Any(None, vol.All([vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_POINTS))], vol.Length(max=MAX_POINTS))), None),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -141,13 +166,15 @@ PIPE_SCHEMA = vol.Schema(
 NODE_SCHEMA = vol.Schema(
     {
         vol.Required("id"): _ID,
-        vol.Required("kind"): vol.In(["hv", "uv", "einspeisung", "router", "switch", "wasser_in", "warm_in", "durch"]),
+        vol.Required("kind"): vol.In(["hv", "uv", "einspeisung", "router", "switch", "wasser_in", "warm_in", "durch", "abzweig"]),
         vol.Required("x"): _COORD,
         vol.Required("z"): _COORD,
         vol.Optional("y", default=None): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=20))),
         vol.Optional("name", default=None): vol.Any(None, vol.All(str, vol.Length(max=80))),
         vol.Optional("entity", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
         vol.Optional("link", default=None): vol.Any(None, _ID),
+        # 0.23: false = nur Verbindungspunkt ohne Gegenstand
+        vol.Optional("model"): _soft(vol.Boolean(), True),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -161,7 +188,7 @@ FLOOR_SCHEMA = vol.Schema(
         vol.Optional("cut_height", default=1.15): vol.All(vol.Coerce(float), vol.Range(min=0.2, max=20)),
         vol.Required("rooms"): vol.All([ROOM_SCHEMA], vol.Length(max=MAX_ROOMS)),
         vol.Optional("openings", default=list): vol.All([OPENING_SCHEMA], vol.Length(max=MAX_ITEMS)),
-        vol.Optional("furniture", default=list): vol.All([dict], vol.Length(max=MAX_ITEMS)),
+        vol.Optional("furniture", default=list): vol.All([FURNITURE_SCHEMA], vol.Length(max=MAX_ITEMS)),
         vol.Optional("placements", default=list): vol.All([PLACEMENT_SCHEMA], vol.Length(max=MAX_ITEMS)),
         vol.Optional("background", default=None): vol.Any(None, dict),
         vol.Optional("outdoor", default=list): vol.All([OUTDOOR_SCHEMA], vol.Length(max=MAX_ITEMS)),
@@ -215,6 +242,8 @@ SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("north"): _soft(_north, 0),
         # Name oben links (leer = „Haus 3D“)
         vol.Optional("title"): _soft(vol.Any(None, vol.All(str, vol.Length(max=60))), None),
+        # 0.23: Grundeinstellungen im Editor erledigt
+        vol.Optional("setup_done"): _soft(vol.Boolean(), False),
     },
     extra=vol.ALLOW_EXTRA,
 )

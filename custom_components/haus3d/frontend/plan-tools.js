@@ -217,6 +217,32 @@ export function scaleBackground(bg, a, b, real) {
   return { ...bg, x: r3(a[0] + (bg.x - a[0]) * k), z: r3(a[1] + (bg.z - a[1]) * k), width: r3(bg.width * k) };
 }
 
+/** Bild drehen (Grad, im Plan im Uhrzeigersinn), Ergebnis in (−180, 180]. */
+export function rotateBackground(bg, deg) {
+  let r = (((Number(bg.rotation) || 0) + deg) % 360 + 360) % 360;
+  if (r > 180) r -= 360;
+  return { ...bg, rotation: r3(r) };
+}
+
+/**
+ * Bild so drehen, dass die Strecke a–b genau waagrecht bzw. senkrecht liegt (je nachdem, was näher ist);
+ * Punkt a bleibt dabei an seiner Stelle. Liefert das neue Bild und die neue Lage von b.
+ */
+export function alignBackground(bg, a, b) {
+  const ang = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
+  const delta = Math.round(ang / 90) * 90 - ang;
+  if (Math.abs(delta) < 1e-9) return { bg: { ...bg }, b2: b, delta: 0 };
+  const t = (delta * Math.PI) / 180;
+  const rot = ([x, z]) => [x * Math.cos(t) - z * Math.sin(t), x * Math.sin(t) + z * Math.cos(t)];
+  const h = bg.width * (bg.aspect || 0.75);
+  const c = [bg.x + bg.width / 2, bg.z + h / 2];
+  const ra = rot([a[0] - c[0], a[1] - c[1]]);
+  const shift = [a[0] - c[0] - ra[0], a[1] - c[1] - ra[1]];
+  const rb = rot([b[0] - a[0], b[1] - a[1]]);
+  const out = rotateBackground({ ...bg, x: r3(bg.x + shift[0]), z: r3(bg.z + shift[1]) }, delta);
+  return { bg: out, b2: [r3(a[0] + rb[0]), r3(a[1] + rb[1])], delta: r3(delta) };
+}
+
 /** Bildmaße für das Verkleinern im Browser: längste Seite höchstens max Pixel. */
 export function fitSize(w, h, max = 1600) {
   const k = Math.min(1, max / Math.max(w, h));

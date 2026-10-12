@@ -169,3 +169,31 @@ def test_title_attic_and_frame_color_soft() -> None:
     assert out["settings"]["title"] is None
     assert out["floors"][0]["knee"] == 1.0
     assert out["floors"][0]["openings"][0]["frame_color"] is None
+
+
+def test_new_soft_fields_023() -> None:
+    """0.23: Grundeinstellungen, Lichtschacht, Info-Hologramm, Raster, Abzweigdose, Verbindungspunkte."""
+    room = {"id": "r", "name": "R", "points": [[0, 0], [4, 0], [4, 3], [0, 3]]}
+    win = {"id": "o", "room_id": "r", "edge": 0, "offset": 1, "width": 1, "type": "window", "height": 1}
+    floor = {
+        "id": "kg", "name": "KG", "elevation": -2.5, "height": 2.3, "rooms": [room],
+        "openings": [{**win, "well": {"depth": 0.5}}, {**win, "id": "o2", "well": {"depth": 9}}],
+        "furniture": [
+            {"id": "m", "type": "printer_3d", "x": 1, "z": 1, "info": [{"entity": "sensor.druck"}], "cols": "3", "rows": 99},
+            {"id": "m2", "type": "nas", "x": 2, "z": 1, "info": [{"entity": "sensor.x"}] * 7},
+            {"id": "m3", "type": "nas", "x": 2, "z": 2, "info": [{"entity": "sensor.x"}] * 6},
+        ],
+        "pipes": [{"id": "p", "type": "strom", "points": [[0, 0], [1, 0], [2, 0]], "joints": [1]}, {"id": "p2", "type": "strom", "points": [[0, 0], [1, 1]], "joints": "kaputt"}],
+        "nodes": [{"id": "n", "kind": "abzweig", "x": 1, "z": 0, "model": False}, {"id": "n2", "kind": "hv", "x": 0, "z": 0, "model": "vielleicht"}],
+    }
+    b = validate_building({"version": 1, "floors": [floor], "settings": {"setup_done": True}})
+    f = b["floors"][0]
+    assert b["settings"]["setup_done"] is True
+    assert f["openings"][0]["well"] == {"depth": 0.5, "width": None}
+    assert f["openings"][1]["well"] is None  # ungültig → weich ersetzt, Stand bleibt gültig
+    assert f["furniture"][0]["info"] == [{"entity": "sensor.druck", "name": None}] and f["furniture"][0]["cols"] == 3 and f["furniture"][0]["rows"] is None
+    assert f["furniture"][1]["info"] is None  # mehr als 6 Werte
+    assert len(f["furniture"][2]["info"]) == 6
+    assert f["pipes"][0]["joints"] == [1] and f["pipes"][1]["joints"] is None
+    assert f["nodes"][0]["kind"] == "abzweig" and f["nodes"][0]["model"] is False and f["nodes"][1]["model"] is True
+    assert validate_building({"version": 1, "floors": [], "settings": {"setup_done": "ja"}})["settings"]["setup_done"] is False

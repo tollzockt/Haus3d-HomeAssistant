@@ -3,12 +3,12 @@
 // rasten an Verteilern ein; eine Durchführung bekommt auf der Zieletage ein Gegenstück an gleicher Stelle.
 
 import { allIds, newId } from "./edit-ops.js";
-import { NODE_KINDS } from "./pipenet.js";
+import { NODE_KINDS, nodeMedium } from "./pipenet.js";
 import { pipeColor } from "./pipes.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const LETTER = { hv: "H", uv: "U", einspeisung: "E", router: "R", switch: "S", wasser_in: "W", warm_in: "B", durch: "D" };
+const LETTER = { hv: "H", uv: "U", einspeisung: "E", abzweig: "A", router: "R", switch: "S", wasser_in: "W", warm_in: "B", durch: "D" };
 
 export const NODE_HINT = "Verteiler: Art rechts wählen, dann an die Stelle tippen (rastet an Wänden ein). Leitungen, die an einem Verteiler beginnen oder enden, hängen daran.";
 
@@ -29,7 +29,8 @@ export const NodeMethods = {
 
   _nodeTap(ev, p) {
     const kind = this._nodeOpts().kind;
-    const q = this._pipeSnap(ev, p, null, { type: "__none__" });
+    // rastet an Leitungen seines Mediums ein (Abzweigdose mitten auf der Zuleitung)
+    const q = this._pipeSnap(ev, p, null, { type: nodeMedium(kind) });
     const node = { id: newId(`vt_${kind}`, this._allNodeIds()), kind, x: r3(q[0]), z: r3(q[1]), y: null, name: null, entity: null, link: null };
     this.change((fl) => {
       fl.nodes = [...(fl.nodes ?? []), node];
@@ -49,7 +50,7 @@ export const NodeMethods = {
         const sel = this.sel?.kind === "pnode" && this.sel.id === n.id;
         const c = color(n.kind);
         const r = px(this.coarse ? 13 : 10);
-        return `<g data-kind="pnode" data-id="${esc(n.id)}" style="cursor:move"><circle cx="${r3(n.x)}" cy="${r3(n.z)}" r="${r}" fill="${sel ? c : "#fff"}" stroke="${c}" stroke-width="${px(sel ? 3.5 : 2.5)}"/><text x="${r3(n.x)}" y="${r3(n.z + px(4))}" text-anchor="middle" font-size="${px(11)}" font-weight="700" fill="${sel ? "#fff" : c}" pointer-events="none">${LETTER[n.kind] ?? "?"}</text></g>`;
+        return `<g data-kind="pnode" data-id="${esc(n.id)}" style="cursor:move"><circle cx="${r3(n.x)}" cy="${r3(n.z)}" r="${r}" fill="${sel ? c : "#fff"}" stroke="${c}" stroke-width="${px(sel ? 3.5 : 2.5)}"${n.model === false ? ` stroke-dasharray="${px(4)} ${px(3)}"` : ""}/><text x="${r3(n.x)}" y="${r3(n.z + px(4))}" text-anchor="middle" font-size="${px(11)}" font-weight="700" fill="${sel ? "#fff" : c}" pointer-events="none">${LETTER[n.kind] ?? "?"}</text></g>`;
       })
       .join("");
   },
@@ -76,7 +77,10 @@ export const NodeMethods = {
     el.innerHTML = `<h3><ha-icon icon="${kind[2]}"></ha-icon> ${esc(kind[1])}</h3>
       <label>Art</label><select data-nf="kind">${NODE_KINDS.map(([k, name]) => `<option value="${k}"${k === n.kind ? " selected" : ""}>${name}</option>`).join("")}</select>
       <label>Name</label><input data-nf="name" value="${esc(n.name ?? "")}" placeholder="z. B. UV Obergeschoss">
-      ${n.kind !== "durch" ? `<label>${meterLabel}</label><input data-nf="entity" list="dl_node" value="${esc(n.entity ?? "")}" placeholder="– keiner –"><datalist id="dl_node">${ents.map((e) => `<option value="${esc(e)}">${esc(hass.states[e].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>` : `<label>Verbunden mit Etage</label><select data-link><option value="">– keine –</option>${others.map((f) => `<option value="${esc(f.id)}"${linked?.id === f.id ? " selected" : ""}>${esc(f.name)}</option>`).join("")}</select><p class="muted">Auf der gewählten Etage entsteht an gleicher Stelle das Gegenstück; Leitungen dort und hier sind verbunden.</p>`}
+      ${n.kind === "abzweig" ? `<p class="muted">Verbindet alle Stromleitungen, die hier beginnen, enden oder durchlaufen – z. B. die Zuleitung in einen Raum mit den Leitungen zu Steckdosen und Licht.</p>` : ""}
+      ${n.kind === "abzweig" ? "" : n.kind !== "durch" ? `<label>${meterLabel}</label><input data-nf="entity" list="dl_node" value="${esc(n.entity ?? "")}" placeholder="– keiner –"><datalist id="dl_node">${ents.map((e) => `<option value="${esc(e)}">${esc(hass.states[e].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>` : `<label>Verbunden mit Etage</label><select data-link><option value="">– keine –</option>${others.map((f) => `<option value="${esc(f.id)}"${linked?.id === f.id ? " selected" : ""}>${esc(f.name)}</option>`).join("")}</select><p class="muted">Auf der gewählten Etage entsteht an gleicher Stelle das Gegenstück; Leitungen dort und hier sind verbunden.</p>`}
+      <label class="chk"><input type="checkbox" data-nmodel${n.model === false ? "" : " checked"}> als Gegenstand zeigen</label>
+      <p class="muted">Aus = nur ein Verbindungspunkt im Netz, ohne 3D-Modell (im Plan gestrichelt).</p>
       <label>Höhe über Boden (m, leer = Standard)</label><input type="number" step="0.05" min="0" max="5" data-ny value="${n.y ?? ""}">
       <div class="btns"><button data-act="nodedel" class="danger">Löschen</button></div>`;
     const upd = (fn) => {
@@ -87,6 +91,10 @@ export const NodeMethods = {
     el.querySelectorAll("[data-nf]").forEach((i) => i.addEventListener("change", () => upd((x) => {
       x[i.dataset.nf] = i.value.trim() || null;
     })));
+    el.querySelector("[data-nmodel]").addEventListener("change", (ev) => upd((x) => {
+      if (ev.target.checked) delete x.model;
+      else x.model = false;
+    }));
     el.querySelector("[data-ny]").addEventListener("change", (ev) => upd((x) => {
       const v = ev.target.value === "" ? null : Number(ev.target.value);
       x.y = Number.isFinite(v) ? r3(v) : null;

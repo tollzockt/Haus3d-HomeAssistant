@@ -14,7 +14,7 @@ from homeassistant.data_entry_flow import FlowResultType
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.haus3d.const import DOMAIN, HISTORY_LIMIT, PANEL_URL_PATH
+from custom_components.haus3d.const import DOMAIN, HISTORY_LIMIT, PANEL_URL_PATH, VERSION
 
 SEED = json.loads((Path(__file__).parents[2] / "custom_components/haus3d/haus-daten.json").read_text(encoding="utf-8"))
 
@@ -40,6 +40,7 @@ async def test_setup_registers_panel_and_seeds(hass: HomeAssistant, setup_integr
     assert panel.sidebar_icon == "mdi:home-floor-3"
     module_url = panel.config["_panel_custom"]["module_url"]
     assert module_url.startswith("/haus3d_static/") and module_url.endswith("/haus3d-panel.js")
+    assert panel.config["version"] == VERSION  # Anzeige unten links in den Admin-Einstellungen
     assert [f["id"] for f in hass.data[DOMAIN].building["floors"]] == [f["id"] for f in SEED["floors"]]
     assert hass.data[DOMAIN].revision == 1
 

@@ -23,6 +23,13 @@ const QUICK_LAYERS = [
   ["cameras", "mdi:cctv", "Kamera-Sicht"],
 ];
 
+/** Anzeige der installierten Version (unten links in den Admin-Einstellungen). */
+export const versionText = (v) => {
+  const s = typeof v === "string" ? v.trim() : "";
+  if (!s) return "Version unbekannt";
+  return `Haus 3D · Version ${s}${/\d(a|b|rc)\d+$/.test(s) ? " · Vorabversion" : ""}`;
+};
+
 const CATEGORIES = [
   ["house", "mdi:home-roof", "Haus & Wetter", "Dach, PV, Norden, Wetter, Jahreszeit"],
   ["energy", "mdi:lightning-bolt", "Energie", "Entitäten, Akku, Netz"],
@@ -140,7 +147,8 @@ export const AdminMethods = {
     this._adminOpen = true;
     const el = document.createElement("div");
     el.className = "dialog-backdrop sheet-backdrop";
-    el.innerHTML = `<div class="dialog sheet admin" role="dialog" aria-label="Admin-Einstellungen"><div class="dialog-head"><button class="icon back" title="Zurück" hidden><ha-icon icon="mdi:chevron-left"></ha-icon></button><span class="ttl">Admin-Einstellungen</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="dialog-body"></div></div>`;
+    el.innerHTML = `<div class="dialog sheet admin" role="dialog" aria-label="Admin-Einstellungen"><div class="dialog-head"><button class="icon back" title="Zurück" hidden><ha-icon icon="mdi:chevron-left"></ha-icon></button><span class="ttl">Admin-Einstellungen</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="dialog-body"></div><div class="admin-foot"><span class="ver"></span></div></div>`;
+    el.querySelector(".ver").textContent = versionText(this._panel?.config?.version);
     const body = el.querySelector(".dialog-body");
     const head = el.querySelector(".ttl");
     const back = el.querySelector(".back");
@@ -445,6 +453,7 @@ export const ADMIN_STYLE = `
 .bigtile.admin.active .aend { background: #fff; color: #e65100; min-height: 40px; }
 .dialog.admin { width: min(820px, calc(100vw - 24px)); height: min(86vh, 760px); max-height: min(86vh, 760px); display: flex; flex-direction: column; }
 .dialog.admin .dialog-body { flex: 1; overflow-y: auto; }
+.dialog.admin .admin-foot { flex: none; display: flex; align-items: center; padding: 6px 16px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--divider-color, rgba(127,127,127,.25)); font-size: 12px; color: var(--secondary-text-color); }
 .dialog.admin .dialog-head .back { margin-right: 4px; }
 .cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
 .cat { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; text-align: left; padding: 12px; min-height: 72px; border-radius: 14px; border: 1px solid var(--divider-color, rgba(127,127,127,.3)); background: transparent; color: inherit; font: inherit; cursor: pointer; }

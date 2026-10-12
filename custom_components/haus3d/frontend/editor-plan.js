@@ -18,6 +18,8 @@ import {
   refsBounds,
   refsInRect,
   removeRefs,
+  alignBackground,
+  rotateBackground,
   scaleBackground,
   segmentInfo,
   toggleRef,
@@ -29,7 +31,7 @@ const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const MAX_TEMPLATES = 30;
 
 export const PLAN_HINTS = {
-  bgmove: "Bauplan-Foto: ziehen verschiebt das Bild. Fertig: „Auswählen“ oder Esc.",
+  bgmove: "Vorlage: Bild rechts laden, ziehen verschiebt es; Maßstab aus zwei Punkten, drehen oder an einer Linie ausrichten. Fertig: „Auswählen“ oder Esc.",
   bgscale: "Maßstab: zwei Punkte auf dem Foto antippen, deren Abstand du kennst (z. B. eine bemaßte Wand).",
 };
 
@@ -384,23 +386,38 @@ export const PlanMethods = {
 
   // ------------------------------------------------------------------ Etage: Foto und Vorlagen
 
-  /** Abschnitte im Etagen-Fenster (nichts gewählt). */
-  _planFloorProps() {
-    const f = this.floor;
-    const bg = f.background;
-    const tpls = this._templates();
+  /** Eigenschaften beim Werkzeug „Vorlage“ (Bauplan-Foto der gewählten Etage). */
+  _bgToolProps(el) {
+    el.innerHTML = `<h3>Vorlage (Bauplan)</h3><p class="muted">Etage: ${esc(this.floor?.name ?? "")} – ein Foto oder Scan vom Bauplan unterlegen und die Räume darauf nachzeichnen.</p>${this._bgSection()}
+      <div class="btns"><button data-act="bgdone" class="primary">Fertig</button></div>`;
+    this._bindPlanFloorProps(el);
+    el.querySelector("[data-act=bgdone]").addEventListener("click", () => this._setPlanTool("select"));
+  },
+
+  /** Abschnitt „Bauplan-Foto“: laden, Deckkraft, drehen, Maßstab aus zwei Punkten, an Linie ausrichten. */
+  _bgSection() {
+    const bg = this.floor.background;
     const scale = this.tool === "bgscale";
+    const two = this._bgPts?.length === 2;
     const bgHtml = bg
       ? `<label class="chk"><input type="checkbox" data-bgk="visible"${bg.visible === false ? "" : " checked"}> anzeigen</label>
         <div class="row2"><div><label>Deckkraft</label><input type="range" min="0.1" max="1" step="0.05" data-bgk="opacity" value="${bg.opacity ?? 0.5}"></div><div><label>Drehen (°)</label><input type="number" step="0.5" data-bgk="rotation" value="${bg.rotation ?? 0}"></div></div>
+        <div class="btns"><button data-bg="rotm" title="90° gegen den Uhrzeigersinn">↺ 90°</button><button data-bg="rotp" title="90° im Uhrzeigersinn">↻ 90°</button></div>
         <div class="row2"><div><label>Breite (m)</label><input type="number" min="0.5" step="0.1" data-bgk="width" value="${bg.width}"></div><div></div></div>
         <div class="btns"><button data-bg="move" class="${this.tool === "bgmove" ? "sel" : ""}">Verschieben</button><button data-bg="scale" class="${scale ? "sel" : ""}">Maßstab (2 Punkte)</button></div>
-        ${scale ? `<p class="muted">${this._bgPts?.length === 2 ? `Strecke im Bild: ${de(Math.hypot(this._bgPts[1][0] - this._bgPts[0][0], this._bgPts[1][1] - this._bgPts[0][1]))} m` : `Punkt ${(this._bgPts?.length ?? 0) + 1} von 2 antippen.`}</p>
-          ${this._bgPts?.length === 2 ? `<div class="colorrow"><input type="number" min="0.1" step="0.01" data-bgreal placeholder="echte Länge (m)" inputmode="decimal"><button data-bg="apply" class="primary">Übernehmen</button></div>` : ""}` : ""}
+        ${scale ? `<p class="muted">${two ? `Strecke im Bild: ${de(Math.hypot(this._bgPts[1][0] - this._bgPts[0][0], this._bgPts[1][1] - this._bgPts[0][1]))} m` : `Punkt ${(this._bgPts?.length ?? 0) + 1} von 2 antippen – z. B. Anfang und Ende einer bemaßten Wand.`}</p>
+          ${two ? `<div class="colorrow"><input type="number" min="0.1" step="0.01" data-bgreal placeholder="echte Länge (m)" inputmode="decimal"><button data-bg="apply" class="primary">Übernehmen</button></div>
+          <div class="btns"><button data-bg="align" title="Bild drehen, bis die Strecke genau waagrecht oder senkrecht liegt">An Linie ausrichten</button></div>` : ""}` : ""}
         <div class="btns"><button data-bg="load">Anderes Bild…</button><button data-bg="remove" class="danger">Entfernen</button></div>`
-      : `<p class="muted">Foto vom Bauplan oder Luftbild unterlegen und Räume darauf nachzeichnen.</p><div class="btns"><button data-bg="load">Bild laden…</button></div>`;
-    return `<h3>Bauplan-Foto</h3>${bgHtml}<input type="file" accept="image/*" data-bgfile hidden>
-      <h3>Vorlagen</h3>${tpls.length ? `<div class="ed-tpls">${tpls.map((t) => `<div><button data-tpl="${esc(t.id)}" title="In die Mitte der Ansicht einfügen">${esc(t.name)}<small>${esc(clipSummary(t.clip))}</small></button><button data-tpldel="${esc(t.id)}" title="Vorlage löschen">×</button></div>`).join("")}</div>` : `<p class="muted">Mehrere Teile wählen („Mehrfach“ oder Umschalt), dann „Als Vorlage speichern“.</p>`}
+      : `<p class="muted">Foto vom Bauplan oder Luftbild unterlegen und Räume darauf nachzeichnen. Danach zwei Punkte mit bekanntem Abstand markieren – das Bild bekommt so die richtigen Maße.</p><div class="btns"><button data-bg="load">Bild laden…</button></div>`;
+    return `<h3>Bauplan-Foto</h3>${bgHtml}<input type="file" accept="image/*" data-bgfile hidden>`;
+  },
+
+  /** Abschnitte im Etagen-Fenster (nichts gewählt). */
+  _planFloorProps() {
+    const tpls = this._templates();
+    return `${this._bgSection()}
+      <h3>Eigene Bausteine</h3>${tpls.length ? `<div class="ed-tpls">${tpls.map((t) => `<div><button data-tpl="${esc(t.id)}" title="In die Mitte der Ansicht einfügen">${esc(t.name)}<small>${esc(clipSummary(t.clip))}</small></button><button data-tpldel="${esc(t.id)}" title="Vorlage löschen">×</button></div>`).join("")}</div>` : `<p class="muted">Mehrere Teile wählen („Mehrfach“ oder Umschalt), dann „Als Vorlage speichern“.</p>`}
       ${this._clip ? `<div class="btns"><button data-m="paste">Einfügen (${esc(clipSummary(this._clip))})</button></div>` : ""}`;
   },
 
@@ -426,14 +443,27 @@ export const PlanMethods = {
       const a = b.dataset.bg;
       if (a === "load") file.click();
       else if (a === "remove") this._removeBackground();
-      else if (a === "move" || a === "scale") this._setPlanTool(this.tool === `bg${a}` ? "select" : `bg${a}`);
+      else if (a === "move" || a === "scale") this._setPlanTool(`bg${a}`);
+      else if (a === "rotm" || a === "rotp") setBg((bg) => Object.assign(bg, rotateBackground(bg, a === "rotp" ? 90 : -90)));
+      else if (a === "align") {
+        const [p, q] = this._bgPts;
+        let res = null;
+        setBg((bg) => {
+          res = alignBackground(bg, p, q);
+          Object.assign(bg, res.bg);
+        });
+        this._bgPts = [p, res.b2];
+        this._toast(res.delta ? `Bild um ${de(Math.abs(res.delta), 1)}° gedreht – die Strecke liegt jetzt gerade.` : "Die Strecke liegt schon gerade.");
+        this.render();
+        this.renderProps();
+      }
       else if (a === "apply") {
         const real = Number(String(el.querySelector("[data-bgreal]").value).replace(",", "."));
         if (!(real > 0)) return this._toast("Echte Länge in Metern eingeben.");
         const [p, q] = this._bgPts;
         setBg((bg) => Object.assign(bg, scaleBackground(bg, p, q, real)));
         this._toast(`Maßstab übernommen: Strecke = ${de(real)} m.`);
-        this._setPlanTool("select");
+        this._setPlanTool("bgmove");
       }
     }));
     el.querySelector("[data-bgreal]")?.addEventListener("keydown", (ev) => ev.key === "Enter" && el.querySelector('[data-bg="apply"]').click());
@@ -500,7 +530,9 @@ export const PlanMethods = {
       g.fillRect(0, 0, w, h);
       g.drawImage(bmp, 0, 0, w, h);
       const image = c.toDataURL("image/jpeg", 0.82);
-      await this.hass.callWS(withToken({ type: "haus3d/background/set", floor_id: this.floorId, image }));
+      const floorId = this.floorId;
+      await this.hass.callWS(withToken({ type: "haus3d/background/set", floor_id: floorId, image }));
+      if (!this.root.isConnected || this.floorId !== floorId) return; // Editor inzwischen zu bzw. andere Etage
       this._bgCache ??= new Map();
       const old = this._bgCache.get(this.floorId)?.url;
       if (old) URL.revokeObjectURL(old);
@@ -511,8 +543,8 @@ export const PlanMethods = {
       this.change((fl) => {
         fl.background = keep ? { ...keep, aspect: r3(h / w) } : defaultBackground(bounds, h / w);
       });
-      this._toast(`Bild geladen (${w} × ${h}). Jetzt „Maßstab (2 Punkte)“ an einer bekannten Strecke.`);
-      this.renderProps();
+      this._toast(`Bild geladen (${w} × ${h}). Jetzt zwei Punkte mit bekanntem Abstand antippen und die echte Länge eingeben.`);
+      this._setPlanTool("bgscale");
     } catch (err) {
       this._toast(`Bild ließ sich nicht laden: ${err.message ?? err.code ?? err}`);
     }

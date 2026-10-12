@@ -3,7 +3,7 @@
 // bulbs (folgen einer verknüpften Licht-Entität in Farbe und Helligkeit).
 
 import * as THREE from "./vendor/three.module.min.js";
-import { pvModules } from "./catalog-extra.js";
+import { cubeGrid, pvModules } from "./catalog-extra.js";
 
 function box(g, mat, w, h, d, x = 0, y = 0, z = 0) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(Math.max(w, 0.004), Math.max(h, 0.004), Math.max(d, 0.004)), mat);
@@ -121,14 +121,14 @@ function panel(g, M, x, y, z, pw, pl, tilt, face = 1) {
 
 // ------------------------------------------------------------------ einzelne Gruppen
 
-function series(type, w, d, h, M, g) {
+function series(type, w, d, h, M, g, item = {}) {
   const x = X(M);
   switch (type) {
     case "ikea_kallax_1x4":
     case "ikea_kallax_2x2":
     case "ikea_kallax_2x4":
     case "ikea_kallax_4x4": {
-      const [c, r] = { ikea_kallax_1x4: [1, 4], ikea_kallax_2x2: [2, 2], ikea_kallax_2x4: [2, 4], ikea_kallax_4x4: [4, 4] }[type];
+      const [c, r] = cubeGrid({ ...item, type });
       shelfGrid(g, M.white, w, h, d, c, r, { t: 0.038 });
       return true;
     }
@@ -639,10 +639,10 @@ function energy(type, w, d, h, M, g, bulbs) {
 }
 
 /** Solar-Aufständerungen: Module in Reihen mit Gestell. */
-function solar(type, w, d, h, M, g) {
+function solar(type, w, d, h, M, g, item = {}) {
   if (!type.startsWith("pv_")) return false;
   const x = X(M);
-  const { across, rows } = pvModules(type, w, d);
+  const { across, rows } = pvModules(type, w, d, item, h);
   const pw = w / across;
   const deg = (v) => THREE.MathUtils.degToRad(v);
   if (type === "pv_balcony") {
@@ -657,8 +657,12 @@ function solar(type, w, d, h, M, g) {
     return true;
   }
   if (type === "pv_facade") {
-    const p = panel(g, M, 0, h / 2, 0, w - 0.02, h, 0);
-    p.rotation.set(Math.PI / 2, 0, 0);
+    // Module nebeneinander und übereinander an der Wand
+    const ph = h / rows;
+    for (let r = 0; r < rows; r++) for (let i = 0; i < across; i++) {
+      const p = panel(g, M, -w / 2 + pw * (i + 0.5), ph * (r + 0.5), 0, pw - 0.02, ph - 0.02, 0);
+      p.rotation.set(Math.PI / 2, 0, 0);
+    }
     box(g, x.alu, w * 0.9, 0.03, 0.03, 0, h * 0.2, -d / 2);
     box(g, x.alu, w * 0.9, 0.03, 0.03, 0, h * 0.8, -d / 2);
     return true;
@@ -696,22 +700,51 @@ function solar(type, w, d, h, M, g) {
     }
     return true;
   }
-  const pl = d / Math.cos(tilt);
+  // eine oder mehrere Reihen hintereinander (je Reihe ein Ständer)
+  const rd = d / rows;
+  const pl = (rows > 1 ? rd * 0.9 : rd) / Math.cos(tilt);
   const lowY = type === "pv_ground" ? 0.5 : type === "pv_balcony_tilt" ? 0.05 : 0.08;
   const highY = lowY + Math.sin(tilt) * pl;
-  for (let i = 0; i < across; i++) panel(g, M, -w / 2 + pw * (i + 0.5), (lowY + highY) / 2, 0, pw - 0.02, pl, tilt, -1);
-  // Stützen: vorn kurz, hinten lang (hoch zur Nordseite −z)
-  for (let i = 0; i <= across; i++) {
-    const px = -w / 2 + 0.05 + (i * (w - 0.1)) / across;
-    box(g, x.alu, 0.04, lowY, 0.04, px, 0, d / 2 - 0.05);
-    box(g, x.alu, 0.04, highY - 0.02, 0.04, px, 0, -d / 2 + 0.05);
-    if (type !== "pv_balcony_tilt") box(g, x.alu, 0.04, 0.04, d, px, 0, 0);
+  for (let r = 0; r < rows; r++) {
+    const zc = -d / 2 + rd * (r + 0.5);
+    const half = (pl * Math.cos(tilt)) / 2;
+    for (let i = 0; i < across; i++) panel(g, M, -w / 2 + pw * (i + 0.5), (lowY + highY) / 2, zc, pw - 0.02, pl, tilt, -1);
+    // Stützen: vorn kurz, hinten lang (hoch zur Nordseite −z)
+    for (let i = 0; i <= across; i++) {
+      const px = -w / 2 + 0.05 + (i * (w - 0.1)) / across;
+      box(g, x.alu, 0.04, lowY, 0.04, px, 0, zc + half - 0.05);
+      box(g, x.alu, 0.04, highY - 0.02, 0.04, px, 0, zc - half + 0.05);
+      if (type !== "pv_balcony_tilt") box(g, x.alu, 0.04, 0.04, half * 2, px, 0, zc);
+    }
   }
   if (type === "pv_flat_south") for (const sz of [-1, 1]) box(g, M.stone ?? x.grey, w, 0.06, 0.2, 0, 0, sz * (d / 2 - 0.1)); // Ballast
   return true;
 }
 
+/** Technik mit Info-Hologramm: 3D-Drucker (offener Rahmen, Druckbett, Kopf) und NAS (Laufwerksschächte). */
+function tech(type, w, d, h, M, g, bulbs) {
+  if (type === "printer_3d") {
+    const x = X(M);
+    box(g, M.dark, w, 0.06, d, 0, 0, 0); // Sockel
+    for (const sx of [-1, 1]) box(g, M.dark, 0.04, h - 0.06, 0.04, sx * (w / 2 - 0.02), 0.06, -d / 2 + 0.02);
+    box(g, M.dark, w, 0.04, 0.04, 0, h - 0.04, -d / 2 + 0.02); // Querträger oben
+    box(g, x.alu, w * 0.8, 0.01, d * 0.8, 0, 0.12, 0.02); // Druckbett
+    box(g, M.dark, w * 0.9, 0.03, 0.03, 0, h * 0.62, -d / 2 + 0.06); // X-Achse
+    box(g, x.grey, 0.06, 0.07, 0.06, 0, h * 0.62 - 0.05, -d / 2 + 0.1); // Druckkopf
+    cyl(g, M.light, 0.05, 0.08, 0, 0.13, 0.02, 16); // Druckteil
+    bulbs.push(box(g, M.bulb, 0.04, 0.02, 0.004, w * 0.3, 0.02, d / 2 + 0.002));
+    return true;
+  }
+  if (type === "nas") {
+    box(g, M.dark, w, h, d, 0, 0, 0);
+    for (let i = 0; i < 4; i++) box(g, M.metal, w * 0.18, h * 0.7, 0.006, -w * 0.33 + i * w * 0.22, h * 0.12, d / 2 + 0.003);
+    bulbs.push(box(g, M.bulb, 0.012, 0.012, 0.004, w * 0.38, h * 0.88, d / 2 + 0.004));
+    return true;
+  }
+  return false;
+}
+
 /** Baut einen Typ aus dem erweiterten Katalog; false, wenn der Typ nicht dazugehört. */
-export function buildExtra(type, w, d, h, M, g, bulbs) {
-  return series(type, w, d, h, M, g) || lamps(type, w, d, h, M, g, bulbs) || leds(type, w, d, h, M, g, bulbs) || gaming(type, w, d, h, M, g, bulbs) || wallbox(type, w, d, h, M, g, bulbs) || energy(type, w, d, h, M, g, bulbs) || solar(type, w, d, h, M, g);
+export function buildExtra(type, w, d, h, M, g, bulbs, item = {}) {
+  return series(type, w, d, h, M, g, item) || tech(type, w, d, h, M, g, bulbs) || lamps(type, w, d, h, M, g, bulbs) || leds(type, w, d, h, M, g, bulbs) || gaming(type, w, d, h, M, g, bulbs) || wallbox(type, w, d, h, M, g, bulbs) || energy(type, w, d, h, M, g, bulbs) || solar(type, w, d, h, M, g, item);
 }

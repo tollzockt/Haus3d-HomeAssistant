@@ -186,7 +186,7 @@ const scaled = await E(() => ({ bg: window.panel._editor.floor.background, tool:
 t.results.massstab = scaled;
 // zwei Punkte im Abstand ~2 m sollen 6 m sein → Breite ×3 (Klick rastet nicht ein)
 const k = scaled.bg.width / bg.bg.width;
-t.check(Math.abs(k - 3) < 0.1 && scaled.tool === "select", `Maßstab: ${JSON.stringify({ k, scaled })}`);
+t.check(Math.abs(k - 3) < 0.1 && scaled.tool === "bgmove", `Maßstab: ${JSON.stringify({ k, scaled })}`);
 await E(() => window.panel._editor.fit());
 await E(() => window.panel._editor.render());
 await t.shot(ed, "bauplan-foto.png");

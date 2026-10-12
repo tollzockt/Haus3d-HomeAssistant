@@ -1,5 +1,31 @@
 # Änderungen
 
+## 0.23.0b1 (Vorabversion)
+
+- **Grundeinstellungen**: Beim ersten Öffnen des Editors (und bei leerem Haus) fragt ein Fenster in vier
+  Schritten Name und Norden, Etagen und Höhen (Keller, Vollgeschosse, Dachgeschoss mit Kniestock), Wände und
+  Dach sowie den Bauplan ab. Vorhandene Etagen bleiben immer erhalten; „Fertig“ ist ein Rückgängig-Schritt.
+  Später über „Grundeinstellungen“ in der Editor-Leiste (am Tablet unter „⋯“) bzw. im Etagen-Feld; Norden nur
+  mit der Admin-PIN.
+- **Leeres Testhaus**: Der Editor stürzte bei einem Haus ohne Etagen ab, „+ Etage“ war nicht erreichbar. Jetzt
+  startet er mit einem Erdgeschoss und den Grundeinstellungen; ein Fehler beim Öffnen hinterlässt keine Reste.
+- **Werkzeug „Vorlage“**: Bauplan-Foto laden, zwei Punkte mit bekanntem Abstand markieren (richtige Maße),
+  drehen (±90°) oder „An Linie ausrichten“. Der Abschnitt zum Kopieren heißt jetzt „Eigene Bausteine“.
+- **„Einrichten“** statt „Möbel“: Katalog mit den Gruppen Drinnen und Draußen und aufklappbaren Kategorien
+  (Zustand je Browser gemerkt); neu unter Technik: 3D-Drucker und NAS / Heimserver.
+- **Raster einstellbar**: Würfelregal „Würfel breit/hoch“, Solar-Aufständerungen „Module breit/tief“
+  (mehrreihig).
+- **Info-Hologramme**: Gegenstände bekommen im Editor bis zu 6 Werte; ist ihr Raum angetippt, schweben die
+  Werte live als Tafel darüber.
+- **Lichtschacht** für Kellerfenster (Tiefe, Breite) mit Gitterrost auf Geländehöhe.
+- **Leitungen**: neue Verteiler-Art „Abzweigdose“, Schalter „als Gegenstand zeigen“ (aus = nur
+  Verbindungspunkt), Zwischenpunkte auf einer anderen Leitung werden jetzt wirklich verbunden, größerer
+  Fangkreis am Finger, Verteiler rasten nur an Leitungen ihres Mediums ein.
+- **Version** unten links in den Admin-Einstellungen.
+- **README** neu aufgebaut (nach Themen statt nach Versionen).
+- Hinweis zur Vorabversion: Stände mit Abzweigdose lassen sich in 0.22.x nicht mehr laden – vor einem
+  Zurückwechseln Abzweigdosen löschen.
+
 ## 0.22.2
 
 - **Komplett kostenlos** – auch alle künftigen Erweiterungen und Zusatzpakete; Spenden schalten nichts frei.

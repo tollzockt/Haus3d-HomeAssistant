@@ -87,3 +87,48 @@ test("ohne Hauptverteilung: Anfang der Leitung ist die Quelle (wie bisher)", () 
   assert.equal(net.edges[0].value, 120);
   assert.equal(net.edges[0].reverse, false);
 });
+
+test("0.23: Zwischenpunkt auf einer Leitung verbindet nur mit joints", () => {
+  // neue Leitung läuft mit ihrem 2. Punkt über die Zuleitung und weiter in den Raum
+  const make = (joints) => B([{ id: "eg", nodes: [{ id: "hv", kind: "hv", x: 0, z: 0 }], pipes: [
+    P("zuleitung", "strom", [[0, 0], [10, 0]], { room: "flur" }),
+    P("stich", "strom", [[4, -3], [4, 0], [4, 3]], { room: "bad", ...(joints ? { joints } : {}) }),
+  ] }]);
+  const load = (p) => ({ flur: 100, bad: 200 })[p.room] ?? null;
+  const ohne = computeNet(make(null), { load });
+  const mit = computeNet(make([1]), { load });
+  const first = (net) => byPipe(net, "zuleitung").sort((x, y) => x.s0 - y.s0)[0].value;
+  assert.equal(first(ohne), 100); // ohne Abzweig nicht verbunden
+  assert.equal(first(mit), 300); // mit Abzweig fließt der Strom fürs Bad durch die Zuleitung
+});
+
+test("0.23: Abzweigdose verbindet Leitungen, ist keine Wurzel und kein Zähler", async () => {
+  const { NODE_KINDS, nodeMedium, remapJoints } = await import("../../custom_components/haus3d/frontend/pipenet.js");
+  const b = B([{ id: "eg", nodes: [{ id: "hv", kind: "hv", x: 0, z: 0 }, { id: "dose", kind: "abzweig", x: 5, z: 0, entity: "sensor.egal", model: false }], pipes: [
+    P("zu", "strom", [[0, 0], [5, 0]]),
+    P("licht", "strom", [[5, 0], [5, 3]], { room: "a" }),
+    P("dose", "strom", [[5, 0], [8, 0]], { room: "b" }),
+  ] }]);
+  const net = computeNet(b, { load: (p) => ({ a: 500, b: 200 })[p.room] ?? null, nodeValue: () => 9999 });
+  assert.equal(byPipe(net, "zu")[0].value, 700); // Zähler der Dose wird nicht benutzt
+  assert.equal(byPipe(net, "zu")[0].reverse, false);
+  assert.ok(NODE_KINDS.some(([k, n]) => k === "abzweig" && n === "Abzweigdose"));
+  assert.equal(nodeMedium("abzweig"), "strom");
+  assert.equal(nodeMedium("durch"), null);
+  // Punkte einfügen, löschen, umdrehen
+  assert.deepEqual(remapJoints([1, 3], { insert: 2, n: 6 }), [1, 4]);
+  assert.deepEqual(remapJoints([1, 3], { remove: 1, n: 4 }), [2]);
+  assert.deepEqual(remapJoints([1], { flip: true, n: 4 }), [2]);
+  assert.deepEqual(remapJoints([0, 3, 9], { n: 4 }), []); // Enden und Unsinn fallen weg
+});
+
+test("0.23: Abzweigdose verbindet zwei Leitungen, die sich mitten auf der Strecke kreuzen", () => {
+  const make = (dose) => B([{ id: "eg", nodes: [{ id: "hv", kind: "hv", x: 0, z: 0 }, ...(dose ? [{ id: "dose", kind: "abzweig", x: 5, z: 0 }] : [])], pipes: [
+    P("zu", "strom", [[0, 0], [10, 0]], { room: "a" }),
+    P("quer", "strom", [[5, -3], [5, 3]], { room: "b" }),
+  ] }]);
+  const load = (p) => ({ a: 500, b: 200 })[p.room] ?? null;
+  const first = (net) => byPipe(net, "zu").sort((x, y) => x.s0 - y.s0)[0].value;
+  assert.equal(first(computeNet(make(false), { load })), 500); // ohne Dose: Kreuzung ohne Verbindung
+  assert.equal(first(computeNet(make(true), { load })), 700); // Dose verbindet beide
+});

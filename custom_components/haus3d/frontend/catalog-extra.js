@@ -172,10 +172,49 @@ export const EXTRA_FREE = [
 ];
 
 /** Anzahl PV-Module einer Aufständerung (aus der Breite bzw. Tiefe). */
-export function pvModules(type, w, d) {
-  const across = Math.max(1, Math.round(w / 1.15));
-  if (type === "pv_flat_ew") return { across, rows: Math.max(1, Math.round(d / 1.7)) * 2 };
-  if (type === "pv_balcony") return { across: Math.max(1, Math.round(w / 1.73)), rows: 1 };
-  if (type === "pv_carport" || type === "pv_pergola") return { across: Math.max(1, Math.round(w / 1.15)), rows: Math.max(1, Math.round(d / 1.75)) };
-  return { across, rows: 1 };
+export function pvModules(type, w, d, item = null, h = null) {
+  const g = PV_GRID[type] ?? PV_GRID.pv_flat_south;
+  const int = (v) => (Number.isInteger(Number(v)) && Number(v) >= 1 ? Number(v) : null);
+  const across = int(item?.cols) ?? Math.max(1, Math.round(w / g.pw));
+  if (!g.pd) return { across, rows: 1 };
+  const span = type === "pv_facade" ? (h ?? item?.h ?? g.pd) : d;
+  const rows = int(item?.rows) ?? Math.max(1, Math.round(span / g.pd));
+  return { across, rows: type === "pv_flat_ew" ? rows * 2 : rows };
+}
+
+/**
+ * Raster der Solar-Aufständerungen: Breite je Modul (pw) und Tiefe je Reihe (pd, Fassade: Höhe), Beschriftung
+ * des zweiten Felds; ohne pd gibt es nur eine Reihe.
+ */
+export const PV_GRID = {
+  pv_flat_south: { pw: 1.15, pd: 1.7, rowLabel: "Module tief" },
+  pv_flat_ew: { pw: 1.15, pd: 1.7, rowLabel: "Modulpaare tief" },
+  pv_ground: { pw: 1.15, pd: 1.55, rowLabel: "Module tief" },
+  pv_balcony: { pw: 1.73 },
+  pv_balcony_tilt: { pw: 1.72 },
+  pv_facade: { pw: 1.13, pd: 1.72, rowLabel: "Module hoch" },
+  pv_carport: { pw: 1.15, pd: 1.75, rowLabel: "Module tief" },
+  pv_pergola: { pw: 1.15, pd: 1.75, rowLabel: "Module tief" },
+};
+
+/** Maße einer Aufständerung aus Modulen breit × tief (Fassade: hoch). */
+export function pvSize(type, cols, rows = 1) {
+  const g = PV_GRID[type];
+  if (!g) return {};
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+  const out = { w: r3(cols * g.pw) };
+  if (g.pd) out[type === "pv_facade" ? "h" : "d"] = r3(rows * g.pd);
+  return out;
+}
+
+/** Würfelregal: Kantenlänge für n Würfel (0,35 m je Fach plus Rahmen) – trifft die Katalogmaße. */
+export const cubeSize = (n) => Math.round((0.07 + 0.35 * n) * 1000) / 1000;
+const CUBES = { ikea_kallax_1x4: [1, 4], ikea_kallax_2x2: [2, 2], ikea_kallax_2x4: [2, 4], ikea_kallax_4x4: [4, 4] };
+export const isCubeShelf = (type) => Object.hasOwn(CUBES, type);
+
+/** Würfel breit × hoch eines Regals (eigene Einstellung oder die des Typs). */
+export function cubeGrid(item) {
+  const [c, r] = CUBES[item?.type] ?? [1, 1];
+  const int = (v) => (Number.isInteger(Number(v)) && Number(v) >= 1 ? Number(v) : null);
+  return [int(item?.cols) ?? c, int(item?.rows) ?? r];
 }

@@ -4,14 +4,15 @@
 
 import { allIds, newId } from "./edit-ops.js";
 import { PIPE_HEIGHTS, PIPE_TYPES, pipeColor } from "./pipes.js";
+import { nodeMedium, remapJoints } from "./pipenet.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const de = (v, d = 2) => v.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const WALL_GAP = 0.06; // Abstand Rohrmitte zur Wandoberfläche
 
-export const PIPE_HINT = "Leitung: Punkte antippen – rastet an Wänden und Ecken ein, an bestehenden Leitungen und Verteilern als Abzweig (Ring). Höhe rechts wählen, ein Wechsel geht an der Wand senkrecht. „Fertig“ beendet. Gewählte Leitung: Punkte ziehen, Strecke antippen fügt einen Punkt ein.";
-const JUNCTION_PX = 14; // Fangradius für Abzweige (Bildschirm)
+export const PIPE_HINT = "Leitung: Punkte antippen – rastet an Wänden und Ecken ein, an bestehenden Leitungen und Verteilern als Abzweig (Ring; auch Zwischenpunkte werden verbunden, am Finger mit größerem Fangkreis). Höhe rechts wählen, ein Wechsel geht an der Wand senkrecht. „Fertig“ beendet. Gewählte Leitung: Punkte ziehen, Strecke antippen fügt einen Punkt ein.";
+const JUNCTION_PX = 14; // Fangradius für Abzweige (Bildschirm; am Finger größer)
 
 export const PipeMethods = {
   _pipeOpts() {
@@ -69,10 +70,13 @@ export const PipeMethods = {
   /** Punkt auf einer Leitung bzw. an einem Verteiler in Fangweite (oder null). */
   _pipeJunction(p, { exclude = null, type = null, skipNode = null } = {}) {
     if (this._free?.()) return null;
-    const tol = Math.max(0.12, JUNCTION_PX / (this.scale || 40));
+    const tol = Math.max(0.12, (this.coarse ? 24 : JUNCTION_PX) / (this.scale || 40));
     let best = null;
     for (const n of this.floor.nodes ?? []) {
       if (n.id === skipNode) continue;
+      // Verteiler nur für ihr Medium (Durchführung für alle)
+      const m = nodeMedium(n.kind);
+      if (type && m && type !== m) continue;
       const d = Math.hypot(p[0] - n.x, p[1] - n.z);
       if (d < tol && (!best || d < best.d)) best = { d, q: [n.x, n.z] };
     }
@@ -105,6 +109,8 @@ export const PipeMethods = {
       if (Math.hypot(q[0] - last[0], q[1] - last[1]) < 0.05 && Math.abs(d.heights.at(-1) - o.height) < 1e-6) return this._finishPipe();
       d.line.push(q);
       d.heights.push(o.height);
+      // Punkt auf einer anderen Leitung bzw. an einem Verteiler: wird verbunden (auch mitten in der Leitung)
+      if (this._snapJunction) (d.joints ??= []).push(d.line.length - 1);
     }
     this.render();
   },
@@ -147,6 +153,8 @@ export const PipeMethods = {
     if (!d?.pipe || d.line.length < 2) return this.render();
     const o = this._pipeOpts();
     const pipe = { id: newId("leitung", new Set([...allIds(this.b), ...this.b.floors.flatMap((f) => (f.pipes ?? []).map((x) => x.id))])), type: o.type, points: d.line.map((q) => [r3(q[0]), r3(q[1])]), heights: d.heights.map(r3), height: o.height, entity: null, room: null };
+    const joints = remapJoints(d.joints, { n: pipe.points.length });
+    if (joints.length) pipe.joints = joints;
     this.change((fl) => {
       fl.pipes = [...(fl.pipes ?? []), pipe];
     });
@@ -155,7 +163,7 @@ export const PipeMethods = {
     this.renderBar();
     this.render();
     this.renderProps();
-    this._toast(`${PIPE_TYPES.find((t) => t[0] === pipe.type)[1]}: ${pipe.points.length} Punkte – rechts Sensor oder Zielraum wählen.`);
+    this._toast(`${PIPE_TYPES.find((t) => t[0] === pipe.type)[1]}: ${pipe.points.length} Punkte${joints.length ? `, ${joints.length} Abzweig${joints.length > 1 ? "e" : ""} unterwegs` : ""} – rechts Sensor oder Zielraum wählen.`);
   },
 
   /** Eigenschaften, solange das Werkzeug „Leitung“ aktiv ist. */
@@ -227,6 +235,8 @@ export const PipeMethods = {
       upd((x) => {
         x.points.splice(pt, 1);
         x.heights.splice(pt, 1);
+        x.joints = remapJoints(x.joints, { remove: pt, n: x.points.length });
+        if (!x.joints.length) delete x.joints;
       });
     });
     el.querySelectorAll("[data-allh] [data-h]").forEach((b) => b.addEventListener("click", () => upd((x) => {
@@ -236,6 +246,7 @@ export const PipeMethods = {
     el.querySelector("[data-act=pipeflip]").addEventListener("click", () => upd((x) => {
       x.points.reverse();
       x.heights.reverse();
+      if (x.joints) x.joints = remapJoints(x.joints, { flip: true, n: x.points.length });
       this.pipePt = null;
     }));
     el.querySelector("[data-act=pipedel]").addEventListener("click", () => {
@@ -280,6 +291,7 @@ export const PipeMethods = {
             x.heights = x.points.map((_, k) => Number(x.heights?.[k] ?? x.height ?? 0.03));
             x.points.splice(best.i + 1, 0, [r3(best.q[0]), r3(best.q[1])]);
             x.heights.splice(best.i + 1, 0, x.heights[best.i + 1]);
+            if (x.joints) x.joints = remapJoints(x.joints, { insert: best.i + 1, n: x.points.length });
           });
           this.pipePt = { id, i: best.i + 1 };
           this.renderProps();
@@ -308,14 +320,23 @@ export const PipeMethods = {
       const l = (this.floor.pipes ?? []).find((x) => x.id === drag.id);
       if (!l) return true;
       const q = this._pipeSnap(ev, p, null, { exclude: drag.id, type: l.type });
+      const junction = this._snapJunction;
       this._dragChange(drag, (fl) => {
-        fl.pipes.find((x) => x.id === drag.id).points[drag.i] = [r3(q[0]), r3(q[1])];
+        const x = fl.pipes.find((y) => y.id === drag.id);
+        x.points[drag.i] = [r3(q[0]), r3(q[1])];
+        // Zwischenpunkt auf eine andere Leitung gezogen = Abzweig (weggezogen = keiner mehr)
+        const js = new Set(x.joints ?? []);
+        if (junction) js.add(drag.i);
+        else js.delete(drag.i);
+        x.joints = remapJoints([...js], { n: x.points.length });
+        if (!x.joints.length) delete x.joints;
       });
       this.render();
       return true;
     }
     if (drag.mode === "pnode") {
-      const q = this._pipeSnap(ev, p, null, { type: "__none__", skipNode: drag.id });
+      const kind = (this.floor.nodes ?? []).find((x) => x.id === drag.id)?.kind;
+      const q = this._pipeSnap(ev, p, null, { type: nodeMedium(kind), skipNode: drag.id });
       this._dragChange(drag, (fl) => {
         const n = fl.nodes.find((x) => x.id === drag.id);
         n.x = r3(q[0]);
