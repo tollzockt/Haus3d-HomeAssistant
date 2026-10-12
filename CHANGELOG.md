@@ -1,5 +1,11 @@
 # Änderungen
 
+## 0.22.1
+
+- Export-Dateien tragen die eigene Kennung `haus3d`. Beim Import werden rohe Grundrisse und Exportdateien
+  der Form `{format, building}` gelesen, ältere Exporte also weiterhin.
+- Aufgeräumt: Kommentare, Tests und Hilfsskripte vereinfacht.
+
 ## 0.22.0
 
 - **Testhaus** (Admin → Entwickler): eigene Häuser zum Ausprobieren – Beispielhaus, Kopie des eigenen Hauses

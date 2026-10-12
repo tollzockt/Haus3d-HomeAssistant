@@ -529,7 +529,7 @@ export class FloorEditor {
     this.renderProps();
   }
 
-  /** Gewähltes Möbelstück drehen (Grad, im Uhrzeigersinn wie NeonPlan). */
+  /** Gewähltes Möbelstück drehen (Grad, im Uhrzeigersinn). */
   rotateSel(deg) {
     if (this.sel?.kind !== "furniture") return;
     const id = this.sel.id;
@@ -865,7 +865,7 @@ export class FloorEditor {
           `</g>`,
       );
       if (sel) {
-        // Drehgriff vor der Vorderseite: lokales +z zeigt bei Drehung r nach (-sin r, cos r) (wie NeonPlan)
+        // Drehgriff vor der Vorderseite: lokales +z zeigt bei Drehung r nach (-sin r, cos r)
         const a = ((m.rotation || 0) * Math.PI) / 180;
         const off = fd / 2 + px(22);
         const dirX = -Math.sin(a);

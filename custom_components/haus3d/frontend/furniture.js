@@ -1,5 +1,5 @@
 // Möbel und Geräte als einfache 3D-Modelle aus Grundkörpern.
-// Typen und Maße wie bei NeonPlan (furniture[]: type, x, z, rotation in Grad, w, d, h, mount_y).
+// Typen und Maße (furniture[]: type, x, z, rotation in Grad, w, d, h, mount_y).
 // Jedes Modell wird in einem Einheitsrahmen gebaut: Breite w entlang x, Tiefe d entlang z,
 // Höhe h nach oben, Mittelpunkt der Grundfläche im Ursprung, Vorderseite zeigt nach +z.
 

@@ -48,7 +48,7 @@ export function floorVertices(floor, exceptRoomId = null) {
   return (floor.rooms ?? []).filter((r) => r.id !== exceptRoomId).flatMap((r) => r.points);
 }
 
-/** Rechteckiger Raum aus zwei Ecken (gegen den Uhrzeigersinn wie NeonPlan). */
+/** Rechteckiger Raum aus zwei Ecken (gegen den Uhrzeigersinn). */
 export function rectRoom(a, b, id, name = "Raum") {
   const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
   const [z0, z1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
@@ -223,7 +223,7 @@ export function outdoorAt(floor, p) {
 export function furnitureAt(floor, p) {
   return (
     [...(floor.furniture ?? [])].reverse().find((m) => {
-      // lokale Achsen bei Drehung r: x -> (cos r, sin r), z -> (-sin r, cos r) (wie NeonPlan)
+      // lokale Achsen bei Drehung r: x -> (cos r, sin r), z -> (-sin r, cos r)
       const a = ((m.rotation || 0) * Math.PI) / 180;
       const dx = p[0] - m.x;
       const dz = p[1] - m.z;

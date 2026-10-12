@@ -683,7 +683,7 @@ export const DialogMethods = {
     // Räume mit Spalt dazwischen (Innenmaße statt Wandmitten) ergeben doppelte Außenwände: anbieten zu schließen
     const closed = building.floors.map((f) => closeGaps(f.rooms));
     const gapCount = closed.reduce((n, c) => n + c.gaps.length, 0);
-    if (gapCount && (await this._confirm(`Zwischen den Räumen gibt es ${plural(gapCount, "Lücke", "Lücken")} (bis 45 cm). Schließen, damit daraus Innenwände werden?`, "Schließen", { sub: "Wie „Lücken schließen“ in NeonPlan." }))) {
+    if (gapCount && (await this._confirm(`Zwischen den Räumen gibt es ${plural(gapCount, "Lücke", "Lücken")} (bis 45 cm). Schließen, damit daraus Innenwände werden?`, "Schließen", { sub: "Gegenüberliegende Raumkanten kommen auf eine gemeinsame Mittellinie." }))) {
       building.floors.forEach((f, i) => (f.rooms = closed[i].rooms));
     }
     if (moved()) return;

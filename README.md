@@ -300,7 +300,7 @@ Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander)
   ohne Raum. Sie rastet bei 0/45/90° und an Raumecken und Wandenden ein (Umschalt = frei); weiter
   tippen setzt die nächste Wand an, Esc oder Doppelklick beendet. Angeklickt: Enden ziehen, ganze Wand
   ziehen oder mit Pfeilen schieben, Länge, Dicke, Höhe (leer = Raumhöhe) und Farbe einstellen. Fenster
-  und Türen lassen sich genauso hineinsetzen wie in Raumwände. Gespeichert in `walls[]` (wie NeonPlan).
+  und Türen lassen sich genauso hineinsetzen wie in Raumwände. Gespeichert in `walls[]`.
 - **Wände verschieben**: Raum wählen, dann eine blau markierte Wand ziehen. Sie wandert senkrecht (im
   Rasterschritt), angrenzende Räume ziehen mit, damit keine Lücke entsteht. Gemeinsame Ecken wandern
   ebenfalls in allen Räumen mit. Alt beim Ziehen = nur dieser Raum.

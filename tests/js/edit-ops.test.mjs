@@ -93,7 +93,7 @@ test("Möbel unter dem Mauszeiger, auch gedreht", () => {
   assert.equal(furnitureAt(f, [2.9, 2]), null);
 });
 
-test("Möbel-Drehung wie NeonPlan: bei 30° liegt die Breite entlang (cos, sin)", () => {
+test("Möbel-Drehung: bei 30° liegt die Breite entlang (cos, sin)", () => {
   const f = floorWith([]);
   f.furniture = [{ id: "s", type: "sofa", x: 0, z: 0, rotation: 30, w: 2, d: 0.2, h: 1 }];
   const a = (30 * Math.PI) / 180;

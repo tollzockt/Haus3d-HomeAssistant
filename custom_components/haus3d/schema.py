@@ -1,7 +1,7 @@
-"""Validierung des Gebäudeformats (kompatibel mit NeonPlan 3D).
+"""Validierung des Gebäudeformats.
 
 Die Felder, die Haus 3D selbst benutzt, werden geprüft; alle anderen Felder bleiben
-erhalten (extra=ALLOW_EXTRA), damit NeonPlan-Exporte ohne Verlust durchgereicht werden.
+erhalten (extra=ALLOW_EXTRA), damit Zusatzfelder ohne Verlust durchgereicht werden.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from typing import Any
 
 import voluptuous as vol
 
-from .const import DEFAULT_ENERGY, NEONPLAN_BACKUP_FORMAT, NEONPLAN_EXPORT_FORMAT
+from .const import DEFAULT_ENERGY
 
 MAX_FLOORS = 20
 MAX_ROOMS = 200
@@ -232,8 +232,8 @@ def _unique_ids(building: dict[str, Any]) -> dict[str, Any]:
         wall_ids = {w.get("id") for w in floor.get("walls") or [] if isinstance(w, dict)}
         for opening in floor["openings"]:
             if opening.get("wall"):
-                # Öffnung in einer freistehenden Wand: NeonPlan setzt room_id dann auch auf die Wand-ID
-                # oder lässt sie nach dem Löschen des Raums stehen – maßgeblich ist nur die Wand
+                # Öffnung in einer freistehenden Wand: room_id kann dann die Wand-ID sein oder nach
+                # dem Löschen des Raums stehen bleiben – maßgeblich ist nur die Wand
                 if opening["wall"] not in wall_ids:
                     raise vol.Invalid(f"Öffnung {opening['id']}: Wand {opening['wall']} fehlt")
                 continue
@@ -259,14 +259,14 @@ BUILDING_SCHEMA = vol.All(
 
 
 def unwrap_export(data: Any) -> Any:
-    """Gibt das Gebäude aus einem NeonPlan-Export/Backup zurück, sonst die Daten unverändert."""
-    if isinstance(data, dict) and data.get("format") in (NEONPLAN_EXPORT_FORMAT, NEONPLAN_BACKUP_FORMAT):
-        return data.get("building")
+    """Gibt das Gebäude aus einer Exportdatei ({format, building}) zurück, sonst die Daten unverändert."""
+    if isinstance(data, dict) and "floors" not in data and isinstance(data.get("building"), dict):
+        return data["building"]
     return data
 
 
 def validate_building(data: Any) -> dict[str, Any]:
-    """Validiert ein Gebäude (oder einen NeonPlan-Export) und liefert eine bereinigte Kopie."""
+    """Validiert ein Gebäude (oder eine Exportdatei) und liefert eine bereinigte Kopie."""
     return BUILDING_SCHEMA(copy.deepcopy(unwrap_export(data)))
 
 

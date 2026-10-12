@@ -113,18 +113,18 @@ test("Temperaturfarben: 18 °C blau, 26 °C rot, außerhalb begrenzt", () => {
   assert.deepEqual(temperatureColor(30), temperatureColor(26));
 });
 
-test("Import: rohes Gebäude, NeonPlan-Export und -Backup; Export im NeonPlan-Format", () => {
+test("Import: rohes Gebäude und Exportdatei; Export mit eigener Kennung", () => {
   const b = { version: 1, floors: [{ id: "eg", name: "EG", elevation: 0, height: 2.5, rooms: [] }], settings: {} };
-  for (const text of [b, { format: "neonplan3d", version: 1, building: b }, { format: "neonplan3d-backup", version: 1, building: b, packs: [] }].map((x) => JSON.stringify(x))) {
+  for (const text of [b, { format: "haus3d", version: 1, building: b }, { format: "andere-kennung", version: 1, building: b }].map((x) => JSON.stringify(x))) {
     const parsed = parseImport(text);
     assert.equal(parsed.floors[0].id, "eg");
     assert.deepEqual(parsed.floors[0].openings, []);
     assert.equal(parsed.settings.energy.einspeisung, null); // keine Standard-IDs (Datenschutz)
   }
   assert.throws(() => parseImport("{kein json"), /JSON/);
-  assert.throws(() => parseImport(JSON.stringify({ version: 2, floors: [] })), /NeonPlan/);
+  assert.throws(() => parseImport(JSON.stringify({ version: 2, floors: [] })), /Grundriss/);
   const out = exportFile(b);
-  assert.equal(out.format, "neonplan3d");
+  assert.equal(out.format, "haus3d");
   assert.equal(out.building, b);
 });
 
@@ -164,7 +164,7 @@ test("ein Bereich auf zwei Etagen: Kontakt und Symbole nur einmal; Platzierung a
   assert.ok(icons.get("og").some((i) => i.entity_id === "light.th" && i.manual));
 });
 
-test("Lampen aus furniture[] (NeonPlan) werden als feste Position übernommen", () => {
+test("Lampen aus furniture[] werden als feste Position übernommen", () => {
   const h = makeHass([[st("light.stehlampe", "on"), { area_id: "wohnzimmer" }]]);
   const f = { id: "eg", rooms: [room], openings: [], placements: [], furniture: [{ id: "m1", type: "lamp_floor", x: 5, z: 3, mount_y: null, entity: "light.stehlampe" }] };
   const icons = buildingIcons({ floors: [f] }, h).get("eg");

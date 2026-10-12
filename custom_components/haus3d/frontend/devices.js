@@ -6,7 +6,7 @@ import { energyEntities, energyTotals, legacyValues } from "./energymodel.js";
 export const CONTACT_CLASSES = ["window", "door", "opening", "garage_door"];
 const ICON_DOMAINS = ["light", "switch", "fan", "cover", "climate", "lock", "camera", "vacuum"];
 const TOGGLE_DOMAINS = ["light", "switch", "fan", "cover"];
-// Rollläden vor Fenstern/Glastüren bzw. Tore vor Garagenöffnungen (wie bei NeonPlan)
+// Rollläden vor Fenstern/Glastüren bzw. Tore vor Garagenöffnungen
 const BLIND_CLASSES = [undefined, null, "shutter", "blind", "awning", "shade", "curtain", "window"];
 const GARAGE_CLASSES = ["garage", "gate"];
 
@@ -59,8 +59,7 @@ export function roomEntities(room, hass, byArea, building = null) {
 }
 
 /**
- * Orte einer Etage, denen Geräte zugeordnet werden: Räume und Gartenflächen mit area_id
- * (Erweiterung von Haus 3D; NeonPlan ignoriert area_id/name an Gartenflächen).
+ * Orte einer Etage, denen Geräte zugeordnet werden: Räume und Gartenflächen mit area_id.
  */
 export function placesOf(floor) {
   const outdoor = (floor.outdoor ?? []).filter((o) => o.area_id).map((o) => ({ ...o, name: o.name ?? o.area_id, outdoor: true }));
@@ -82,7 +81,7 @@ export function entitiesByArea(hass) {
 }
 
 /**
- * Manuelle Positionen aller Etagen: placements[] und – wie bei aktuellen NeonPlan-Exporten –
+ * Manuelle Positionen aller Etagen: placements[] und
  * Lampen aus furniture[] mit verknüpfter Entität. placements haben Vorrang.
  * @returns {Map<string, {floorId: string, x: number, z: number, y: number|null}>}
  */
@@ -177,7 +176,7 @@ const mean = (values) => (values.length ? values.reduce((a, b) => a + b, 0) / va
 
 /**
  * Klima eines Raums: Mittelwert der Temperatur- und Feuchtesensoren im Bereich.
- * room.climate (NeonPlan) erlaubt feste Sensoren oder "none".
+ * room.climate erlaubt feste Sensoren oder "none".
  */
 export function roomClimate(room, hass, byArea) {
   const ids = room.area_id ? byArea.get(room.area_id) ?? [] : [];

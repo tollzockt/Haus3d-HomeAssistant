@@ -113,7 +113,7 @@ function canonical(u) {
 
 /**
  * Berechnet die Wandsegmente einer Etage.
- * @param {object} floor Etage im NeonPlan-Format
+ * @param {object} floor Etage
  * @param {{wall_exterior?: number, wall_interior?: number}} settings
  * @returns {{segments: object[], openings: object[], warnings: string[]}}
  */
@@ -309,7 +309,7 @@ export function computeWalls(floor, settings = {}) {
     };
   });
 
-  // freistehende Wände (floor.walls im NeonPlan-Format)
+  // freistehende Wände (floor.walls)
   for (const w of floor.walls ?? []) {
     const d = sub(w.b, w.a);
     const l = len(d);
@@ -505,7 +505,7 @@ export function pointOnSegment(seg, s) {
  * Wandmitten), bekommen ihre gegenüberliegenden Kanten auf eine gemeinsame Mittellinie gelegt.
  * Kanten, die sich über Spalte gegenseitig gegenüberliegen, bilden Gruppen; jede Gruppe kommt auf
  * die mittlere Linie. Die Ecken der Räume werden danach neu geschnitten.
- * @param {object[]} rooms Räume im NeonPlan-Format
+ * @param {object[]} rooms Räume einer Etage
  * @param {number} maxGap größter Spalt in Metern, der geschlossen wird
  * @returns {{rooms: object[], gaps: number[]}} neue Räume (Kopien) und die geschlossenen Spalte
  */

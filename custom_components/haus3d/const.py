@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "haus3d"
-VERSION = "0.22.0"
+VERSION = "0.22.1"
 
 STORAGE_VERSION = 1
 STORAGE_KEY_BUILDING = f"{DOMAIN}.building"
@@ -32,10 +32,6 @@ PANEL_ICON = "mdi:home-floor-3"
 PANEL_COMPONENT = "haus3d-panel"
 
 STATIC_URL = "/haus3d_static"
-
-# Formatkennung der NeonPlan-Exporte (für Kompatibilität beim Import/Export)
-NEONPLAN_EXPORT_FORMAT = "neonplan3d"
-NEONPLAN_BACKUP_FORMAT = "neonplan3d-backup"
 
 # Energie-Anzeige: Entitäten werden in den Einstellungen gewählt (bewusst keine Standard-IDs)
 DEFAULT_ENERGY = {

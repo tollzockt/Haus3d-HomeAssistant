@@ -873,7 +873,7 @@ export class HouseScene {
         group.add(line);
       }
     }
-    // Möbel (NeonPlan furniture[]); Lampen mit Entität leuchten, wenn das Licht an ist
+    // Möbel (furniture[]); Lampen mit Entität leuchten, wenn das Licht an ist
     const furn = new THREE.Group();
     furn.userData.layer = "furniture";
     // Gartenmöbel und Pflanzen außerhalb der Räume (und nicht auf dem Balkon) gehören zum Gelände

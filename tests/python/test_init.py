@@ -79,7 +79,7 @@ async def test_ws_get_and_save(hass: HomeAssistant, setup_integration, hass_ws_c
     assert msg["success"]
     assert msg["result"]["revision"] == 1
     building = msg["result"]["building"]
-    # Zusatzfelder (NeonPlan) bleiben erhalten, Standardwerte für energy sind gesetzt
+    # Zusatzfelder bleiben erhalten, Standardwerte für energy sind gesetzt
     assert building["presence"] == []
     assert building["settings"]["energy"]["einspeisung"] is None  # keine Standard-IDs (Datenschutz)
 
@@ -98,9 +98,9 @@ async def test_ws_get_and_save(hass: HomeAssistant, setup_integration, hass_ws_c
     assert msg["error"]["code"] == "conflict"
 
 
-async def test_ws_save_accepts_neonplan_export(hass: HomeAssistant, setup_integration, hass_ws_client, admin_token) -> None:
+async def test_ws_save_accepts_export_file(hass: HomeAssistant, setup_integration, hass_ws_client, admin_token) -> None:
     ws = await hass_ws_client(hass)
-    export = {"format": "neonplan3d", "version": 1, "exported_at": "2026-01-01T00:00:00Z", "building": SEED}
+    export = {"format": "haus3d", "version": 1, "exported_at": "2026-01-01T00:00:00Z", "building": SEED}
     await ws.send_json({"id": 1, "type": "haus3d/building/save", "token": admin_token, "building": export})
     msg = await ws.receive_json()
     assert msg["success"], msg
@@ -232,7 +232,7 @@ async def test_concurrent_saves_conflict(hass: HomeAssistant, setup_integration,
 
 
 async def test_free_wall_opening_without_room(hass: HomeAssistant, setup_integration, hass_ws_client, admin_token) -> None:
-    """NeonPlan: Öffnung in freistehender Wand außerhalb aller Räume hat room_id = Wand-ID."""
+    """Öffnung in freistehender Wand außerhalb aller Räume hat room_id = Wand-ID."""
     building = copy.deepcopy(SEED)
     floor = building["floors"][1]
     floor["walls"] = [{"id": "wall_garden", "a": [-20, -20], "b": [-15, -20]}]

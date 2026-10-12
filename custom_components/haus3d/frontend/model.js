@@ -1,7 +1,6 @@
-// Import und Export im NeonPlan-Format.
+// Import und Export von Grundrissen.
 
-export const EXPORT_FORMAT = "neonplan3d";
-const BACKUP_FORMAT = "neonplan3d-backup";
+export const EXPORT_FORMAT = "haus3d";
 
 // Entitäten der Energie-Anzeige: werden in den Einstellungen gewählt (bewusst keine Standard-IDs)
 export const DEFAULT_ENERGY = {
@@ -15,7 +14,12 @@ export const DEFAULT_ENERGY = {
   verbrauch: null,
 };
 
-/** Liest eine Datei: rohes Gebäude, NeonPlan-Export oder NeonPlan-Backup. Wirft bei Fehlern. */
+/** Gebäude aus einer Exportdatei ({format, building}), sonst die Daten selbst. */
+function unwrapExport(data) {
+  return data && !Array.isArray(data.floors) && data.building && typeof data.building === "object" ? data.building : data;
+}
+
+/** Liest eine Datei: rohes Gebäude oder Exportdatei ({format, building}). Wirft bei Fehlern. */
 export function parseImport(text) {
   let data;
   try {
@@ -23,9 +27,9 @@ export function parseImport(text) {
   } catch {
     throw new Error("Die Datei ist kein gültiges JSON.");
   }
-  const building = data && (data.format === EXPORT_FORMAT || data.format === BACKUP_FORMAT) ? data.building : data;
+  const building = unwrapExport(data);
   if (!building || building.version !== 1 || !Array.isArray(building.floors)) {
-    throw new Error("Die Datei enthält keinen Grundriss im NeonPlan-Format (version 1, floors).");
+    throw new Error("Die Datei enthält keinen Haus-3D-Grundriss (version 1, floors).");
   }
   return normalize(building);
 }
@@ -43,12 +47,12 @@ export function normalize(building) {
   return b;
 }
 
-/** Exportdatei im NeonPlan-Format (von NeonPlan 3D wieder einlesbar). */
+/** Exportdatei: Kennung, Zeitpunkt und das Gebäude. */
 export function exportFile(building) {
   return { format: EXPORT_FORMAT, version: 1, exported_at: new Date().toISOString(), building };
 }
 
-/** Bodenbeläge: Schlüssel, Name, Farbe. Die ersten sechs gibt es auch in NeonPlan. */
+/** Bodenbeläge: Schlüssel, Name, Farbe. */
 export const FLOOR_MATERIALS = [
   ["wood", "Holz", "#c89f6a"],
   ["oak", "Eiche", "#a8743f"],

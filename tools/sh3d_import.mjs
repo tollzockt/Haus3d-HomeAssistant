@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Importiert einen Sweet-Home-3D-Plan (.sh3d) ins Haus-3D-/NeonPlan-Format.
+// Importiert einen Sweet-Home-3D-Plan (.sh3d) ins Haus-3D-Format.
 //
 //   node tools/sh3d_import.mjs plan.sh3d ausgabe.json [--vorlage haus3d.json]
 //
 // Aus der .sh3d-Datei kommen Räume (Innenmaße, Lücken werden geschlossen), Fenster, Türen und
-// Garagentore. Mit --vorlage (ein Haus-3D- oder NeonPlan-Stand desselben Hauses) werden der Plan
+// Garagentore. Mit --vorlage (ein Haus-3D-Stand desselben Hauses) werden der Plan
 // auf deren Koordinaten verschoben und von dort Raumnamen, Bereiche (area_id), Bodenbeläge,
 // Etagen (Name, Höhe, HA-Etage), Gartenflächen und Einstellungen übernommen. Die Punktreihenfolge
 // der Räume folgt dann der Vorlage, damit "edge"-Angaben (Kante i) dieselbe Wand meinen.
