@@ -41,3 +41,36 @@ test("Energiefluss im Haus: Räume ab 5 W, Netz in beide Richtungen", () => {
   assert.ok(items[0].speed > items[1].speed);
   assert.equal(houseFlowItems(new Map(), { dir: "idle", w: 2 }).length, 0);
 });
+
+test("Schnee und Jahreszeit an Texturmaterialien: keine NaN-Farbe, Rasen mit Textur folgt der Jahreszeit", async () => {
+  const THREE = await import("../../custom_components/haus3d/frontend/vendor/three.module.min.js");
+  const { HouseScene } = await import("../../custom_components/haus3d/frontend/scene.js");
+  const P = HouseScene.prototype;
+  const lawn = new THREE.MeshStandardMaterial({ color: 0x4f8a3a });
+  const roof = new THREE.MeshStandardMaterial({ color: 0x8a4f3a });
+  const sc = { style: "classic", texMats: new Map(), renderer: null, outdoorMats: { lawn }, mats: { roof }, furnMats: {}, invalidate() {} };
+  for (const f of ["_groundRoofMats", "_snowTint", "_texMat", "setSeason"]) sc[f] = P[f];
+  sc._snowTint(0); // Wetter: Grundfarben gemerkt
+  sc.setSeason("autumn");
+  // Neuaufbau mit Textur (Schlüssel ohne Bild: Kopie ohne map) und mit eigener Farbe (Wegwerf-Kopie der Vorlage)
+  const tLawn = sc._texMat(lawn, "test", "ground:lawn");
+  const tRoof = sc._texMat(roof, "test", "roof");
+  const own = roof.clone();
+  own.color.set("#336699");
+  const tOwn = sc._texMat(own, "test", "roof", true);
+  assert.ok([...sc.texMats.keys()].some((k) => k.startsWith("ground:lawn:")));
+  sc._snowTint(0.5);
+  const finite = (m) => [m.color.r, m.color.g, m.color.b].every(Number.isFinite);
+  assert.ok(finite(tLawn) && finite(tRoof) && finite(tOwn), [tLawn, tRoof, tOwn].map((m) => m.color.getHexString()).join());
+  assert.equal(tLawn.color.getHex(), lawn.color.getHex(), "Rasen mit Textur wie ohne");
+  assert.equal(tRoof.color.getHex(), roof.color.getHex());
+  assert.equal(tOwn.color.getHex(), new THREE.Color("#336699").lerp(new THREE.Color(0xf4f7fb), 0.5).getHex(), "eigene Farbe getönt");
+  // Jahreszeit erreicht den Rasen mit Textur, Schnee bleibt darüber; Sommer stellt die Grundfarbe wieder her
+  sc.setSeason("winter");
+  assert.equal(tLawn.color.getHex(), lawn.color.getHex());
+  sc._snowTint(0);
+  sc.setSeason("summer");
+  assert.equal(lawn.color.getHex(), 0x4f8a3a);
+  assert.equal(tLawn.color.getHex(), 0x4f8a3a);
+  assert.equal(tRoof.color.getHex(), 0x8a4f3a);
+});

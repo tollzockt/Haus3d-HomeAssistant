@@ -1,7 +1,7 @@
 // Reine Helfer für den Editor (ohne DOM): Fang-Hilfen (Fluchtlinien), Länge/Winkel eintippen,
 // Kopieren/Einfügen/Vorlagen mehrerer Teile und das Bauplan-Foto unter dem Grundriss.
 
-import { newId } from "./edit-ops.js";
+import { newId, shiftRoomRoof } from "./edit-ops.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const ENTITY = /^[a-z_]+\.[a-z0-9_]+$/;
@@ -96,6 +96,8 @@ const shiftItem = (kind, x, dx, dz) => {
   if (kind === "wall") return { ...x, a: m(x.a), b: m(x.b) };
   const out = { ...x, points: x.points.map(m) };
   if (x.line) out.line = { ...x.line, points: x.line.points.map(m) };
+  // Dinge auf dem eigenen Dach eines Raums gehen mit
+  if (kind === "room" && x.roof?.items?.length) out.roof = shiftRoomRoof(x.roof, dx, dz);
   return out;
 };
 
@@ -164,6 +166,15 @@ export function pasteClip(floor, clip, at, taken) {
       // Platzierte Geräte und HA-Bereich nicht doppelt verknüpfen
       if (kind === "room") y.area_id = null;
       if (kind === "furniture" && y.entity) y.entity = null;
+      // Dinge auf dem eigenen Dach: neue IDs, ohne verknüpfte Entitäten
+      if (kind === "room" && Array.isArray(y.roof?.items)) {
+        for (const it of y.roof.items) {
+          if (!it || typeof it !== "object") continue;
+          it.id = fresh(it.id, it.type === "pv" ? "pv" : it.type || "dach");
+          delete it.entity;
+          delete it.energy_entity;
+        }
+      }
       added.push({ kind, id: y.id });
       return y;
     });

@@ -1,7 +1,8 @@
 // Zusatzfelder im Editor (Mixin für FloorEditor): Raster einstellbarer Möbel (Würfelregal, Solar-Aufständerung),
 // Info-Hologramm an Möbeln und Geräten, Lichtschacht an Kellerfenstern.
 
-import { PV_GRID, cubeGrid, cubeSize, isCubeShelf, pvModules, pvSize } from "./catalog-extra.js";
+import { cubeGrid, cubeSize, isCubeShelf, pvGrid, pvModules, pvSize } from "./catalog-extra.js";
+import { DEFAULT_WP } from "./exterior.js";
 import { FURNITURE } from "./furniture.js";
 
 export const MAX_INFO = 6;
@@ -9,17 +10,17 @@ const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const intIn = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v)) || lo));
 const field = (key, label, value, max) => `<div><label>${label}</label><input type="number" min="1" max="${max}" step="1" inputmode="numeric" data-grid="${key}" value="${value}"></div>`;
 
-/** Raster eines Möbelstücks: {kind, cols, rows, maxCols, maxRows, rowLabel} oder null. */
+/** Raster eines Möbelstücks: {kind, cols, rows, maxCols, maxRows, rowLabel, …} oder null (PV: auch Lage, Modulzahl, Tipp). */
 export function itemGrid(m) {
   if (isCubeShelf(m.type)) {
     const [cols, rows] = cubeGrid(m);
     return { kind: "cube", cols, rows, maxCols: 8, maxRows: 8, colLabel: "Würfel breit", rowLabel: "Würfel hoch" };
   }
-  const g = PV_GRID[m.type];
+  const g = pvGrid(m.type, m);
   if (!g) return null;
   const def = FURNITURE[m.type] ?? [];
   const { across, rows } = pvModules(m.type, m.w || def[1], m.d || def[2], m, m.h || def[3]);
-  return { kind: "pv", cols: across, rows: m.type === "pv_flat_ew" ? rows / 2 : rows, maxCols: 20, maxRows: g.pd ? 20 : 1, colLabel: "Module breit", rowLabel: g.rowLabel ?? null };
+  return { kind: "pv", cols: across, rows: g.pairs ? rows / 2 : rows, maxCols: 20, maxRows: g.pd ? g.maxRows ?? 20 : 1, colLabel: "Module breit", rowLabel: g.rowLabel ?? null, axis: g.axis ?? "d", upright: g.axis === "h" && g.pw < g.pd, orientable: !!g.portrait, portrait: !!g.portrait && m.orient === "portrait", count: across * rows, tip: g.tip ?? null };
 }
 
 /** Neue Maße für ein Raster (setzt cols/rows und Breite/Tiefe/Höhe). */
@@ -29,7 +30,23 @@ export function applyGrid(m, cols, rows) {
   const c = intIn(cols, 1, g.maxCols);
   const r = intIn(rows, 1, g.maxRows);
   if (g.kind === "cube") return Object.assign(m, { cols: c, rows: r, w: cubeSize(c), h: cubeSize(r) });
-  return Object.assign(m, { cols: c, rows: r }, pvSize(m.type, c, r));
+  return Object.assign(m, { cols: c, rows: r }, pvSize(m.type, c, r, m));
+}
+
+/** Modullage quer/hochkant (Solarzaun): Anzahl bleibt, Maße drehen mit. */
+export function orientGrid(m, orient) {
+  const g = itemGrid(m);
+  if (g?.kind !== "pv" || !g.orientable) return m;
+  if (orient === "portrait") m.orient = "portrait";
+  else delete m.orient;
+  return applyGrid(m, g.cols, g.rows);
+}
+
+const de2 = (v) => v.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Hinweis unter dem Raster: Modulmaß, was der Anzahl folgt, Modulzahl und kWp, Tipp des Typs. */
+export function pvNote(g) {
+  const follow = !g.rowLabel ? "die Breite folgt" : g.axis === "h" ? "Breite und Höhe folgen" : "Breite und Tiefe folgen";
+  return `${g.upright ? "Modul hochkant ca. 1,13 × 1,72 m" : "Modul ca. 1,72 × 1,13 m"} – ${follow} der Anzahl. ${g.count} Module × ${DEFAULT_WP} Wp = ${de2((g.count * DEFAULT_WP) / 1000)} kWp.${g.tip ? ` ${g.tip}` : ""}`;
 }
 
 export const ItemMethods = {
@@ -38,7 +55,7 @@ export const ItemMethods = {
     const g = itemGrid(m);
     const grid = g
       ? `<div class="row2">${field("cols", g.colLabel, g.cols, g.maxCols)}${g.rowLabel ? field("rows", g.rowLabel, g.rows, g.maxRows) : "<div></div>"}</div>
-        ${g.kind === "pv" ? `<p class="muted">Modul ca. 1,72 × 1,13 m – Breite und Tiefe folgen der Anzahl.</p>` : `<p class="muted">Ein Fach ca. 33 × 33 cm – Breite und Höhe folgen der Anzahl.</p>`}`
+        ${g.orientable ? `<label>Module</label><select data-grid-orient><option value="landscape"${g.portrait ? "" : " selected"}>quer (1,72 × 1,13 m)</option><option value="portrait"${g.portrait ? " selected" : ""}>hochkant (1,13 × 1,72 m)</option></select>` : ""}<p class="muted gridnote">${g.kind === "pv" ? pvNote(g) : "Ein Fach ca. 33 × 33 cm – Breite und Höhe folgen der Anzahl."}</p>`
       : "";
     const rows = Array.isArray(m.info) ? m.info : [];
     const blank = this._infoBlank === m.id && rows.length < MAX_INFO;
@@ -63,6 +80,12 @@ export const ItemMethods = {
         this.renderProps();
       }),
     );
+    el.querySelector("[data-grid-orient]")?.addEventListener("change", (ev) => {
+      edit((x) => {
+        orientGrid(x, ev.target.value);
+      });
+      this.renderProps();
+    });
     const setInfo = (fn) => {
       edit((x) => {
         const list = (Array.isArray(x.info) ? x.info : []).map((r) => ({ ...r }));

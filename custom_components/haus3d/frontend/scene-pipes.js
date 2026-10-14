@@ -1,71 +1,21 @@
-// Leitungsnetz in 3D (Mixin für HouseScene): Rohre am Boden/an der Wand je Etage, Verteiler (Haupt-/
-// Unterverteilung, Router, Hausanschluss, Durchführung …) und laufende Punkte je Netzstück (pipenet.js):
-// Dichte und Tempo nach Menge, Richtung nach Flussrichtung. Ebene „pipes“, Punkte nur mit „Energiefluss“.
+// Leitungsnetz in 3D (Mixin für HouseScene): Rohre an Decke, Wand oder Boden je Etage; Enden senkrecht an
+// Verteiler und Leitungen; Verteiler (Haupt-/Unterverteilung, Router, Hausanschluss, Durchführung …) zur Wand
+// gedreht; laufende Punkte je Netzstück (pipenet.js): Dichte und Tempo nach Menge, Richtung nach
+// Flussrichtung. Ebene „pipes“, Punkte nur mit „Energiefluss“.
 
 import * as THREE from "./vendor/three.module.min.js";
-import { PIPE_TYPES } from "./pipes.js";
+import { PIPE_TYPES, pipeRoute } from "./pipes.js";
 import { flowLook } from "./pipenet.js";
+import { NODE_BODY, nodePose, nodeSpan, pipeEndDrops } from "./pipenodes.js";
+import { wallFaces } from "./edit-ops.js";
 
 const RADIUS = 0.035;
 const MAX_DOTS = 60;
 
-/** 3D-Weg einer Leitung (wie pipes.js:pipePath, Höhen angehoben) und Länge bis zu jeder Stelle. */
-function pipeGeometry(pipe, elev) {
-  const pts = pipe.points;
-  const h = (i) => {
-    const v = Number(pipe.heights?.[i]);
-    return elev + Math.max(RADIUS + 0.02, Number.isFinite(v) ? v : Number(pipe.height) || 0.03);
-  };
-  const path = [];
-  const segs = [];
-  let L = 0;
-  pts.forEach((p, i) => {
-    if (i === 0) {
-      path.push(new THREE.Vector3(p[0], h(0), p[1]));
-      return;
-    }
-    const a = pts[i - 1];
-    const vert = Math.abs(h(i) - h(i - 1));
-    if (vert > 1e-6) path.push(new THREE.Vector3(a[0], h(i), a[1]));
-    const hor = Math.hypot(p[0] - a[0], p[1] - a[1]);
-    segs.push({ start: L, vert, hor });
-    L += vert + hor;
-    path.push(new THREE.Vector3(p[0], h(i), p[1]));
-  });
-  // Stelle s (Segment + Anteil, wie pipenet) → Länge entlang des 3D-Wegs
-  const lenAt = (s) => {
-    if (s <= 0) return 0;
-    const i = Math.min(Math.floor(s), segs.length - 1);
-    const t = Math.min(1, s - i);
-    const g = segs[i];
-    return t <= 0 ? g.start : g.start + g.vert + t * g.hor;
-  };
-  return { path, len: L, lenAt };
-}
-
-
-/** Höhe der nächstgelegenen Leitung an (x, z) (Punkt-Höhe des nächsten Stücks), sonst 0,3 m. */
-function pipeHeightNear(floor, x, z) {
-  let best = null;
-  for (const p of floor.pipes ?? []) {
-    if (p.type !== "strom") continue;
-    const pts = p.points ?? [];
-    for (let i = 0; i < pts.length - 1; i++) {
-      const [a, b] = [pts[i], pts[i + 1]];
-      const dx = b[0] - a[0];
-      const dz = b[1] - a[1];
-      const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1e-9)));
-      const d = Math.hypot(x - a[0] - dx * t, z - a[1] - dz * t);
-      const hAt = (k) => {
-        const v = Number(p.heights?.[k]);
-        return Number.isFinite(v) ? v : Number(p.height) || 0.03; // wie die Leitung selbst
-      };
-      const h0 = hAt(i);
-      const h1 = hAt(i + 1);
-      if (d < 0.3 && (!best || d < best.d)) best = { d, h: h0 + (h1 - h0) * t };
-    }
-  }
-  return best?.h ?? 0.3;
+/** 3D-Weg einer Leitung (pipes.js:pipeRoute, Höhen angehoben, Anschlussstücke ends) und Länge bis zu jeder Stelle. */
+function pipeGeometry(pipe, elev, ends = {}) {
+  const r = pipeRoute(pipe, { base: elev, min: RADIUS + 0.02, ...ends });
+  return { path: r.path.map(([x, y, z]) => new THREE.Vector3(x, y, z)), len: r.len, lenAt: r.lenAt };
 }
 
 export const ScenePipes = {
@@ -82,8 +32,8 @@ export const ScenePipes = {
     ));
   },
 
-  /** Rohre und Verteiler einer Etage in entry.group (beim Aufbau der Etage). */
-  _buildPipes(floor, entry, elev) {
+  /** Rohre und Verteiler einer Etage in entry.group (beim Aufbau der Etage); segments = Wände (Verteiler drehen zur Wand). */
+  _buildPipes(floor, entry, elev, segments = []) {
     this._pipes ??= new Map();
     this._pipeNodes ??= new Map();
     const list = (floor.pipes ?? []).filter((p) => (p.points?.length ?? 0) >= 2);
@@ -94,7 +44,7 @@ export const ScenePipes = {
     group.userData.noShadow = true;
     const mats = this._pipeMats();
     for (const pipe of list) {
-      const g = pipeGeometry(pipe, elev);
+      const g = pipeGeometry(pipe, elev, pipeEndDrops(pipe, floor));
       if (g.len < 0.05) continue;
       const curve = new THREE.CurvePath();
       for (let i = 1; i < g.path.length; i++) if (g.path[i - 1].distanceTo(g.path[i]) > 1e-4) curve.add(new THREE.LineCurve3(g.path[i - 1], g.path[i]));
@@ -105,8 +55,9 @@ export const ScenePipes = {
       group.add(tube);
       this._pipes.set(pipe.id, { id: pipe.id, floorId: floor.id, type: pipe.type, name: pipe.name, curve, len: g.len, lenAt: g.lenAt, path: g.path, tube, mats: m, group, active: false });
     }
+    const faces = nodes.length ? wallFaces(segments) : [];
     for (const n of nodes) {
-      const obj = this._buildPipeNode(n, elev, floor);
+      const obj = this._buildPipeNode(n, elev, floor, faces);
       if (!obj) continue;
       obj.traverse((o) => (o.userData.pipeNode = n.id));
       group.add(obj);
@@ -115,65 +66,64 @@ export const ScenePipes = {
     entry.group.add(group);
   },
 
-  /** Einfaches 3D-Modell eines Verteilers. */
-  _buildPipeNode(n, elev, floor) {
-    if (n.model === false) return null; // nur Verbindungspunkt, kein Gegenstand
+  /** Einfaches 3D-Modell eines Verteilers: Gehäuse nach NODE_BODY, Rückseite an der Wand, Vorderseite zum Raum. */
+  _buildPipeNode(n, elev, floor, faces = []) {
+    const span = nodeSpan(n, floor);
+    if (!span) return null; // nur Verbindungspunkt, kein Gegenstand
+    const B = NODE_BODY[n.kind];
+    const { rot, back } = nodePose(n, faces);
+    const y = span[0];
     const M = this.furnMats;
     const g = new THREE.Group();
-    const box = (w, h, d, mat, y = 0, z = 0) => {
+    const box = (w, h, d, mat, y0 = 0, z = 0) => {
       const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-      b.position.set(0, y + h / 2, z);
+      b.position.set(0, y0 + h / 2, z + back);
       g.add(b);
       return b;
     };
-    const cyl = (r, h, mat, y = 0) => {
+    const cyl = (r, h, mat, y0 = 0) => {
       const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 16), mat);
-      c.position.y = y + h / 2;
+      c.position.set(0, y0 + h / 2, back);
       g.add(c);
       return c;
     };
     const stripe = (c) => new THREE.MeshBasicMaterial({ color: c });
-    const y = Number.isFinite(n.y) ? n.y : null;
     switch (n.kind) {
       case "hv":
       case "uv":
-        box(n.kind === "hv" ? 0.6 : 0.45, n.kind === "hv" ? 0.9 : 0.6, 0.16, M.white, y ?? 0.9);
-        box(n.kind === "hv" ? 0.6 : 0.45, 0.04, 0.005, stripe(0xfbc02d), (y ?? 0.9) + (n.kind === "hv" ? 0.8 : 0.52), 0.083);
+        box(B.w, B.h, B.d, M.white, y);
+        box(B.w, 0.04, 0.005, stripe(0xfbc02d), y + (n.kind === "hv" ? 0.8 : 0.52), B.d / 2 + 0.003);
         break;
-      case "abzweig": {
-        // kleine Abzweigdose auf Höhe der Leitung, die durch sie läuft
-        const at = y ?? Math.max(0, pipeHeightNear(floor, n.x, n.z) - 0.03);
-        box(0.1, 0.06, 0.1, M.light ?? M.white, at);
-        box(0.06, 0.006, 0.06, stripe(0x9e9e9e), at + 0.06);
+      case "abzweig":
+        // kleine Abzweigdose auf Höhe der Leitung, die durch sie läuft (pipenodes.nodeBaseY)
+        box(B.w, B.h, B.d, M.light ?? M.white, y);
+        box(0.06, 0.006, 0.06, stripe(0x9e9e9e), y + B.h);
         break;
-      }
       case "einspeisung":
-        box(0.35, 0.45, 0.15, M.white, y ?? 1.0);
-        box(0.35, 0.05, 0.005, stripe(0xff9800), (y ?? 1.0) + 0.36, 0.078);
+        box(B.w, B.h, B.d, M.white, y);
+        box(B.w, 0.05, 0.005, stripe(0xff9800), y + 0.36, 0.078);
         break;
       case "router":
       case "switch":
-        box(n.kind === "router" ? 0.28 : 0.44, 0.05, 0.18, M.dark, y ?? 0.8);
-        box(0.2, 0.008, 0.004, stripe(0x00acc1), (y ?? 0.8) + 0.02, 0.092);
+        box(B.w, B.h, B.d, M.dark, y);
+        box(0.2, 0.008, 0.004, stripe(0x00acc1), y + 0.02, 0.092);
         break;
       case "wasser_in":
-        cyl(0.07, 0.25, stripe(0x1e88e5), y ?? 0.3);
+        cyl(B.w / 2, B.h, stripe(0x1e88e5), y);
         break;
       case "warm_in":
-        cyl(0.28, 1.5, M.white, y ?? 0);
-        cyl(0.285, 0.05, stripe(0xe53935), (y ?? 0) + 1.3);
+        cyl(B.w / 2, B.h, M.white, y);
+        cyl(B.w / 2 + 0.005, 0.05, stripe(0xe53935), y + 1.3);
         break;
-      case "durch": {
+      case "durch":
         // senkrechte Hülse durch Boden und Decke
-        const h = floor.height ?? 2.5;
-        const c = cyl(0.06, h, stripe(0x9e9e9e), 0);
-        c.material = new THREE.MeshBasicMaterial({ color: 0x9e9e9e, transparent: true, opacity: 0.55 });
+        cyl(B.w / 2, span[1], new THREE.MeshBasicMaterial({ color: 0x9e9e9e, transparent: true, opacity: 0.55 }), 0);
         break;
-      }
       default:
         return null;
     }
     g.position.set(n.x, elev, n.z);
+    g.rotation.y = -THREE.MathUtils.degToRad(rot);
     return g;
   },
 
@@ -256,11 +206,55 @@ export const ScenePipes = {
   },
 
   /**
+   * Verteiler am Zeiger (Editor-3D): direkter Treffer, wenn kein Möbelstück davor liegt, sonst der Verteiler,
+   * dessen Mitte auf dem Bildschirm innerhalb maxPx am nächsten liegt.
+   * @returns {{id: string, direct: boolean}|null}
+   */
+  pickNode(clientX, clientY, maxPx = 14) {
+    if (this.layers?.pipes === false || this.layers?.flow === false || !this._pipeNodes?.size) return null;
+    const visible = (o) => {
+      for (let p = o; p; p = p.parent) if (!p.visible) return false;
+      return true;
+    };
+    const nodes = [...this._pipeNodes.values()].filter((n) => this.isFloorVisible(n.floorId) && visible(n.obj));
+    if (!nodes.length) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const sx = clientX - rect.left;
+    const sy = clientY - rect.top;
+    const ray = (this._nodeRay ??= new THREE.Raycaster());
+    ray.setFromCamera(new THREE.Vector2((sx / rect.width) * 2 - 1, -(sy / rect.height) * 2 + 1), this.camera);
+    const meshes = [];
+    for (const n of nodes) n.obj.traverse((o) => o.isMesh && visible(o) && meshes.push(o));
+    const hit = ray.intersectObjects(meshes, false)[0];
+    if (hit) {
+      const furn = [];
+      for (const entry of this.floors?.values() ?? []) {
+        if (!this.isFloorVisible(entry.floor.id)) continue;
+        for (const holder of [entry.group, entry.garden]) holder?.traverse((o) => o.isMesh && o.userData.furniture && !o.userData.blob && visible(o) && furn.push(o));
+      }
+      const front = furn.length ? ray.intersectObjects(furn, false)[0] : null;
+      if (!front || front.distance >= hit.distance) return { id: hit.object.userData.pipeNode, direct: true };
+    }
+    // knapp daneben (oder hinter einem Möbelstück): nächste Verteilermitte auf dem Bildschirm
+    const box = new THREE.Box3();
+    const c = new THREE.Vector3();
+    let best = null;
+    for (const n of nodes) {
+      if (box.setFromObject(n.obj).isEmpty()) continue;
+      box.getCenter(c).project(this.camera);
+      if (c.z > 1) continue;
+      const d = Math.hypot((c.x * 0.5 + 0.5) * rect.width - sx, (-c.y * 0.5 + 0.5) * rect.height - sy);
+      if (d < maxPx && (!best || d < best.d)) best = { d, id: n.id };
+    }
+    return best ? { id: best.id, direct: false } : null;
+  },
+
+  /**
    * Leitung oder Verteiler am Zeiger: direkter Treffer, sonst Rohr in der Nähe (Bildschirmabstand).
    * @returns {{pipe: string, at: number}|{pipeNode: string}|null} at = Länge entlang des Rohrs
    */
   pickPipe(clientX, clientY, maxPx = this.fingerPx ?? 30) {
-    if (this.layers?.pipes === false || this.layers?.flow === false || !this._pipes?.size) return null;
+    if (this.layers?.pipes === false || this.layers?.flow === false || (!this._pipes?.size && !this._pipeNodes?.size)) return null;
     const rect = this.renderer.domElement.getBoundingClientRect();
     const sx = clientX - rect.left;
     const sy = clientY - rect.top;
@@ -277,7 +271,7 @@ export const ScenePipes = {
       const d = Math.hypot(s[0] - sx, s[1] - sy);
       if (d < maxPx && (!best || d < best.d)) best = { d, hit: { pipeNode: n.id } };
     }
-    for (const p of this._pipes.values()) {
+    for (const p of this._pipes?.values() ?? []) {
       if (!this.isFloorVisible(p.floorId)) continue;
       let acc = 0;
       for (let i = 1; i < p.path.length; i++) {

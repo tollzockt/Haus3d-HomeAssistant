@@ -111,6 +111,19 @@ test("Hang automatisch: Ecken an der oberen Gartenebene bekommen deren Höhe", a
   assert.equal(groups.length, 1);
   assert.deepEqual(groups[0].rooms.map((r) => r.id), ["s", "u"]);
   assert.equal(groups[0].roof.pitch, 20);
+  assert.equal(groups[0].leader.id, "s");
+  // abgetrennt, andere Dachform, unbekannte Form
+  floor.rooms[1].roof.separate = true;
+  assert.equal(roomRoofGroups(floor).length, 2);
+  delete floor.rooms[1].roof.separate;
+  floor.rooms[1].roof.type = "shed";
+  assert.deepEqual(roomRoofGroups(floor).map((g) => g.roof.type), ["gable", "shed"]);
+  floor.rooms[1].roof.type = "quatsch";
+  assert.deepEqual(roomRoofGroups(floor).map((g) => g.leader.id), ["s"]);
+  // Einzelformen nie zusammen, Neigung 0 → Standard der Form
+  floor.rooms[0].roof = { type: "cone", pitch: 0 };
+  floor.rooms[1].roof = { type: "cone" };
+  assert.deepEqual(roomRoofGroups(floor).map((g) => [g.leader.id, g.roof.pitch]), [["s", 55], ["u", 55]]);
 });
 
 test("PV: Himmelsrichtung der Dachfläche und Modulplätze", async () => {
@@ -283,4 +296,94 @@ test("Editor: Dachgeschoss anlegen, Dach-Eintrag nur mit Dach", async () => {
   assert.equal(a.name, "Dachgeschoss");
   assert.equal(roofOn(b), false);
   assert.equal(roofOn({ settings: { roof: { type: "gable" } } }), true);
+});
+
+test("Hausdach spart Räume mit eigenem Dach aus, die Lücke bleibt offen", async () => {
+  const { coveredRoomIds, roofModel, roofRooms, roofSurfaceAt } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  const rooms = [rect(0, 0, 10, 3), rect(0, 5, 10, 8), rect(0, 3, 3, 5), rect(7, 3, 10, 5), rect(3, 3, 7, 5)].map((r, i) => ({ id: "abcde"[i], ...r }));
+  const b = { settings: { wall_exterior: 0, roof: { type: "gable", pitch: 30, overhang: 0 } }, floors: [{ id: "eg", elevation: 0, height: 2.5, rooms }] };
+  assert.ok(roofSurfaceAt(roofModel(b), [5, 4])); // Lücke gefüllt
+  rooms[4].roof = { type: "flat" };
+  assert.deepEqual([...coveredRoomIds(b.floors[0])], ["e"]);
+  const m = roofModel(b);
+  assert.deepEqual(m.rooms.map((r) => r.id), ["a", "b", "c", "d"]);
+  assert.equal(roofSurfaceAt(m, [5, 4]), null);
+  // ausdrückliche Liste: ohne abgedeckte Räume, bleibt nichts übrig, gilt „automatisch“
+  const floor = { rooms: [{ id: "a", ...rect(0, 0, 4, 4) }, { id: "b", ...rect(4, 0, 8, 4) }] };
+  assert.deepEqual(roofRooms(floor, {}, new Set(["b"])).map((r) => r.id), ["a"]);
+  assert.deepEqual(roofRooms(floor, { rooms: ["b"] }, new Set(["b"])).map((r) => r.id), ["a"]);
+  assert.deepEqual(roofRooms(floor, { rooms: ["a", "b"] }, new Set(["b"])).map((r) => r.id), ["a"]);
+  // unter einem freien Dachteil (labelPoint im Umriss)
+  floor.roofs = [{ id: "p", type: "flat", points: rect(3.5, -1, 9, 5).points }];
+  assert.deepEqual([...coveredRoomIds(floor)], ["b"]);
+  assert.deepEqual(roofRooms(floor, {}).map((r) => r.id), ["a"]);
+});
+
+test("Hausdach-Modell: Art, geneigt, höchster Punkt; Weiche über model.at, Neigung je Treffer", async () => {
+  const { roofModel, roofSurfaceAt } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  const b = (type) => ({ settings: { wall_exterior: 0, roof: { type, pitch: 45, overhang: 0 } }, floors: [{ id: "eg", elevation: 0, height: 2.5, rooms: [rect(0, 0, 10, 6)] }] });
+  const m = roofModel(b("gable"));
+  assert.deepEqual([m.key, m.kind, m.pitched], ["house", "house", true]);
+  assert.ok(Math.abs(m.ridgeY - (m.eave + 3 * m.tan)) < 1e-9);
+  assert.ok(Math.abs(roofSurfaceAt(m, [5, 1]).tan - 1) < 1e-9);
+  const f = roofModel(b("flat"));
+  assert.deepEqual([f.pitched, f.ridgeY, roofSurfaceAt(f, [5, 1]).tan], [false, 2.75, 0]);
+  assert.ok(Math.abs(roofModel(b("shed")).ridgeY - (2.5 + 6)) < 1e-9);
+  assert.deepEqual(roofSurfaceAt({ at: (x, z) => ({ y: x + z, out: null, tan: 0 }) }, [1, 2]), { y: 3, out: null, tan: 0 });
+});
+
+test("PV-Feld: nur Module auf derselben Ebene, überdeckte Module fallen weg, Neigung je Fläche", async () => {
+  const { fieldInfo, pvLayout, roofModel } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  const { partShape } = await import("../../custom_components/haus3d/frontend/roofshapes.js");
+  // Anbau mit eigenem, niedrigerem First neben dem Haupthaus: Südflächen parallel, aber nicht eine Ebene
+  const b = { settings: { wall_exterior: 0, roof: { type: "gable", pitch: 35, overhang: 0.4 } }, floors: [{ id: "eg", elevation: 0, height: 2.5, rooms: [{ id: "a", ...rect(0, 0, 10, 6) }, { id: "b", ...rect(10, 1, 14, 5) }] }] };
+  const m = roofModel(b);
+  assert.equal(m.parts.length, 2);
+  const lay = pvLayout(m, { x: 9, z: 5, cols: 3, rows: 1 });
+  assert.equal(lay.fits[0], true);
+  assert.equal(lay.fits[2], false); // drittes Modul läge auf der Fläche des Anbaus
+  assert.ok(Math.abs(lay.tan - Math.tan((35 * Math.PI) / 180)) < 1e-9);
+  const free = pvLayout(m, { x: 5, z: 5, cols: 3, rows: 1 });
+  assert.equal(free.count, 3);
+  const high = { at: () => ({ y: 99, out: null, tan: 0 }) };
+  const low = { at: () => ({ y: 0, out: null, tan: 0 }) };
+  assert.equal(pvLayout(m, { x: 5, z: 5, cols: 3, rows: 1 }, { others: [high] }).count, 0);
+  assert.equal(pvLayout(m, { x: 5, z: 5, cols: 3, rows: 1 }, { others: [low] }).count, 3);
+  assert.equal(fieldInfo(m, { x: 5, z: 5, cols: 3, rows: 1 }, 0, [], [high]).count, 0);
+  // Mansarddach: unten 70°, oben 30°
+  const sh = partShape({ type: "mansard", points: rect(0, 0, 8, 6).points, pitch: 30, pitch_low: 70 }, { wall: 0, top: 3 });
+  assert.equal(Math.round(fieldInfo(sh, { x: 4, z: 0.2, cols: 1, rows: 1, orient: "landscape" }).tilt), 70);
+  assert.equal(Math.round(fieldInfo(sh, { x: 4, z: 2.4, cols: 1, rows: 1 }).tilt), 30);
+});
+
+test("Flächen eines Dachteils für den Plan", async () => {
+  const { roofFacePolys, partHipEnds } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  const fr = { center: [5, 3], u: [1, 0], v: [0, 1], length: 10, width: 6, open: [false, false] };
+  const g = roofFacePolys({ type: "gable" }, fr);
+  assert.equal(g.faces.length, 2);
+  assert.deepEqual(g.ridge, [[0, 3], [10, 3]]);
+  const h = roofFacePolys({ type: "hip" }, { ...fr, hipEnds: partHipEnds(fr, { type: "hip" }) });
+  assert.equal(h.faces.length, 4);
+  assert.deepEqual(h.ridge, [[3, 3], [7, 3]]);
+  const s = roofFacePolys({ type: "shed" }, fr);
+  assert.equal(s.faces.length, 1);
+  assert.equal(s.ridge, null);
+});
+
+test("Editor: Etagen-Auswahl mit „Hausdach“ und in der Dach-Ebene mit dem Platzhalter „Dach · Etage“", async () => {
+  const { AtticMethods } = await import("../../custom_components/haus3d/frontend/editor-attic.js");
+  const eg = { id: "eg", name: "EG", elevation: 0, height: 2.5, rooms: [] };
+  const b = { settings: { roof: { type: "gable" } }, floors: [eg, { id: "dg", name: "DG", elevation: 2.75, height: 2.4, attic: true, rooms: [] }] };
+  const opts = (ctx) => AtticMethods._atticOptions.call({ b, floor: eg, roofMode: false, ...ctx });
+  const roof = opts({ roofMode: true });
+  assert.match(roof, /<option value="" selected disabled>Dach · EG<\/option>/);
+  assert.match(roof, /<option value="__roof">Hausdach<\/option>/);
+  assert.equal(roof.split(" selected").length - 1, 1);
+  const plain = opts();
+  assert.ok(!plain.includes("Dach · ") && !plain.includes(" selected"));
+  assert.match(plain, /Hausdach/);
+  assert.ok(!plain.includes("__attic")); // Dachgeschoss gibt es schon
+  // ohne Hausdach kein „Hausdach“; ohne Etage kein Fehler
+  assert.ok(!AtticMethods._atticOptions.call({ b: { settings: {}, floors: [eg] }, floor: eg, roofMode: true }).includes("__roof"));
+  assert.match(AtticMethods._atticOptions.call({ b, floor: undefined, roofMode: true }), /Dach · <\/option>/);
 });

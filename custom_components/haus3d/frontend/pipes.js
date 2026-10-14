@@ -1,5 +1,5 @@
-// Leitungen (ohne DOM, mit node testbar): Strom, Wasser kalt, Wasser warm – je Etage in floor.pipes als
-// Linie am Boden/an der Wand mit Höhe je Punkt. Fluss nach Leistung bzw. Durchfluss.
+// Leitungen (ohne DOM, mit node testbar): Strom, Wasser kalt, Wasser warm und Netzwerk – je Etage in
+// floor.pipes als Linie an Decke, Wand oder Boden mit Höhe je Punkt. Fluss nach Leistung bzw. Durchfluss.
 
 export const PIPE_TYPES = [
   ["strom", "Strom", "#fbc02d", "mdi:flash"],
@@ -8,37 +8,57 @@ export const PIPE_TYPES = [
   ["netzwerk", "Netzwerk", "#00acc1", "mdi:lan"],
 ];
 
-/** Höhen-Vorgaben beim Zeichnen (m über dem Boden der Etage). */
-export const PIPE_HEIGHTS = [
-  [0.03, "Boden"],
-  [0.15, "Sockelleiste"],
-  [0.3, "Steckdose"],
-  [1.1, "Schalter"],
-  [2.3, "Decke"],
-];
-
 export const pipeColor = (type) => (PIPE_TYPES.find((t) => t[0] === type) ?? PIPE_TYPES[0])[2];
 
 /**
- * 3D-Weg einer Leitung: [x, y, z]-Punkte (y relativ zum Boden). Wechselt die Höhe zwischen zwei Punkten,
- * geht es erst senkrecht am Punkt hoch/runter, dann waagerecht weiter (wie an der Wand verlegt).
+ * 3D-Weg einer Leitung: path aus [x, y, z]-Punkten (y = base + Höhe über dem Boden, mindestens min). Wechselt
+ * die Höhe zwischen zwei Punkten, geht es erst senkrecht am Punkt hoch/runter, dann waagerecht weiter (wie an
+ * der Wand verlegt). head/tail: Höhe eines senkrechten Anschlussstücks am Anfang/Ende (Verteiler, Leitung),
+ * erst ab 1 cm Unterschied. segs je Stück {start, vert, hor}; lenAt(s) = Länge bis Stelle s (Stück + Anteil).
  */
-export function pipePath(pipe) {
+export function pipeRoute(pipe, { base = 0, min = -Infinity, head = null, tail = null } = {}) {
   const pts = pipe.points ?? [];
+  const at = (v) => base + Math.max(min, v);
   const h = (i) => {
     const v = Number(pipe.heights?.[i]);
-    return Number.isFinite(v) ? v : Number(pipe.height) || 0.03;
+    return at(Number.isFinite(v) ? v : Number(pipe.height) || 0.03);
   };
-  const out = [];
-  pts.forEach((p, i) => {
+  const path = [];
+  const segs = [];
+  let len = 0;
+  const go = (x, y, z) => {
+    const q = path.at(-1);
+    if (q) len += Math.hypot(x - q[0], y - q[1], z - q[2]);
+    path.push([x, y, z]);
+  };
+  if (!pts.length) return { path, segs, len, lenAt: () => 0 };
+  const drop = (v, y) => v != null && Number.isFinite(v) && Math.abs(at(v) - y) > 0.01;
+  if (drop(head, h(0))) go(pts[0][0], at(head), pts[0][1]);
+  go(pts[0][0], h(0), pts[0][1]);
+  for (let i = 1; i < pts.length; i++) {
+    const start = len;
     const y = h(i);
-    if (i > 0) {
-      const prev = out.at(-1);
-      if (Math.abs(prev[1] - y) > 1e-6) out.push([pts[i - 1][0], y, pts[i - 1][1]]);
-    }
-    out.push([p[0], y, p[1]]);
-  });
-  return out;
+    const vert = Math.abs(y - h(i - 1));
+    if (vert > 1e-6) go(pts[i - 1][0], y, pts[i - 1][1]);
+    go(pts[i][0], y, pts[i][1]);
+    segs.push({ start, vert: vert > 1e-6 ? vert : 0, hor: len - start - (vert > 1e-6 ? vert : 0) });
+  }
+  const e = pts.at(-1);
+  if (drop(tail, h(pts.length - 1))) go(e[0], at(tail), e[1]);
+  const lenAt = (s) => {
+    if (s <= 0 || !segs.length) return 0;
+    if (s >= segs.length) return len;
+    const i = Math.floor(s);
+    const t = s - i;
+    const g = segs[i];
+    return t <= 0 ? g.start : g.start + g.vert + t * g.hor;
+  };
+  return { path, segs, len, lenAt };
+}
+
+/** 3D-Weg einer Leitung ohne Anschlussstücke (y relativ zum Boden). */
+export function pipePath(pipe) {
+  return pipeRoute(pipe).path;
 }
 
 /** Länge (m) eines 3D-Wegs. */

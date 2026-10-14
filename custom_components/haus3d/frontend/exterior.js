@@ -1,7 +1,10 @@
 // Außenbereich ohne Three.js (mit node testbar): Dachrahmen, Balkonkanten, Wetter, Streupunkte.
 // Koordinaten in Metern, Plan [x, z].
 
-import { pointInPolygon } from "./walls.js";
+import { labelPoint, pointInPolygon } from "./walls.js";
+import { GROUP_TYPES, ROOM_ROOF_TYPES, SINGLE_TYPES, adjustRoofParts, mainDirection, partHipEnds, partSettings, roofParts } from "./roofshapes.js";
+
+export { adjustRoofParts, mainDirection, partHipEnds, roofParts };
 
 export const ROOF_TYPES = [
   ["none", "Kein Dach"],
@@ -20,30 +23,6 @@ export function roofSettings(settings) {
   r.pitch = Math.min(60, Math.max(5, Number(r.pitch) || DEFAULT_ROOF.pitch));
   r.overhang = Math.min(1.5, Math.max(0, Number(r.overhang ?? DEFAULT_ROOF.overhang)));
   return r;
-}
-
-/** Hauptrichtung der Kanten (Winkel in rad, 0 bis PI/2), gewichtet nach Länge. */
-export function mainDirection(rooms) {
-  // Winkel modulo 90° als Vektor auf dem Vierfach-Kreis mitteln
-  let sx = 0;
-  let sz = 0;
-  for (const r of rooms) {
-    const pts = r.points;
-    for (let i = 0; i < pts.length; i++) {
-      const a = pts[i];
-      const b = pts[(i + 1) % pts.length];
-      const dx = b[0] - a[0];
-      const dz = b[1] - a[1];
-      const len = Math.hypot(dx, dz);
-      if (len < 1e-6) continue;
-      const t = 4 * Math.atan2(dz, dx);
-      sx += len * Math.cos(t);
-      sz += len * Math.sin(t);
-    }
-  }
-  let ang = Math.atan2(sz, sx) / 4;
-  if (ang < 0) ang += Math.PI / 2;
-  return Math.abs(ang - Math.PI / 2) < 1e-9 ? 0 : ang;
 }
 
 /**
@@ -80,142 +59,6 @@ export function roofFrame(rooms, { wall = 0.24, overhang = 0.4, direction = "aut
   return alongA
     ? { center, u: a, v: b, length: r3(lenA), width: r3(lenB) }
     : { center, u: b, v: [-a[0], -a[1]], length: r3(lenB), width: r3(lenA) };
-}
-
-/**
- * Dachteile für beliebige rechtwinklige Grundrisse (L, T, U): Grundriss am Haus ausgerichtet in
- * Rechtecke zerlegen. Der größte Teil ist das Hauptdach; Flügel laufen bis zum First des Teils,
- * an dem sie hängen (so entsteht ein L- oder T-Satteldach).
- * @returns {{center:number[], u:number[], v:number[], length:number, width:number, open:[boolean, boolean]}[]}
- *   open[0]/open[1]: Ende bei -length/2 bzw. +length/2 steckt im Nachbardach (kein Giebel nötig).
- */
-export function roofParts(rooms, { wall = 0.24, overhang = 0.4, direction = "auto", maxParts = 4 } = {}) {
-  const all = rooms.flatMap((r) => r.points ?? []);
-  if (all.length < 3) return [];
-  const ang = mainDirection(rooms);
-  const A = [Math.cos(ang), Math.sin(ang)];
-  const B = [-A[1], A[0]];
-  const loc = (p) => [p[0] * A[0] + p[1] * A[1], p[0] * B[0] + p[1] * B[1]];
-  const polys = rooms.map((r) => r.points.map(loc));
-  // Kanten sammeln, nahe Werte (< 0,4 m) zusammenfassen: kleine Nischen und Versätze verschwinden
-  const merge = (vals) => {
-    const out = [];
-    for (const v of vals.sort((x, y) => x - y)) if (!out.length || v - out[out.length - 1] > 0.4) out.push(v);
-    return out;
-  };
-  const xs = merge(polys.flat().map((p) => p[0]));
-  const ys = merge(polys.flat().map((p) => p[1]));
-  const n = xs.length - 1;
-  const m = ys.length - 1;
-  if (n < 1 || m < 1) return [];
-  const inside = [];
-  for (let i = 0; i < n; i++) {
-    inside.push([]);
-    for (let j = 0; j < m; j++) {
-      const c = [(xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2];
-      inside[i].push(polys.some((p) => pointInPolygon(c, p)));
-    }
-  }
-  // schmale Streifen zwischen zwei Räumen (Spalt, Schacht) gehören zum Haus
-  const thin = inside.map((row, i) =>
-    row.map((v, j) =>
-      v ||
-      (xs[i + 1] - xs[i] < 0.6 && i > 0 && i < n - 1 && inside[i - 1][j] && inside[i + 1][j]) ||
-      (ys[j + 1] - ys[j] < 0.6 && j > 0 && j < m - 1 && inside[i][j - 1] && inside[i][j + 1]),
-    ),
-  );
-  for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) inside[i][j] = thin[i][j];
-  // Löcher (z. B. Schacht zwischen zwei Räumen) füllen: alles, was nicht von außen erreichbar ist
-  const outside = inside.map((row) => row.map(() => false));
-  const stack = [];
-  for (let i = 0; i < n; i++) for (const j of [0, m - 1]) stack.push([i, j]);
-  for (let j = 0; j < m; j++) for (const i of [0, n - 1]) stack.push([i, j]);
-  while (stack.length) {
-    const [i, j] = stack.pop();
-    if (i < 0 || j < 0 || i >= n || j >= m || outside[i][j] || inside[i][j]) continue;
-    outside[i][j] = true;
-    stack.push([i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]);
-  }
-  const cell = inside.map((row, i) => row.map((v, j) => v || !outside[i][j]));
-  const area = (i0, i1, j0, j1) => (xs[i1] - xs[i0]) * (ys[j1] - ys[j0]);
-  const full = (i0, i1, j0, j1, test) => {
-    for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) if (!test(i, j)) return false;
-    return true;
-  };
-  // größtes Rechteck aus Zellen, die test erfüllen
-  const largest = (test) => {
-    let best = null;
-    for (let i0 = 0; i0 < n; i0++)
-      for (let i1 = i0 + 1; i1 <= n; i1++)
-        for (let j0 = 0; j0 < m; j0++)
-          for (let j1 = j0 + 1; j1 <= m; j1++) {
-            if (!full(i0, i1, j0, j1, test)) break;
-            const a = area(i0, i1, j0, j1);
-            if (!best || a > best.a + 1e-9) best = { i0, i1, j0, j1, a };
-          }
-    return best;
-  };
-  const covered = cell.map((row) => row.map(() => false));
-  const cover = (r) => {
-    for (let i = r.i0; i < r.i1; i++) for (let j = r.j0; j < r.j1; j++) covered[i][j] = true;
-  };
-  const total = cell.flat().reduce((s, v, k) => s + (v ? area(Math.floor(k / m), Math.floor(k / m) + 1, k % m, (k % m) + 1) : 0), 0);
-  const main = largest((i, j) => cell[i][j]);
-  if (!main) return [];
-  cover(main);
-  // Rechteck in lokalen Koordinaten [a0, a1] × [b0, b1], ridge: "a" oder "b"
-  const lenA = xs[main.i1] - xs[main.i0];
-  const lenB = ys[main.j1] - ys[main.j0];
-  let mainRidge = lenA >= lenB ? "a" : "b";
-  if (direction === "x") mainRidge = Math.abs(A[0]) >= Math.abs(B[0]) ? "a" : "b";
-  else if (direction === "z") mainRidge = Math.abs(A[1]) >= Math.abs(B[1]) ? "a" : "b";
-  const parts = [{ a0: xs[main.i0], a1: xs[main.i1], b0: ys[main.j0], b1: ys[main.j1], ridge: mainRidge, open: [false, false], ext: {} }];
-  while (parts.length < maxParts) {
-    const rest = cell.flat().reduce((s, v, k) => s + (v && !covered[Math.floor(k / m)][k % m] ? area(Math.floor(k / m), Math.floor(k / m) + 1, k % m, (k % m) + 1) : 0), 0);
-    if (rest < Math.max(4, total * 0.05)) break;
-    const stub = largest((i, j) => cell[i][j] && !covered[i][j]);
-    if (!stub || stub.a < 3) break;
-    cover(stub);
-    const part = { a0: xs[stub.i0], a1: xs[stub.i1], b0: ys[stub.j0], b1: ys[stub.j1], open: [false, false], ext: {} };
-    // Anschluss an ein vorhandenes Teil suchen, dessen First quer zur Anschlussrichtung läuft
-    const eps = 0.01;
-    for (const q of parts) {
-      const overlapA = Math.min(part.a1, q.a1) - Math.max(part.a0, q.a0) > 0.3;
-      const overlapB = Math.min(part.b1, q.b1) - Math.max(part.b0, q.b0) > 0.3;
-      // inner: Länge des Stücks, das im Nachbardach steckt (ab dessen Traufe); dort ohne seitlichen Überstand
-      if (overlapA && q.ridge === "a" && Math.abs(part.b1 - q.b0) < eps) {
-        part.b1 = (q.b0 + q.b1) / 2; part.ridge = "b"; part.open = [false, true]; part.ext.b1 = part.b1 - q.b0; break;
-      }
-      if (overlapA && q.ridge === "a" && Math.abs(part.b0 - q.b1) < eps) {
-        part.b0 = (q.b0 + q.b1) / 2; part.ridge = "b"; part.open = [true, false]; part.ext.b0 = q.b1 - part.b0; break;
-      }
-      if (overlapB && q.ridge === "b" && Math.abs(part.a1 - q.a0) < eps) {
-        part.a1 = (q.a0 + q.a1) / 2; part.ridge = "a"; part.open = [false, true]; part.ext.a1 = part.a1 - q.a0; break;
-      }
-      if (overlapB && q.ridge === "b" && Math.abs(part.a0 - q.a1) < eps) {
-        part.a0 = (q.a0 + q.a1) / 2; part.ridge = "a"; part.open = [true, false]; part.ext.a0 = q.a1 - part.a0; break;
-      }
-    }
-    part.ridge ??= part.a1 - part.a0 >= part.b1 - part.b0 ? "a" : "b";
-    parts.push(part);
-  }
-  const grow = wall + overhang;
-  return parts.map((q) => {
-    const a0 = q.a0 - (q.ext.a0 ? 0 : grow);
-    const a1 = q.a1 + (q.ext.a1 ? 0 : grow);
-    const b0 = q.b0 - (q.ext.b0 ? 0 : grow);
-    const b1 = q.b1 + (q.ext.b1 ? 0 : grow);
-    const ca = (a0 + a1) / 2;
-    const cb = (b0 + b1) / 2;
-    const center = [r3(ca * A[0] + cb * B[0]), r3(ca * A[1] + cb * B[1])];
-    // inner[0]/[1]: Länge ab dem offenen Ende, die im Nachbardach steckt (bis zu dessen Traufe)
-    const inLo = q.ridge === "a" ? q.ext.a0 : q.ext.b0;
-    const inHi = q.ridge === "a" ? q.ext.a1 : q.ext.b1;
-    const inner = [inLo ? r3(inLo + grow) : 0, inHi ? r3(inHi + grow) : 0];
-    return q.ridge === "a"
-      ? { center, u: A, v: B, length: r3(a1 - a0), width: r3(b1 - b0), open: q.open, inner }
-      : { center, u: B, v: [-A[0], -A[1]], length: r3(b1 - b0), width: r3(a1 - a0), open: q.open, inner };
-  });
 }
 
 /** Kniestock eines Dachgeschosses (m): Höhe der Außenwand bis zum Dachansatz. */
@@ -264,12 +107,34 @@ export function findPvShed(building) {
 }
 
 /**
- * Räume unter dem Dach: roof.rooms (IDs) oder die größte Gruppe zusammenhängender Räume der Etage
- * (Schuppen, Garage mit Abstand und der Raum des Balkonkraftwerks bleiben ohne dieses Dach).
+ * Räume mit eigenem Dach (room.roof) oder unter einem freien Dachteil der Etage (labelPoint im Umriss):
+ * Sie gehören nicht zum Hausdach.
+ * @returns {Set<string>}
  */
-export function roofRooms(floor, roof) {
+export function coveredRoomIds(floor) {
+  const out = new Set();
+  const parts = (floor?.roofs ?? []).map((p) => p?.points).filter((pts) => Array.isArray(pts) && pts.length >= 3);
+  for (const r of floor?.rooms ?? []) {
+    if (roomRoofType(r) !== "none") out.add(r.id);
+    else if (parts.length && (r.points ?? []).length >= 3) {
+      const c = labelPoint(r.points);
+      if (parts.some((pts) => pointInPolygon(c, pts))) out.add(r.id);
+    }
+  }
+  return out;
+}
+
+/**
+ * Räume unter dem Dach: roof.rooms (IDs) oder die größte Gruppe zusammenhängender Räume der Etage
+ * (Schuppen, Garage mit Abstand und der Raum des Balkonkraftwerks bleiben ohne dieses Dach). Räume mit eigenem
+ * Dach oder unter einem Dachteil (covered) fallen heraus; bleibt von der Liste nichts übrig, gilt „automatisch“.
+ */
+export function roofRooms(floor, roof, covered = coveredRoomIds(floor)) {
   const rooms = (floor?.rooms ?? []).filter((r) => (r.points ?? []).length >= 3);
-  if (Array.isArray(roof?.rooms) && roof.rooms.length) return rooms.filter((r) => roof.rooms.includes(r.id));
+  if (Array.isArray(roof?.rooms) && roof.rooms.length) {
+    const list = rooms.filter((r) => roof.rooms.includes(r.id) && !covered.has(r.id));
+    if (list.length) return list;
+  }
   const cand = rooms.filter((r) => !isPvShed(r));
   const box = (r) => {
     const xs = r.points.map((p) => p[0]);
@@ -298,11 +163,11 @@ export function roofRooms(floor, roof) {
   const sum = new Map();
   cand.forEach((r, i) => sum.set(find(i), (sum.get(find(i)) ?? 0) + area(r)));
   const best = [...sum.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
-  return cand.filter((_, i) => find(i) === best);
+  return cand.filter((r, i) => find(i) === best && !covered.has(r.id));
 }
 
 /** Liegt die Strecke a-b auf einer Raumkante (kollinear, überlappend)? */
-function onRoomEdge(a, b, rooms, tol = 0.15) {
+export function onRoomEdge(a, b, rooms, tol = 0.15) {
   const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
   if (len < 1e-6) return true;
   const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
@@ -407,13 +272,38 @@ export function scatter(points, { n = 40, perM2 = 6, seed = "x", margin = 0.1 } 
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
+/** Dachform des eigenen Dachs eines Raums (room.roof.type); unbekannt oder fehlend → "none". */
+export function roomRoofType(room) {
+  const t = room?.roof?.type;
+  return ROOM_ROOF_TYPES.some(([k]) => k === t) ? t : "none";
+}
+
 /**
- * Eigene Dächer einzelner Räume (room.roof, z. B. Schuppen, Carport): berührende Räume mit Dach
- * bilden eine Gruppe; die Einstellungen kommen vom ersten Raum der Gruppe.
- * @returns {{rooms: object[], roof: object}[]}
+ * Einstellungen eines eigenen Dachs mit Standardwerten: neue Formen über partSettings, die alten Arten
+ * (Flach-, Sattel-, Walm-, Pultdach) wie das Hausdach (Neigung 5…60°), dazu „cross“ (kurze Seite).
+ */
+export function roomRoofSettings(raw) {
+  const type = ROOM_ROOF_TYPES.some(([k]) => k === raw?.type) ? raw.type : "none";
+  if (SINGLE_TYPES.includes(type)) return partSettings({ ...raw, type });
+  const r = { ...DEFAULT_ROOF, ...(raw ?? {}), type };
+  if (!raw || !("floor" in raw)) delete r.floor; // „Hausdach sitzt auf“ gibt es am Raum nicht
+  r.pitch = Math.min(60, Math.max(5, Number(r.pitch) || DEFAULT_ROOF.pitch));
+  const ov = Number(r.overhang ?? DEFAULT_ROOF.overhang);
+  r.overhang = Math.min(1.5, Math.max(0, Number.isFinite(ov) ? ov : DEFAULT_ROOF.overhang));
+  if (!["auto", "cross", "x", "z"].includes(r.direction)) r.direction = "auto";
+  return r;
+}
+
+/**
+ * Eigene Dächer einzelner Räume (room.roof, z. B. Garage, Anbau, Erker): berührende Räume mit gleicher
+ * Dachform (nur Flach-, Sattel-, Walm- und Pultdach) bilden eine Gruppe, außer einer der Räume hat
+ * „separate“. Die übrigen Formen sind immer ein Dach je Raum. Leiter ist der erste Raum der Gruppe; von
+ * ihm kommen die Einstellungen.
+ * @returns {{rooms: object[], leader: object, roof: object}[]}
  */
 export function roomRoofGroups(floor) {
-  const rooms = (floor?.rooms ?? []).filter((r) => r.roof && r.roof.type && r.roof.type !== "none" && (r.points ?? []).length >= 3);
+  const rooms = (floor?.rooms ?? []).filter((r) => roomRoofType(r) !== "none" && (r.points ?? []).length >= 3);
+  const joins = (a, b) => GROUP_TYPES.includes(roomRoofType(a)) && roomRoofType(a) === roomRoofType(b) && !a.roof.separate && !b.roof.separate;
   const box = (r) => {
     const xs = r.points.map((p) => p[0]);
     const zs = r.points.map((p) => p[1]);
@@ -425,7 +315,7 @@ export function roomRoofGroups(floor) {
   for (let i = 0; i < rooms.length; i++)
     for (let j = i + 1; j < rooms.length; j++) {
       const [a, b] = [boxes[i], boxes[j]];
-      if (Math.max(a[0] - b[1], b[0] - a[1], a[2] - b[3], b[2] - a[3]) < 0.05) parent[find(i)] = find(j);
+      if (joins(rooms[i], rooms[j]) && Math.max(a[0] - b[1], b[0] - a[1], a[2] - b[3], b[2] - a[3]) < 0.05) parent[find(i)] = find(j);
     }
   const groups = new Map();
   rooms.forEach((r, i) => {
@@ -433,7 +323,7 @@ export function roomRoofGroups(floor) {
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(r);
   });
-  return [...groups.values()].map((list) => ({ rooms: list, roof: roofSettings({ roof: list[0].roof }) }));
+  return [...groups.values()].map((list) => ({ rooms: list, leader: list[0], roof: roomRoofSettings({ ...list[0].roof, type: roomRoofType(list[0]) }) }));
 }
 
 /** Abstand eines Punkts zum Rand eines Polygons (0, wenn innen). */
@@ -549,12 +439,12 @@ export const DEFAULT_WP = 400;
 /**
  * Kenndaten eines PV-Felds: Azimut (null = flach), Neigung, Anzahl passender Module, kWp.
  */
-export function fieldInfo(model, item, north = 0, items = []) {
-  const lay = pvLayout(model, item, { obstacles: roofObstacles(model, items) });
+export function fieldInfo(model, item, north = 0, items = [], others = []) {
+  const lay = pvLayout(model, item, { obstacles: roofObstacles(model, items), others });
   const wp = Number(item.wp) > 0 ? Number(item.wp) : DEFAULT_WP;
   return {
     azimuth: lay.out ? azimuthOf(lay.out, north) : null,
-    tilt: lay.out ? (Math.atan(model.tan) * 180) / Math.PI : 0,
+    tilt: lay.out ? (Math.atan(lay.tan) * 180) / Math.PI : 0,
     count: lay.count,
     blocked: lay.blockedCount,
     wp,
@@ -678,37 +568,38 @@ export const ROOF_ITEMS = {
 
 export const DORMER_STYLES = [["shed", "Schleppgaube"], ["gable", "Satteldachgaube"], ["flat", "Flachdachgaube"]];
 
-/** Walmenden eines Dachteils: [Anfang, Ende]. */
-export function partHipEnds(fr, roof) {
-  const [openLo, openHi] = fr.open ?? [false, false];
-  const wingHip = roof.type === "gable" && roof.wing_end === "hip" && (openLo || openHi);
-  return [!openLo && (roof.type === "hip" || (wingHip && openHi)), !openHi && (roof.type === "hip" || (wingHip && openLo))];
-}
-
 /**
- * Hausdach als Modell ohne 3D: Teile, Traufhöhe, Neigung. null ohne Dach.
- * @returns {{roof:object, floor:object, rooms:object[], parts:object[], top:number, eave:number, tan:number}|null}
+ * Hausdach als Modell ohne 3D: Teile, Traufhöhe, Neigung, höchster Punkt. null ohne Dach. Räume mit eigenem
+ * Dach oder unter einem Dachteil spart es aus (ihre Lücke wird nicht aufgefüllt).
+ * @returns {{key:"house", kind:"house", roof:object, floor:object, rooms:object[], parts:object[], top:number,
+ *   eave:number, tan:number, pitched:boolean, ridgeY:number}|null}
  */
 export function roofModel(building) {
   const roof = roofSettings(building?.settings);
   if (roof.type === "none") return null;
   const floor = roofFloor(building, roof);
-  const rooms = roofRooms(floor, roof);
+  const covered = coveredRoomIds(floor);
+  const rooms = roofRooms(floor, roof, covered);
   if (!rooms.length) return null;
   const wall = building.settings?.wall_exterior ?? 0.24;
-  const parts = adjustRoofParts(roofParts(rooms, { wall, overhang: roof.overhang, direction: roof.direction }), roof.adjust, !!roof.flip);
+  const exclude = (floor?.rooms ?? []).filter((r) => covered.has(r.id) && (r.points ?? []).length >= 3);
+  const parts = adjustRoofParts(roofParts(rooms, { wall, overhang: roof.overhang, direction: roof.direction, exclude }), roof.adjust, !!roof.flip);
   const tan = Math.tan((roof.pitch * Math.PI) / 180);
   const top = roofBase(floor);
   for (const fr of parts) fr.hipEnds = partHipEnds(fr, roof);
-  return { roof, floor, rooms, parts, top, eave: top - roof.overhang * tan, tan };
+  const eave = top - roof.overhang * tan;
+  const ridgeY = !parts.length ? top : roof.type === "flat" ? top + 0.25 : eave + Math.max(...parts.map((fr) => (roof.type === "shed" ? fr.width : fr.width / 2))) * tan;
+  return { key: "house", kind: "house", roof, floor, rooms, parts, top, eave, tan, pitched: roof.type !== "flat", ridgeY };
 }
 
 /**
- * Dachfläche an einem Punkt des Grundrisses: Höhe y und Richtung hangabwärts (out, im Grundriss,
- * Länge 1; null beim Flachdach). Bei mehreren Dachteilen gilt das höchste. null außerhalb des Dachs.
+ * Dachfläche an einem Punkt des Grundrisses: Höhe y, Richtung hangabwärts (out, im Grundriss, Länge 1; null
+ * beim Flachdach) und Neigung tan. Bei mehreren Dachteilen gilt das höchste. null außerhalb des Dachs.
+ * Formen aus roofshapes.js (model.at) liefern das Ergebnis selbst.
  */
 export function roofSurfaceAt(model, [x, z]) {
-  if (!model) return null;
+  if (!model || !Number.isFinite(x) || !Number.isFinite(z)) return null; // ohne Lage (unvollständige Daten): kein Dach
+  if (model.at) return model.at(x, z);
   const { roof, parts, eave, tan, top } = model;
   let best = null;
   for (const fr of parts) {
@@ -720,14 +611,14 @@ export function roofSurfaceAt(model, [x, z]) {
     const W = fr.width / 2;
     if (Math.abs(s) > L + 1e-6 || Math.abs(t) > W + 1e-6) continue;
     let hit;
-    if (roof.type === "flat") hit = { y: top + 0.25, out: null };
-    else if (roof.type === "shed") hit = { y: eave + (t + W) * tan, out: [-fr.v[0], -fr.v[1]] };
+    if (roof.type === "flat") hit = { y: top + 0.25, out: null, tan: 0 };
+    else if (roof.type === "shed") hit = { y: eave + (t + W) * tan, out: [-fr.v[0], -fr.v[1]], tan };
     else {
       const sg = t >= 0 ? 1 : -1;
-      hit = { y: eave + (W - Math.abs(t)) * tan, out: [sg * fr.v[0], sg * fr.v[1]] };
+      hit = { y: eave + (W - Math.abs(t)) * tan, out: [sg * fr.v[0], sg * fr.v[1]], tan };
       const [hipLo, hipHi] = fr.hipEnds ?? partHipEnds(fr, roof);
-      if (hipLo && eave + (s + L) * tan < hit.y) hit = { y: eave + (s + L) * tan, out: [-fr.u[0], -fr.u[1]] };
-      if (hipHi && eave + (L - s) * tan < hit.y) hit = { y: eave + (L - s) * tan, out: [fr.u[0], fr.u[1]] };
+      if (hipLo && eave + (s + L) * tan < hit.y) hit = { y: eave + (s + L) * tan, out: [-fr.u[0], -fr.u[1]], tan };
+      if (hipHi && eave + (L - s) * tan < hit.y) hit = { y: eave + (L - s) * tan, out: [fr.u[0], fr.u[1]], tan };
     }
     if (!best || hit.y > best.y) best = { ...hit, part: fr };
   }
@@ -735,11 +626,34 @@ export function roofSurfaceAt(model, [x, z]) {
 }
 
 /**
+ * Flächen eines Dachteils im Grundriss (Dach-Ebene im Editor): Vielecke mit Helligkeit und die Firstlinie.
+ * @returns {{faces: [number[][], number][], ridge: number[][]|null}}
+ */
+export function roofFacePolys(roof, fr) {
+  const L = fr.length / 2;
+  const W = fr.width / 2;
+  const Q = (s, t) => [fr.center[0] + s * fr.u[0] + t * fr.v[0], fr.center[1] + s * fr.u[1] + t * fr.v[1]];
+  if (roof.type !== "gable" && roof.type !== "hip") return { faces: [[[Q(-L, -W), Q(L, -W), Q(L, W), Q(-L, W)], 0.6]], ridge: null };
+  const [hipLo, hipHi] = fr.hipEnds ?? partHipEnds(fr, roof);
+  const rLo = hipLo ? Math.max(0, L - W) : L;
+  const rHi = hipHi ? Math.max(0, L - W) : L;
+  const faces = [
+    [[Q(-L, -W), Q(L, -W), Q(rHi, 0), Q(-rLo, 0)], 0.55],
+    [[Q(-L, W), Q(L, W), Q(rHi, 0), Q(-rLo, 0)], 0.75],
+  ];
+  if (hipLo) faces.push([[Q(-L, -W), Q(-L, W), Q(-rLo, 0)], 0.65]);
+  if (hipHi) faces.push([[Q(L, -W), Q(L, W), Q(rHi, 0)], 0.65]);
+  return { faces, ridge: [Q(-rLo, 0), Q(rHi, 0)] };
+}
+
+/**
  * PV-Feld auf dem Dach (roof.items, type "pv"): Lage der Module im Grundriss. Das Feld richtet sich
  * nach der Dachfläche unter seiner Mitte (Reihen die Neigung hinauf); auf dem Flachdach nach rotation.
- * @returns {{center:number[], along:number[], out:number[]|null, w:number, l:number, cos:number, panels:number[][], fits:boolean[], count:number, size:number[]}}
+ * Ein Modul zählt nur, wenn alle Ecken auf derselben Ebene liegen und kein anderes Dach derselben Etage
+ * (others) darüber liegt (Kehle, Flügel, Dachteil).
+ * @returns {{center:number[], along:number[], out:number[]|null, tan:number, w:number, l:number, cos:number, panels:number[][], fits:boolean[], count:number, size:number[]}}
  */
-export function pvLayout(model, item, { obstacles = [] } = {}) {
+export function pvLayout(model, item, { obstacles = [], others = [] } = {}) {
   const cols = Math.max(1, Math.min(30, Math.round(Number(item.cols) || 1)));
   const rows = Math.max(1, Math.min(15, Math.round(Number(item.rows) || 1)));
   const w = item.orient === "landscape" ? 1.7 : 1.0; // entlang der Traufe
@@ -747,6 +661,9 @@ export function pvLayout(model, item, { obstacles = [] } = {}) {
   const gap = 0.03;
   const hit = roofSurfaceAt(model, [item.x, item.z]);
   const out = hit?.out ?? null;
+  const tanH = hit?.tan ?? model?.tan ?? 0;
+  // von einem anderen Dach derselben Etage überdeckt (Kehle, Flügel, Dachteil): Modul fällt weg
+  const under = (q, y) => others.some((m) => (roofSurfaceAt(m, q)?.y ?? -Infinity) > y + 0.02);
   if (!out) {
     // Flachdach (oder außerhalb): nach rotation ausgerichtet, flach
     const a = ((item.rotation || 0) * Math.PI) / 180;
@@ -754,7 +671,7 @@ export function pvLayout(model, item, { obstacles = [] } = {}) {
     const down = [-along[1], along[0]];
     return finish(along, down, 1);
   }
-  const cos = Math.cos(Math.atan(model.tan));
+  const cos = Math.cos(Math.atan(tanH));
   return finish([out[1], -out[0]], out, cos);
 
   function finish(along, down, c) {
@@ -772,10 +689,13 @@ export function pvLayout(model, item, { obstacles = [] } = {}) {
       const hw = w / 2 - 0.02;
       const hd = (l * c) / 2 - 0.02;
       return [[-1, -1], [1, -1], [1, 1], [-1, 1]].every(([i, k]) => {
-        const h = roofSurfaceAt(model, [p[0] + along[0] * i * hw + down[0] * k * hd, p[1] + along[1] * i * hw + down[1] * k * hd]);
-        if (!h) return false;
-        if (!out) return !h.out;
-        return !!h.out && h.out[0] * out[0] + h.out[1] * out[1] > 0.95;
+        const q = [p[0] + along[0] * i * hw + down[0] * k * hd, p[1] + along[1] * i * hw + down[1] * k * hd];
+        const h = roofSurfaceAt(model, q);
+        if (!h || under(q, h.y)) return false;
+        // nur auf derselben Ebene wie die Mitte des Felds
+        if (!out) return !h.out && (!hit || Math.abs(h.y - hit.y) < 0.05);
+        const dz = (q[0] - item.x) * out[0] + (q[1] - item.z) * out[1];
+        return !!h.out && h.out[0] * out[0] + h.out[1] * out[1] > 0.95 && Math.abs((h.tan ?? tanH) - tanH) < 0.02 && Math.abs(h.y - (hit.y - dz * tanH)) < 0.05;
       });
     });
     // von Kamin oder Dachfenster verdeckt (obstacles aus roofObstacles)
@@ -787,7 +707,7 @@ export function pvLayout(model, item, { obstacles = [] } = {}) {
       return obstacles.some((o) => polygonsOverlap(rect, o.poly));
     });
     const ok = fits.map((f, i) => f && !blocked[i]);
-    return { center: [item.x, item.z], along, out, w, l, cos: c, panels, fits: ok, blocked, blockedCount: blocked.filter((b, i) => b && fits[i]).length, count: ok.filter(Boolean).length, size: [cols * (w + gap) - gap, (rows * (l + gap) - gap) * c] };
+    return { center: [item.x, item.z], along, out, tan: out ? tanH : 0, w, l, cos: c, panels, fits: ok, blocked, blockedCount: blocked.filter((b, i) => b && fits[i]).length, count: ok.filter(Boolean).length, size: [cols * (w + gap) - gap, (rows * (l + gap) - gap) * c] };
   }
 }
 
@@ -875,36 +795,6 @@ export function legacyPvItems(model, north = 0) {
   return items;
 }
 
-/**
- * Dachteile von Hand anpassen (Dach-Ebene im Editor): adjust[k] = {lo, hi, a, b} verlängert (+) bzw.
- * kürzt (−) Teil k am Anfang/Ende entlang des Firsts (lo/hi) und an den beiden Traufen (a: Seite −v,
- * b: Seite +v), in Metern. Der First bleibt in der Mitte zwischen den Traufen.
- */
-export function adjustRoofParts(parts, adjust, flip = false) {
-  // flip: Pultdach andersherum (hohe Seite tauschen) – Querachse v umdrehen
-  if (flip) parts = parts.map((fr) => ({ ...fr, v: [-fr.v[0], -fr.v[1]] }));
-  if (!Array.isArray(adjust) || !adjust.length) return parts;
-  return parts.map((fr, k) => {
-    const d = adjust[k];
-    if (!d) return fr;
-    const lo = Number(d.lo) || 0;
-    const hi = Number(d.hi) || 0;
-    const a = Number(d.a) || 0;
-    const b = Number(d.b) || 0;
-    if (!lo && !hi && !a && !b) return fr;
-    const length = Math.max(0.3, fr.length + lo + hi);
-    const width = Math.max(0.3, fr.width + a + b);
-    const ds = (hi - lo) / 2;
-    const dt = (b - a) / 2;
-    return {
-      ...fr,
-      length,
-      width,
-      center: [fr.center[0] + fr.u[0] * ds + fr.v[0] * dt, fr.center[1] + fr.u[1] * ds + fr.v[1] * dt],
-    };
-  });
-}
-
 /** Grundfläche eines Kamins oder Dachfensters (4 Ecken im Grundriss), sonst null. */
 export function roofItemFootprint(model, it, grow = 0) {
   const def = ROOF_ITEMS[it?.type];
@@ -919,9 +809,9 @@ export function roofItemFootprint(model, it, grow = 0) {
   let along = [Math.cos(a), Math.sin(a)];
   let d = Number(it.d) || def.d;
   if (it.type === "skylight") {
-    const out = roofSurfaceAt(model, [it.x, it.z])?.out;
-    if (out) along = [out[1], -out[0]];
-    d = (Number(it.l) || def.l) * (model ? Math.cos(Math.atan(model.tan)) : 1);
+    const hit = roofSurfaceAt(model, [it.x, it.z]);
+    if (hit?.out) along = [hit.out[1], -hit.out[0]];
+    d = (Number(it.l) || def.l) * (model ? Math.cos(Math.atan(hit?.tan ?? model.tan)) : 1);
   }
   const w = (Number(it.w) || def.w) + 2 * grow;
   d += 2 * grow;
@@ -955,14 +845,14 @@ export function polygonsOverlap(a, b) {
  */
 export function dormerShape(model, it) {
   const hit = roofSurfaceAt(model, [it.x, it.z]);
-  if (!hit?.out || !(model.tan > 0.05)) return null;
+  const tanM = hit?.tan ?? model?.tan;
+  if (!hit?.out || !(tanM > 0.05)) return null;
   const def = ROOF_ITEMS.dormer;
   const w = Math.max(0.5, Number(it.w) || def.w);
   const h = Math.max(0.4, Number(it.h) || def.h);
   const style = ["shed", "gable", "flat"].includes(it.style) ? it.style : def.style;
   const pitch = style === "flat" ? 2 : Math.max(0, Math.min(60, Number(it.pitch ?? def.pitch)));
   const tanP = Math.tan((pitch * Math.PI) / 180);
-  const tanM = model.tan;
   const out = hit.out;
   const along = [out[1], -out[0]];
   let depth;
@@ -982,7 +872,7 @@ export function dormerShape(model, it) {
   // alle Ecken auf derselben Dachfläche
   const same = (p) => {
     const q = roofSurfaceAt(model, p);
-    return q?.out && q.out[0] * out[0] + q.out[1] * out[1] > 0.95 ? q : null;
+    return q?.out && q.out[0] * out[0] + q.out[1] * out[1] > 0.95 && Math.abs((q.tan ?? tanM) - tanM) < 0.02 ? q : null;
   };
   const hits = [f0, f1, at(f0, depth * 0.98), at(f1, depth * 0.98)].map(same);
   if (hits.some((x) => !x)) return null;

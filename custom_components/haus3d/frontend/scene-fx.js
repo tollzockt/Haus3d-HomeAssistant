@@ -91,19 +91,24 @@ export const SceneFx = {
         });
       }
       for (const o of items) {
+        const ry = o.rotation.y;
+        o.rotation.y = 0; // im eigenen Rahmen messen: lange, schräg gestellte Teile (Solarzaun) bekommen keinen quadratischen Fleck
         box.setFromObject(o);
+        o.rotation.y = ry;
+        o.updateMatrixWorld(true);
         if (box.isEmpty()) continue;
         box.getSize(size);
-        // nur Dinge, die auf dem Boden stehen (keine Wandlampen, Bilder …)
         if (box.min.y - elev > 0.15 || size.y < 0.15) continue;
         box.getCenter(center);
         const blob = new THREE.Mesh(geo, mat);
         blob.scale.set(size.x * 1.25 + 0.15, 1, size.z * 1.25 + 0.15);
-        blob.position.set(center.x, box.min.y + 0.012, center.z);
+        const dx = center.x - o.position.x, dz = center.z - o.position.z, c = Math.cos(ry), s = Math.sin(ry);
+        blob.rotation.y = ry;
+        blob.position.set(o.position.x + dx * c + dz * s, box.min.y + 0.012, o.position.z - dx * s + dz * c);
         blob.renderOrder = 1;
         blob.userData.blob = true;
+        blob.userData.blobOf = o.userData.furniture; // F: Live-Vorschau zieht den Schatten mit
         blob.userData.noShadow = true;
-        // gleiche Ebene wie das Möbelstück (an/aus mit „Möbel“)
         blob.userData.layer = o.parent?.userData.layer ?? "furniture";
         (o.parent ?? e.group).add(blob);
       }
@@ -119,14 +124,15 @@ export const SceneFx = {
     const look = SEASON_LOOK[key] ?? SEASON_LOOK.summer;
     const set = (m, hex) => {
       if (!m) return;
-      m.userData.orig ??= (m.userData.base ?? m.color).clone();
+      if (!m.userData.orig?.isColor) m.userData.orig = (m.userData.base?.isColor ? m.userData.base : m.color).clone();
       const c = hex == null ? m.userData.orig.clone() : m.userData.orig.clone().lerp(new THREE.Color(hex), 0.85);
       m.userData.base = c;
       m.color.copy(c);
     };
     const cyber = this.style === "cyber";
     set(this.outdoorMats?.lawn, cyber ? null : look.lawn);
-    for (const [k, m] of this.texMats ?? []) if (k === "ground:lawn") set(m, cyber ? null : look.lawn);
+    // Rasen mit Textur: Schlüssel ground:lawn:<Textur>:<Farbe> (_texMat)
+    for (const [k, m] of this.texMats ?? []) if (k.startsWith("ground:lawn:")) set(m, cyber ? null : look.lawn);
     set(this.furnMats?.leaf, cyber ? null : look.leaf);
     if (this.furnMats?.flower) set(this.furnMats.flower, cyber ? null : look.blossom);
     if (this._snowK) this._snowTint(this._snowK);

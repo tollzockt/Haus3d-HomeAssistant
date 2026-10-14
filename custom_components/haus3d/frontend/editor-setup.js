@@ -110,7 +110,7 @@ export const SetupMethods = {
         <label for="es-int">Innenwand (m)</label><input id="es-int" data-s="wallInt" type="number" min="0.05" max="0.6" step="0.005" inputmode="decimal" value="${st.wallInt}">${chips("wallInt", [0.115, 0.175])}
         <label for="es-roof">Dach</label><select id="es-roof" data-s="roofType">${ROOF_TYPES.map(([k, n]) => `<option value="${k}"${k === st.roofType ? " selected" : ""}>${n}</option>`).join("")}</select>
         ${st.roofType !== "none" && st.roofType !== "flat" ? `<label for="es-pitch">Dachneigung (°)</label><input id="es-pitch" data-s="pitch" type="number" min="5" max="60" step="1" inputmode="numeric" value="${st.pitch}">` : ""}
-        <p class="muted">Feinheiten (Überstand, First, PV, Kamin) später im Editor unter „Dach“.</p>`;
+        <p class="muted">Feinheiten (Überstand, First, PV, Kamin) später im Editor über „Dach“.</p>`;
     } else {
       const pv = setupPreview(this.b, st).rows;
       const sel = this._setup.bgFloor ?? pv.find((r) => !r.attic && r.elevation === 0)?.id ?? pv[0]?.id;

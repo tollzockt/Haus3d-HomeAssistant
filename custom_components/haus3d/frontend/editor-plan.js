@@ -80,7 +80,8 @@ export const PlanMethods = {
       this.sel = { kind: "wall", id: w.id };
       this.draft = { wall: w.b };
       this.renderProps();
-    } else if (d.line) d.line.push(q);
+    } else if (d.pipe) this._pipeAddPoint(q);
+    else if (d.line) d.line.push(q);
     else d.points.push(q);
     d.hover = null;
     lenInp.value = "";
@@ -288,7 +289,11 @@ export const PlanMethods = {
       ev.preventDefault();
       const s = ev.shiftKey ? 0.01 : this.nudgeStep;
       const [dx, dz] = { arrowleft: [-s, 0], arrowright: [s, 0], arrowup: [0, -s], arrowdown: [0, s] }[k];
-      this.change((fl) => moveRefs(fl, this.multi, dx, dz));
+      const h0 = this._house0();
+      this.change((fl) => {
+        return moveRefs(fl, this.multi, dx, dz);
+      });
+      this._houseGuard(h0);
       return true;
     }
     return false;
@@ -325,6 +330,7 @@ export const PlanMethods = {
     const grid = this.b.settings?.grid ?? 0.05;
     const q = [r3(Math.round(at[0] / grid) * grid), r3(Math.round(at[1] / grid) * grid)];
     let added = [];
+    const h0 = this._house0();
     this.change((fl) => {
       const r = pasteClip(fl, clip, q, allIds(this.b));
       added = r.added;
@@ -334,7 +340,9 @@ export const PlanMethods = {
     this.sel = null;
     this.render();
     this.renderProps();
-    this._toast(`Eingefügt: ${clipSummary(clip)} – ziehen zum Verschieben.`);
+    // eingefügte Räume können unter das Hausdach fallen
+    const msg = `Eingefügt: ${clipSummary(clip)} – ziehen zum Verschieben.`;
+    if (!this._houseGuard(h0, msg)) this._toast(msg);
   },
 
   _duplicate() {
@@ -346,11 +354,15 @@ export const PlanMethods = {
 
   _deleteMulti() {
     const n = this.multi.length;
-    this.change((fl) => removeRefs(fl, this.multi));
+    const h0 = this._house0();
+    this.change((fl) => {
+      return removeRefs(fl, this.multi);
+    });
     this.multi = [];
     this.render();
     this.renderProps();
-    this._toast(`${n} Teile gelöscht (Strg+Z holt sie zurück).`);
+    const msg = `${n} Teile gelöscht (Strg+Z holt sie zurück).`;
+    if (!this._houseGuard(h0, msg)) this._toast(msg);
   },
 
   _templates() {
@@ -491,8 +503,7 @@ export const PlanMethods = {
     this._bgPts = [];
     this.draft = null;
     this.sel = null;
-    this.renderBar();
-    if (PLAN_HINTS[tool]) this.hint.textContent = PLAN_HINTS[tool];
+    this.renderBar(); // Hinweis des Werkzeugs (PLAN_HINTS), außer ein Hinweis der letzten 4 s steht noch
     this.render();
     this.renderProps();
   },

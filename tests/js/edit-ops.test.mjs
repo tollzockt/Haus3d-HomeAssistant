@@ -228,3 +228,28 @@ test("Aussehen je Wand wandert mit beim Einfügen und Löschen von Ecken", async
   const st = remapEdgeStyles(room.points, [[4, 0], [4, 3], [0, 3], [0, 0]], room.edge_styles);
   assert.deepEqual(st, { 0: { texture: "timber" }, 2: { color: "#ffffff" } });
 });
+
+test("IDs auch von Dachteilen und Dingen auf allen Dächern; Raum verschieben nimmt Dinge auf seinem Dach mit", async () => {
+  const { allIds, moveRoom, shiftRoomRoof } = await import("../../custom_components/haus3d/frontend/edit-ops.js");
+  const b = {
+    settings: { roof: { type: "gable", items: [{ id: "pv_h", type: "pv", x: 1, z: 1 }] } },
+    floors: [
+      {
+        id: "eg",
+        rooms: [{ id: "garage", points: [[0, 0], [4, 0], [4, 3], [0, 3]], roof: { type: "shed", items: [{ id: "pv_r", type: "pv", x: 2, z: 1.5 }, { id: "k_r", type: "chimney" }] } }],
+        roofs: [{ id: "dach_1", type: "cone", points: [[5, 0], [6, 0], [6, 1]], items: [{ id: "k_p", type: "chimney", x: 5.5, z: 0.5 }] }],
+      },
+    ],
+  };
+  const ids = allIds(b);
+  for (const id of ["eg", "garage", "dach_1", "pv_h", "pv_r", "k_r", "k_p"]) assert.ok(ids.has(id), id);
+  const g = b.floors[0].rooms[0];
+  const m = moveRoom(g, 1, -0.5);
+  assert.deepEqual([m.roof.items[0].x, m.roof.items[0].z], [3, 1]);
+  assert.equal(m.roof.items[1].x, undefined); // ohne Lage bleibt es, wie es ist
+  assert.equal(m.roof.type, "shed");
+  assert.equal(g.roof.items[0].x, 2); // Original unverändert
+  const plain = { id: "r", points: [[0, 0], [1, 0], [1, 1]], roof: { type: "gable" } };
+  assert.equal(moveRoom(plain, 1, 0).roof, plain.roof);
+  assert.equal(shiftRoomRoof(null, 1, 1), null);
+});

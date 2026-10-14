@@ -14,12 +14,18 @@ export function newId(prefix, taken = new Set()) {
   return id;
 }
 
-/** Alle IDs eines Gebäudes (für eindeutige neue IDs). */
+/** Alle IDs eines Gebäudes (für eindeutige neue IDs), auch Dachteile und Dinge auf den Dächern. */
 export function allIds(building) {
   const ids = new Set();
+  const items = (r) => {
+    for (const it of r?.items ?? []) if (it?.id) ids.add(it.id);
+  };
+  items(building.settings?.roof);
   for (const f of building.floors ?? []) {
     ids.add(f.id);
-    for (const key of ["rooms", "openings", "furniture", "outdoor", "walls"]) for (const x of f[key] ?? []) ids.add(x.id);
+    for (const key of ["rooms", "openings", "furniture", "outdoor", "walls", "roofs"]) for (const x of f[key] ?? []) ids.add(x?.id);
+    for (const r of f.rooms ?? []) items(r.roof);
+    for (const p of f.roofs ?? []) items(p);
   }
   return ids;
 }
@@ -60,9 +66,20 @@ export function validPolygon(points) {
   return points.length >= 3 && Math.abs(signedArea(points)) > 0.1;
 }
 
-/** Verschiebt einen Raum samt seinen Öffnungen (die hängen an Kanten und wandern mit). */
+/**
+ * Verschiebt einen Raum samt seinen Öffnungen (die hängen an Kanten und wandern mit) und den Dingen auf
+ * seinem eigenen Dach (nach der Lage-Regel genau die Dinge über diesem Raum).
+ */
 export function moveRoom(room, dx, dz) {
-  return { ...room, points: room.points.map(([x, z]) => [r3(x + dx), r3(z + dz)]) };
+  const out = { ...room, points: room.points.map(([x, z]) => [r3(x + dx), r3(z + dz)]) };
+  if (room.roof?.items?.length) out.roof = shiftRoomRoof(room.roof, dx, dz);
+  return out;
+}
+
+/** Eigenes Dach eines Raums mit verschobenen Dingen (PV, Kamin …); nur Dinge mit gültiger Lage. */
+export function shiftRoomRoof(roof, dx, dz) {
+  if (!Array.isArray(roof?.items)) return roof;
+  return { ...roof, items: roof.items.map((it) => (Number.isFinite(it?.x) && Number.isFinite(it?.z) ? { ...it, x: r3(it.x + dx), z: r3(it.z + dz) } : it)) };
 }
 
 /** Abstand Punkt-Strecke und Parameter t (Meter ab a). */
@@ -290,6 +307,66 @@ export function snapWallEnd(a, p, { grid = 0.05, vertices = [], tol = 0.15, tolD
   return [r3(a[0] + Math.cos(snapped) * l), r3(a[1] + Math.sin(snapped) * l)];
 }
 
+/** Alle Raumkanten und freien Wände einer Etage als [a, b] (Fang für das Werkzeug „Wand“), ohne die Wand exceptWall. */
+export function wallEdges(floor, exceptWall = null) {
+  const out = [];
+  for (const r of floor.rooms ?? []) {
+    const pts = r.points ?? [];
+    if (pts.length >= 3) pts.forEach((p, k) => out.push([p, pts[(k + 1) % pts.length]]));
+  }
+  for (const w of floor.walls ?? []) if (w.id !== exceptWall && w.a && w.b) out.push([w.a, w.b]);
+  return out;
+}
+
+/**
+ * Einrasten auf einer Kante (Raumkante oder freie Wand) in höchstens tol Abstand, Kanten ab 5 cm.
+ * Mit Richtung a→q (Wandende): Schnitt des Strahls mit der Kante (vor a, höchstens 1,5·tol von p; parallele
+ * Kanten zählen nicht), die Wand behält so ihre Richtung. Ohne Richtung (Wandanfang): Lotfußpunkt; an
+ * achsparallelen Kanten wird die Lage entlang der Kante aufs Raster gerundet (an der Kante begrenzt).
+ * @returns {[number, number]|null} nächster Punkt (auf mm gerundet) oder null
+ */
+export function snapOnEdge(p, edges, { a = null, q = null, tol = 0.15, grid = 0 } = {}) {
+  const dir = a && q ? [q[0] - a[0], q[1] - a[1]] : null;
+  const dl = dir ? Math.hypot(dir[0], dir[1]) : 0;
+  let best = null;
+  let bestD = Infinity;
+  for (const [e0, e1] of edges) {
+    const ex = e1[0] - e0[0];
+    const ez = e1[1] - e0[1];
+    const el = Math.hypot(ex, ez);
+    if (el < 0.05) continue;
+    const pr = projectOnSegment(p, e0, e1);
+    if (pr.dist > tol) continue;
+    let x;
+    if (dir) {
+      if (dl < 1e-9) continue;
+      const den = dir[0] * ez - dir[1] * ex;
+      if (Math.abs(den) < 1e-6 * dl * el) continue; // parallel
+      const w = [e0[0] - a[0], e0[1] - a[1]];
+      const t = (w[0] * ez - w[1] * ex) / den; // a + dir·t
+      const s = (w[0] * dir[1] - w[1] * dir[0]) / den; // e0 + (e1 − e0)·s
+      if (t * dl < 0.05 || s < -1e-9 || s > 1 + 1e-9) continue; // vor a (mindestens 5 cm lange Wand), auf der Kante
+      x = [a[0] + dir[0] * t, a[1] + dir[1] * t];
+      if (Math.hypot(x[0] - p[0], x[1] - p[1]) > 1.5 * tol) continue;
+    } else {
+      x = pr.point;
+      const axis = Math.abs(ez) < 1e-9 ? 0 : Math.abs(ex) < 1e-9 ? 1 : -1;
+      if (grid > 0 && axis >= 0) {
+        const lo = Math.min(e0[axis], e1[axis]);
+        const hi = Math.max(e0[axis], e1[axis]);
+        x = [...x];
+        x[axis] = Math.min(hi, Math.max(lo, Math.round(x[axis] / grid) * grid));
+      }
+    }
+    const d = Math.hypot(x[0] - p[0], x[1] - p[1]);
+    if (d < bestD) {
+      bestD = d;
+      best = x;
+    }
+  }
+  return best ? [r3(best[0]), r3(best[1])] : null;
+}
+
 /** Freistehende Wand löschen samt ihrer Öffnungen. */
 export function removeWall(floor, wallId) {
   return { ...floor, walls: (floor.walls ?? []).filter((w) => w.id !== wallId), openings: (floor.openings ?? []).filter((o) => o.wall !== wallId) };
@@ -375,10 +452,11 @@ export function wallFaces(segments) {
   const faces = [];
   for (const s of segments) {
     for (const side of [1, -1]) {
-      const off = side > 0 ? s.left : -s.right;
       // nur Seiten zum Raum hin (bei Außenwänden die Innenseite), freie Wände beidseitig
       const roomSide = side > 0 ? s.roomLeft : s.roomRight;
       if (!roomSide && s.kind !== "free") continue;
+      const extra = roomSide && s.flush > 0 ? s.flush : 0; // bündiger Streifen (walls.js)
+      const off = side > 0 ? s.left + extra : -(s.right + extra);
       const n = [s.n[0] * side, s.n[1] * side];
       faces.push({ p: [s.a[0] + s.n[0] * off, s.a[1] + s.n[1] * off], u: s.u, n, t0: 0, t1: s.length });
     }
@@ -574,6 +652,52 @@ export function moveVertex(floor, roomId, i, p, { linked = true } = {}) {
     ...floor,
     rooms: floor.rooms.map((r) => ({ ...r, points: r.points.map((q, k) => (moves.has(`${r.id}#${k}`) ? [r3(p[0]), r3(p[1])] : q)) })),
   };
+}
+
+/**
+ * Ecke i ziehen ab dem Stand base (Stand bei Zugbeginn, wird nicht verändert): Einrasten auf fremde Ecken (die
+ * mitwandernden nur ohne Kopplung), sonst aufs Raster.
+ * @returns {{q: number[], shared: boolean, floor: object}|null} Zielpunkt, ob andere Räume dort eine Ecke haben, neue Etage
+ */
+export function dragVertexStep(base, roomId, i, p, { linked = false, grid = 0.05, tol = 0.15 } = {}) {
+  const orig = base.rooms.find((r) => r.id === roomId)?.points[i];
+  if (!orig) return null;
+  const vertices = floorVertices(base, roomId).filter((v) => !linked || Math.hypot(v[0] - orig[0], v[1] - orig[1]) > 0.02);
+  const q = snapPoint(p, { grid, vertices, tol });
+  return { q, shared: linkedVertices(base, orig, roomId).length > 0, floor: moveVertex(base, roomId, i, q, { linked }) };
+}
+
+/**
+ * Andocken einer gezogenen Wand (Raumkante i): Lage paralleler Kanten anderer Räume auf der Normalen der Kante
+ * (wie moveEdge), mit mindestens minOverlap Überdeckung; ohne die Lage 0 (die Kante liegt schon dort).
+ * @returns {number[]} eindeutige, auf mm gerundete Abstände d (aufsteigend)
+ */
+export function parallelEdgeOffsets(floor, roomId, i, minOverlap = 0.1) {
+  const room = floor.rooms?.find((r) => r.id === roomId);
+  const n0 = room?.points?.length ?? 0;
+  if (n0 < 2) return [];
+  const a = room.points[i % n0];
+  const b = room.points[(i + 1) % n0];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (len < 1e-6) return [];
+  const u = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+  const nrm = [-u[1], u[0]];
+  const along = (p) => (p[0] - a[0]) * u[0] + (p[1] - a[1]) * u[1];
+  const off = (p) => (p[0] - a[0]) * nrm[0] + (p[1] - a[1]) * nrm[1];
+  const out = new Set();
+  for (const r of floor.rooms) {
+    if (r.id === roomId) continue;
+    const m = r.points?.length ?? 0;
+    for (let k = 0; k < m; k++) {
+      const p = r.points[k];
+      const q = r.points[(k + 1) % m];
+      const d = off(p);
+      if (Math.abs(off(q) - d) > 1e-3 || Math.abs(d) < 1e-3) continue; // nicht parallel bzw. liegt schon darauf
+      const overlap = Math.min(len, Math.max(along(p), along(q))) - Math.max(0, Math.min(along(p), along(q)));
+      if (overlap >= minOverlap - 1e-9) out.add(r3(d));
+    }
+  }
+  return [...out].sort((x, y) => x - y);
 }
 
 /**

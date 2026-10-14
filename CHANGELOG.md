@@ -1,5 +1,115 @@
 # Änderungen
 
+## 0.23.0b2 (Vorabversion)
+
+- **Räume einzeln anpassen**: Ecken und Wände eines Raums ziehen ändert jetzt nur diesen Raum – angrenzende
+  Räume bleiben stehen. Wer sie mitnehmen will, schaltet **Ecken koppeln** ein (Editor-Leiste, am Tablet unter
+  „⋯“, oder im Eigenschaftenfeld des Raums; der Browser merkt es sich) oder hält beim Ziehen Alt gedrückt (am
+  Tablet: Schalter „Mitziehen“ bzw. „Einzeln“ für einen Zug). Länge, Breite und Tiefe folgen derselben
+  Einstellung. Gerechnet wird immer vom Stand zu Beginn des Zugs – Ecken und Wände, über die man unterwegs
+  zieht, kleben nicht mehr fest; eine gezogene Wand dockt an parallele Nachbarwände an.
+- **Saubere Wandanschlüsse**: Wo eine Innenwand gerade in eine Außenwand übergeht, liegt die Raumseite bündig
+  (kein 6-cm-Versatz, auch in Tür- und Fensterlaibungen) und der flimmernde dunkle Streifen ist weg. Innenwände
+  enden am T-Stoß in der Mitte der durchgehenden Wand, Ecken aus zwei Innen- oder freien Wänden bekommen eine
+  Gehrung. Das Werkzeug „Wand“ rastet auch an Raumkanten ein; eine freie Wand, die auf einer Wand oder bis 10 cm
+  davor endet, reicht bis in deren Mitte – auch von außen.
+- **Treppen – Deckenöffnung passt und ist einstellbar**: „automatisch“ liegt sie über dem Teil der Treppe mit
+  weniger als 2 m Kopfhöhe, ringsum 8 cm Luft und am Austritt bündig (Wendeltreppe: Kreis um alle Stufen, L- und
+  U-Treppen: passender Winkel); dazu „eigene Maße“ (Breite, Tiefe, Versatz, eckig oder rund) und „keine“.
+- **Treppen – Geländer vollständig**: durchgehender Handlauf über alle Läufe, Podeste und Wendelstufen bis oben,
+  mit Stäben und Pfosten; die Wendeltreppe hat den Handlauf außen und ein Geländer am Austrittspodest.
+  **Geländer an der Öffnung** in der Etage darüber: automatisch Stäbe, wenn die Treppe ein Geländer hat, sonst
+  wählbar Stäbe, Glas, Holz oder keins; Austritt und Seiten an Wänden bleiben frei.
+- **Wendeltreppe** links oder rechts herum, mit Austrittspodest; beim Wählen wird die Grundfläche quadratisch
+  („Quadratisch machen“ für ältere Treppen), im Plan erscheint sie als Kreis. **Treppenloch**: echte Öffnung im
+  Boden seiner Etage statt dunkler Platte, eckig oder rund, wahlweise mit Geländer. In der Etage darüber führt
+  ein Tipp auf „Treppe von …“ zur Treppe.
+- **Dach-Ebene für jede Etage**: Knopf **„Dach“** neben der Etagen-Auswahl (auch ohne Hausdach) bzw. „Dach
+  bearbeiten“ in den Etagen-Eigenschaften. Sie zeigt die Dächer dieser Etage – Hausdach, eigene Dächer von
+  Räumen und Dachteile –, die Etage darunter blass zum Ausrichten. „Hausdach“ in der Etagen-Auswahl öffnet die
+  Dach-Ebene der Etage, auf der das Hausdach sitzt.
+- **Dach setzen**: Flach-, Pult-, Sattel-, Walm-, Zelt-, Mansard- (auch mit Walm) und Krüppelwalmdach, Kegeldach
+  für Türme und Dachterrasse. „Auf Raum tippen“ gibt dem Raum ein eigenes Dach, das mit ihm wandert; „Rechteck
+  ziehen“, „Punkte setzen“ oder beim Kegeldach „Kreis ziehen“ ergibt ein freies Dachteil mit ziehbaren Ecken.
+  Wo Dächer ineinanderlaufen, entstehen Kehlen von selbst; unter Dachteilen fällt kein Regen oder Schnee.
+- **Eigene Dächer bearbeiten**: Dachfläche antippen (oder am Raum „Im Dach bearbeiten“) – Dachform, Neigung,
+  Überstand, First, hohe Seite, Flügel-Ende, Farben, Texturen und Kanten wie beim Hausdach. Berührende Räume mit
+  gleicher Dachform haben ein gemeinsames Dach, das als Ganzes bearbeitet wird; „abtrennen“ gibt einem Raum ein
+  eigenes, „Mit Nachbardach verbinden“ legt es wieder zusammen. „An der Hauswand kürzen“ nimmt den Überstand zur
+  Hauswand weg, „In Dachteil umwandeln“ macht die Ecken frei ziehbar.
+- **Kamin, Dachfenster, PV-Feld und Gaube auf jedem Dach**. PV-Felder auf eigenen Dächern und Dachteilen
+  bekommen Schild, Infokarte und Verschattungsprüfung; ohne eigenen Sensor teilen sie sich die Leistung
+  „PV Dach“ (eigener Wechselrichter oder Balkonkraftwerk: Leistungs-Entität am Feld eintragen). Module, die ein
+  anderes Dach überdeckt, zählen nicht mit. Auf ein anderes Dach gezogen, wechseln die Dinge dorthin; auf einem
+  Raumdach wandern sie mit dem Raum. Antippen eines Dachs in 3D schaltet keine Geräte darunter.
+- **Dachterrasse** am Raum („Eigenes Dach“ → Dachterrasse) oder als Dachteil: begehbarer Belag auf Fußbodenhöhe
+  der Etage darüber, Geländer (Glas, Stäbe, Holz) an den freien Kanten; PV-Felder passen darauf.
+- **Hausdach**: „Hausdach sitzt auf“ (Etage) und „Räume unter dem Hausdach“ sind wählbar. Räume mit eigenem Dach
+  oder unter einem Dachteil bekommen kein Hausdach mehr darüber (vorher doppelt); Dinge des Hausdachs über
+  einem solchen Raum ziehen auf dessen Dach um („Auf die Dächer darunter legen“ für ältere Stände). Ändert sich,
+  worauf das Hausdach sitzt oder welche Räume es deckt, werden seine Kanten-Anpassungen zurückgesetzt (mit
+  Nachfrage bzw. Hinweis).
+  „Automatisches Dach in Dachteile umwandeln“ macht aus dem Hausdach frei bearbeitbare Dachteile; alle Dinge
+  darauf ziehen mit.
+- **Dachgeschoss: Türen und Fenster im Giebel** werden richtig gezeigt: Die Giebelwand des Hausdachs bekommt
+  passende Öffnungen mit Laibung, Tür und Fenster sind von außen in voller Höhe zu sehen (auch in der hohen
+  Wand eines Pultdachs). An Traufwänden, Walmenden und Innenwänden unter der Schräge enden Öffnungen und
+  Rollläden unter der Dachfläche statt durchs Dach zu ragen; liegt eine ganz darüber, wird sie in 3D
+  ausgeblendet. Der Editor zeigt bei solchen Öffnungen einen Hinweis. Eigene Dächer setzen ebenfalls auf dem
+  Kniestock an; Außenwände ohne Dach darüber oder unter einem Flachdach bzw. einer Dachterrasse reichen bis zur
+  Raumhöhe.
+- **Verteiler drehbar** (Haupt- und Unterverteilung, Einspeisung, Router, Switch): Drehung (°) in den
+  Eigenschaften, oranger Drehgriff im Plan (15°-Schritte, Umschalt bzw. „Frei“ = stufenlos), Taste R
+  (Umschalt+R: 15° zurück), ⟳/⟲ und Wand-Knopf am Steuerkreuz sowie „Drehen 90°“ und „An die Wand stellen“ im
+  Kurzmenü. An einer Wand drehen sich Verteiler beim Setzen und Ziehen von selbst zum Raum und stehen mit der
+  Rückseite an der Wand (nicht mehr in der Ecke); bereits gesetzte, die an einer Wand stehen, zeigen von selbst
+  zum Raum. Die Höhe über dem Boden reicht höchstens so weit, dass das Gehäuse unter Decke bzw. Dachschräge
+  bleibt.
+- **Leitungen an der Decke**: Strom und Netzwerk liegen standardmäßig an der Decke (15 cm darunter, im
+  Dachgeschoss unter der Schräge), Wasser weiter am Boden; die Deckenhöhe richtet sich nach der Etage. Dazu eine
+  eigene Höhe als Zahl für die nächsten Punkte und für alle Punkte einer Leitung; „Standard“ setzt zurück, jede
+  neue Leitung beginnt wieder auf der Standardhöhe. Endet eine Leitung an einem Verteiler oder an einer
+  gleichartigen Leitung auf anderer Höhe, führt die 3D-Ansicht sie senkrecht hin, der Fluss läuft mit.
+  Abzweigdosen sitzen auch nach einem Höhenwechsel auf der Leitung.
+- **3D-Ansicht im Editor – Pfeile zum Verschieben**: Am gewählten Möbelstück, Gegenstand oder Verteiler
+  erscheinen Pfeile X (rot), Höhe (grün; nicht bei Treppe, Treppenloch, Stellplatz, Säule, Stütze und
+  Durchführung) und Z (blau). Ziehen rastet im Raster ein (Umschalt bzw. „Frei“ =
+  zentimetergenau), ein Zug ist ein Rückgängig-Schritt, Esc bricht ab; die neue Lage ist sofort zu sehen, auch
+  beim Ziehen über den Boden. Verteiler lassen sich in 3D anklicken und ziehen; Pfeiltasten und Steuerkreuz
+  schieben auch Verteiler. Dächer unterer Etagen bleiben sichtbar, wenn man eine Etage darüber bearbeitet.
+- **Strg = nur Ansicht**: Mit gedrückter Strg-Taste (Mac: ⌘) bewegt Ziehen in der 3D-Ansicht nur die Kamera
+  (links drehen, rechts schieben, Rad zoomen) und wählt nichts aus; am Tablet Schalter „Nur Ansicht“.
+- **Solarzäune** in drei Varianten unter Draußen → Solar-Aufständerung: senkrecht mit beidseitig aktiven
+  Modulen, an einer Doppelstab-Zaunmatte (Module bis 15° geneigt) und als blickdichter, rahmenloser Sichtschutz
+  auf Sockel. Raster „Module breit/hoch“ (bis 3 übereinander), Modullage quer oder hochkant (Sichtschutz immer
+  hochkant). Der Raster-Hinweis aller Solar-Aufständerungen nennt Modulzahl und kWp (400 Wp je Modul).
+- Behoben: „An die Wand stellen“ ersetzte im Editor die ganze Etage durch das Möbelstück; Verteiler auf Etagen
+  ohne Leitungen ließen sich in der Hauptansicht nicht antippen; eine Neigung über 60° im Dach-Feld ließ das
+  Speichern scheitern (jetzt begrenzt; ungültige Dachwerte werden ersetzt statt den Stand abzulehnen); bei
+  berührenden Räumen mit eigenem Dach wirkten Änderungen am zweiten Raum nicht; Norden auf der Dach-Ebene
+  erscheint nur noch mit Admin-PIN; nach dem Wechsel über die Etagen-Auswahl zeigte die Leiste noch die Werkzeuge
+  der vorigen Ebene; ein Typwechsel zeigte noch die Felder des alten Typs; Hinweise aus der Editor-Leiste (z. B.
+  Magnet an/aus, Bauplan-Foto geladen) verschwanden sofort; überlappende Wandstücke wurden im Plan dunkler
+  gezeichnet; Gedrückthalten mit der Maus öffnete mitten im Zug das Kurzmenü (jetzt nur mit Finger oder Stift);
+  durch Deckenöffnungen sah man den Rasen unter dem Haus; Rasen mit Textur folgte der Jahreszeit nicht, und
+  Flächen mit Textur wurden bei Schnee schwarz; der Raster-Hinweis der Fassade nannte „Breite und Tiefe“.
+  Kontaktschatten folgen der Drehung (kein großer Fleck unter schräg gestellten langen Teilen); dünne Teile
+  lassen sich am Tablet leichter antippen.
+- Hinweis zur Vorabversion: Ältere Stände bleiben gültig; Wandanschlüsse, Deckenöffnungen und Giebel werden
+  beim Anzeigen neu berechnet. Das Hausdach spart Räume mit eigenem Dach oder unter einem Dachteil jetzt aus –
+  angepasste Dachflächen ggf. mit „Alle Flächen zurücksetzen“ neu ausrichten. Geneigte eigene Dächer auf
+  Dachgeschossen setzen am Kniestock an, berührende Räume mit verschiedener Dachform bekommen getrennte Dächer.
+  Möbel, die bündig an einer Außenwand in Verlängerung einer Innenwand standen, ragen 6 cm hinein – „An die Wand
+  stellen“ rückt sie davor. Der Haken „Deckenöffnung in der Etage darüber“ ist jetzt die Auswahl
+  „Deckenöffnung“ (ohne Haken = „keine“). 0.23.0b1 behält alle neuen Felder, zeichnet aber Dachteile,
+  Dachterrassen, eigene Dächer in den neuen Formen, Dinge auf eigenen Dächern, eigene Deckenöffnungen und die
+  Verteiler-Drehung nicht; eine Wendeltreppe „rechts herum“ erscheint dort als gerade Treppe, ein Solarzaun als
+  einfacher Ständer.
+- Intern: Dach-Code der 3D-Szene, 3D-Teil des Editors sowie Treppen-, Wand- und Dach-Editor (eigene Dächer,
+  Dachteile) in eigene Module; Dachformen, Dach-Einheiten (Hausdach, eigene Dächer, Dachteile), Giebel,
+  Treppenöffnungen, Geländer, Leitungshöhen und Verteiler-Geometrie rein und mit node getestet; neue
+  Browser-Tests für Treppen, Ecken, Dächer, Giebel, Verteiler, Achsen-Pfeile und Solarzäune.
+
 ## 0.23.0b1 (Vorabversion)
 
 - **Grundeinstellungen**: Beim ersten Öffnen des Editors (und bei leerem Haus) fragt ein Fenster in vier

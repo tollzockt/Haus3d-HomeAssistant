@@ -60,7 +60,7 @@ export const FxMethods = {
     };
     const list = [...this._pvShading].map(([id, s]) => `<div class="shrow"><div class="shhead"><b>${esc(names.get(id)?.name ?? id)}</b><span class="${s.loss > 0.15 ? "bad" : s.loss > 0.03 ? "mid" : "ok"}">${s.loss < 0.005 ? "keine Verschattung" : `≈ ${fmt(s.loss * 100, 0)} % Verlust`}</span></div>${chart(s)}${s.worst ? `<p class="hint">Am stärksten um ${hhmm(s.worst.t)} (${fmt(s.worst.frac * 100, 0)} % der Module im Schatten)</p>` : ""}</div>`).join("");
     body.innerHTML = `<div class="en-row"><span>Tag</span><input type="date" data-day value="${dateIn}"></div>
-      ${list || `<p class="hint">Keine PV-Felder auf dem Dach (Bearbeiten → Ebene „Dach“).</p>`}
+      ${list || `<p class="hint">Keine PV-Felder auf einem Dach (Bearbeiten → Etage wählen → „Dach“).</p>`}
       <p class="hint">Geprüft wird jede Modulmitte alle 20 min gegen Dach, Gauben, Kamine, Wände und Bäume. Verlust gewichtet nach Sonnenhöhe (grobe Schätzung).</p>
       <div class="btns"><button data-act="play" class="primary"><ha-icon icon="mdi:play"></ha-icon> Schatten-Zeitraffer</button></div>`;
     body.querySelector("[data-day]").addEventListener("change", (ev) => {

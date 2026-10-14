@@ -197,3 +197,165 @@ def test_new_soft_fields_023() -> None:
     assert f["pipes"][0]["joints"] == [1] and f["pipes"][1]["joints"] is None
     assert f["nodes"][0]["kind"] == "abzweig" and f["nodes"][0]["model"] is False and f["nodes"][1]["model"] is True
     assert validate_building({"version": 1, "floors": [], "settings": {"setup_done": "ja"}})["settings"]["setup_done"] is False
+
+
+def test_stair_hole_fields_023() -> None:
+    """0.23: eigene Deckenöffnung einer Treppe, Geländer an der Öffnung, rundes Treppenloch – weich geprüft."""
+    stairs = {"id": "t", "type": "stairs", "x": 1, "z": 1, "stair_shape": "spiral_right", "railing": "outer"}
+    floor = {
+        "id": "kg", "name": "KG", "elevation": -2.6, "height": 2.4, "rooms": [],
+        "furniture": [
+            {**stairs, "hole": {"w": "1.2", "d": 2, "dx": 0.1}, "hole_railing": "glass"},
+            {**stairs, "id": "t2", "hole": {"w": -1}, "hole_railing": "gold"},
+            {**stairs, "id": "t3", "hole_railing": "none"},
+            {"id": "l", "type": "stairwell", "x": 3, "z": 3, "hole_round": "vielleicht"},
+            {"id": "l2", "type": "stairwell", "x": 4, "z": 3, "hole_round": True},
+            {**stairs, "id": "alt", "stair_shape": "straight", "railing": "left"},
+            {**stairs, "id": "gross", "hole": {"w": 25, "d": "1e9", "dx": -30, "dz": 0.5, "round": True}},
+            {**stairs, "id": "nan", "hole": {"w": "nan", "d": 2}},
+        ],
+    }
+    f = validate_building({"version": 1, "floors": [floor]})["floors"][0]
+    t, t2, t3, well, well2, old, big, nan = f["furniture"]
+    # zu große Öffnung: Maße auf den Rand, die übrigen Angaben bleiben (statt still „automatisch“)
+    assert big["hole"] == {"w": 20.0, "d": 20.0, "dx": -20.0, "dz": 0.5, "round": True}
+    assert nan["hole"] is None
+    assert t["hole"] == {"w": 1.2, "d": 2.0, "dx": 0.1, "dz": 0.0, "round": False}
+    assert t["hole_railing"] == "glass"
+    assert t["stair_shape"] == "spiral_right" and t["railing"] == "outer"
+    assert t2["hole"] is None and t2["hole_railing"] is None
+    assert t3["hole_railing"] == "none"
+    assert well["hole_round"] is False and well2["hole_round"] is True
+    # alte Treppe ohne die neuen Schlüssel bleibt ohne sie
+    assert not {"hole", "hole_railing", "hole_round"} & set(old)
+
+
+def test_furniture_orient_soft() -> None:
+    """0.23b2: Modullage der Solarzäune – weich geprüft, fehlt = quer (ohne Schlüssel)."""
+    floor = {
+        "id": "eg", "name": "EG", "elevation": 0, "height": 2.5, "rooms": [],
+        "furniture": [
+            {"id": "z", "type": "pv_fence_vertical", "x": 1, "z": 1, "orient": "portrait", "cols": 4, "rows": 2},
+            {"id": "z2", "type": "pv_fence_mesh", "x": 2, "z": 1, "orient": "kaputt"},
+            {"id": "z3", "type": "pv_fence_privacy", "x": 3, "z": 1},
+        ],
+    }
+    f = validate_building({"version": 1, "floors": [floor], "settings": {}})["floors"][0]
+    z, z2, z3 = f["furniture"]
+    assert z["orient"] == "portrait" and z["cols"] == 4 and z["rows"] == 2
+    assert z2["orient"] is None  # ungültig → weich ersetzt, Stand bleibt gültig
+    assert "orient" not in z3 and "cols" not in z3
+
+
+def test_node_rotation_soft() -> None:
+    """0.23: Drehung eines Verteilers weich geprüft; fehlt sie, bleibt sie weg (ältere Stände unverändert)."""
+    nodes = [
+        {"id": "a", "kind": "hv", "x": 0, "z": 0, "rotation": 450},
+        {"id": "b", "kind": "uv", "x": 1, "z": 0, "rotation": "quer"},
+        {"id": "c", "kind": "router", "x": 2, "z": 0},
+        {"id": "d", "kind": "switch", "x": 3, "z": 0, "rotation": None},
+    ]
+    floor = {"id": "eg", "name": "EG", "elevation": 0, "height": 2.5, "rooms": [], "nodes": nodes}
+    out = validate_building({"version": 1, "floors": [floor], "settings": {}})["floors"][0]["nodes"]
+    assert out[0]["rotation"] == 90.0
+    assert out[1]["rotation"] == 0
+    assert "rotation" not in out[2]
+    assert out[3]["rotation"] == 0
+
+
+def test_arrow_values_saved() -> None:
+    """0.23b2: Werte der 3D-Pfeile bleiben beim Speichern erhalten (Höhe als mount_y, Verteiler-Höhe, Rand der Koordinaten)."""
+    floor = {
+        "id": "eg", "name": "EG", "elevation": 0, "height": 2.5, "rooms": [],
+        "furniture": [{"id": "m", "type": "lamp_wall", "x": 999.5, "z": -999.5, "rotation": 0, "mount_y": 0.45}],
+        "nodes": [
+            {"id": "a", "kind": "hv", "x": 999.5, "z": 0, "y": 1.25},
+            {"id": "b", "kind": "abzweig", "x": 1, "z": -999.5, "y": 2.5},
+        ],
+    }
+    out = validate_building({"version": 1, "floors": [floor], "settings": {}})["floors"][0]
+    m = out["furniture"][0]
+    assert m["mount_y"] == 0.45 and m["x"] == 999.5 and m["z"] == -999.5
+    assert out["nodes"][0]["y"] == 1.25 and out["nodes"][0]["x"] == 999.5
+    assert out["nodes"][1]["y"] == 2.5 and out["nodes"][1]["z"] == -999.5
+
+
+def test_roof_soft_clamped_and_room_roof() -> None:
+    """0.23b2: Hausdach weich (begrenzt statt abgelehnt), eigenes Dach eines Raums weich und ohne Standardwerte."""
+
+    def house(**roof):
+        return validate_building(_building(roof=roof))["settings"]["roof"]
+
+    assert house(type="gable", pitch=80)["pitch"] == 60.0
+    assert house(pitch="steil")["pitch"] == 35.0
+    assert house(pitch=0)["pitch"] == 35.0
+    assert house(pitch=True)["pitch"] == 35.0
+    assert house(overhang=5)["overhang"] == 1.5
+    assert house(overhang=0)["overhang"] == 0.0
+    assert house(type="quatsch")["type"] == "none"
+    assert house(direction="y")["direction"] == "auto"
+    assert house(direction="cross")["direction"] == "auto"
+    assert house(floor=5)["floor"] is None
+    assert house(floor="og")["floor"] == "og"
+    assert house(rooms="x")["rooms"] is None
+    assert house(rooms=["a", "b"])["rooms"] == ["a", "b"]
+    assert house() == {"type": "none", "pitch": 35.0, "overhang": 0.4, "direction": "auto"}
+
+    def own(roof):
+        room = {"id": "r", "name": "R", "points": [[0, 0], [4, 0], [4, 3], [0, 3]], "roof": roof}
+        floor = {"id": "eg", "name": "EG", "elevation": 0, "height": 2.5, "rooms": [room]}
+        return validate_building({"version": 1, "floors": [floor], "settings": {}})["floors"][0]["rooms"][0]["roof"]
+
+    pv = {"id": "pv_1", "type": "pv", "x": 1, "z": 1}
+    r = own({"type": "gable", "pitch": "steil", "overhang": 9, "separate": "ja", "items": [pv], "adjust": [None, {"a": -0.5}]})
+    assert r["pitch"] is None and r["overhang"] == 1.5 and r["separate"] is False
+    assert r["items"] == [pv] and r["adjust"] == [None, {"a": -0.5}]
+    assert own({"type": "gable", "pitch": 0})["pitch"] is None
+    assert own({"type": "gable", "pitch": 3})["pitch"] == 5.0
+    assert own("kaputt") is None
+    assert own({"type": "quatsch"})["type"] == "none"
+    assert own({"type": "cone", "pitch": 70})["pitch"] == 70.0
+    t = own({"type": "terrace", "railing": "gold", "railing_height": 9, "direction": "cross"})
+    assert (t["railing"], t["railing_height"], t["direction"]) == ("glass", 2.5, "cross")
+    assert own({"type": "shed", "pitch": 10}) == {"type": "shed", "pitch": 10.0}
+    assert "base" not in own({"type": "gable"})
+    assert own({"type": "gable", "base": 2})["base"] == 2  # alte Felder bleiben (ALLOW_EXTRA), das Frontend beachtet sie nicht
+
+
+def test_roof_parts_soft() -> None:
+    """0.23b2: freie Dachteile je Etage – ungültige Teile fallen einzeln weg, Felder ohne Standardwerte."""
+    pts = [[0, 0], [4, 0], [4, 3]]
+    parts = [
+        {"id": "t", "type": "quatsch", "points": pts, "pitch": "steil", "railing": "gold", "color": "rot", "items": "x"},
+        {"id": "k", "type": "cone", "points": pts, "pitch": 95, "base": -9, "items": [{"id": "pv_2", "type": "pv"}]},
+        {"type": "gable", "points": pts},
+        {"id": "e", "type": "gable", "points": [[0, 0]]},
+    ]
+    room = {"id": "r", "name": "R", "points": [[0, 0], [4, 0], [4, 3], [0, 3]]}
+    floors = [
+        {"id": "eg", "name": "EG", "elevation": 0, "height": 2.5, "rooms": [room], "roofs": parts},
+        {"id": "og", "name": "OG", "elevation": 2.75, "height": 2.5, "rooms": []},
+        {"id": "dg", "name": "DG", "elevation": 5.5, "height": 2.4, "rooms": [], "roofs": "kaputt"},
+    ]
+    out = validate_building({"version": 1, "floors": floors, "settings": {}})["floors"]
+    roofs = out[0]["roofs"]
+    assert [p["id"] for p in roofs] == ["t", "k"]
+    t, k = roofs
+    assert (t["type"], t["pitch"], t["railing"], t["color"], t["items"]) == ("gable", None, "glass", None, [])
+    assert (k["pitch"], k["base"], k["items"][0]["id"]) == (80.0, -5.0, "pv_2")
+    assert all("room" not in p and "overhang" not in p for p in roofs)
+    assert "roofs" not in out[1]
+    assert out[2]["roofs"] == []
+
+
+def test_roof_types_match_frontend() -> None:
+    from custom_components.haus3d import schema
+
+    lists: dict[str, list[str]] = {}
+    for f in sorted((PKG / "frontend").glob("*.js")):
+        for name, body in re.findall(r"export const (\w*ROOF\w*TYPES) = \[(.*?)\];", f.read_text(encoding="utf-8"), re.S):
+            lists[name] = re.findall(r'\[\s*"(\w+)"', body) + [k for ref in re.findall(r"\.\.\.(\w+)", body) for k in lists.get(ref, [])]
+    assert "gable" in lists.get("ROOF_TYPES", []) and lists.get("ROOF_PART_TYPES") and lists.get("ROOM_ROOF_TYPES")
+    assert set(lists["ROOF_TYPES"]) <= set(schema.ROOF_TYPES)
+    assert set(lists["ROOF_PART_TYPES"]) <= set(schema.ROOF_PART_TYPES)
+    assert set(lists["ROOM_ROOF_TYPES"]) <= set(schema.ROOM_ROOF_TYPES) and "none" in lists["ROOM_ROOF_TYPES"]

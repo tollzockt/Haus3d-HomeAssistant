@@ -4,7 +4,7 @@
 // Höhe h nach oben, Mittelpunkt der Grundfläche im Ursprung, Vorderseite zeigt nach +z.
 
 import * as THREE from "./vendor/three.module.min.js";
-import { stairLayout } from "./stairs.js";
+import { buildStairs, buildStairwell } from "./stairs3d.js";
 import { EXTRA, EXTRA_CATEGORIES, EXTRA_LAMPS, EXTRA_MOUNT } from "./catalog-extra.js";
 import { buildExtra } from "./furniture-extra.js";
 
@@ -265,8 +265,10 @@ function buildModel(type, w, d, h, M, item = {}) {
       break;
     case "rug":
     case "parking":
-    case "stairwell":
       box(g, type === "rug" ? M.fabric : M.dark, w, Math.max(h, 0.01), d);
+      break;
+    case "stairwell":
+      buildStairwell(g, item, w, d, M);
       break;
     case "kitchen":
     case "island":
@@ -332,52 +334,9 @@ function buildModel(type, w, d, h, M, item = {}) {
     case "radiator":
       for (let i = 0; i < Math.max(3, Math.round(w / 0.08)); i++) box(g, M.white, 0.05, h, d, -w / 2 + 0.025 + i * 0.08, 0.1, 0).userData.heat = true;
       break;
-    case "stairs": {
-      // Stufen als Blöcke bis zum Boden (gerade oder viertelgewendelt mit Podest)
-      const lay = stairLayout({ shape: item.stair_shape, w, d, h, run: item.run_width });
-      for (const t of lay.treads) {
-        if (!t.poly) {
-          box(g, M.wood, t.x1 - t.x0, t.top, t.z1 - t.z0, (t.x0 + t.x1) / 2, 0, (t.z0 + t.z1) / 2);
-          continue;
-        }
-        // Wendel-/Fächerstufe: Vieleck hochgezogen (Wendeltreppe: nur die Trittplatte)
-        const shp = new THREE.Shape(t.poly.map(([x, z]) => new THREE.Vector2(x, -z)));
-        const thick = t.spiral ? 0.05 : t.top;
-        const geo = new THREE.ExtrudeGeometry(shp, { depth: thick, bevelEnabled: false });
-        geo.rotateX(-Math.PI / 2);
-        const mesh = new THREE.Mesh(geo, M.wood);
-        mesh.position.y = t.top - thick;
-        g.add(mesh);
-      }
-      if (lay.spindle) cyl(g, M.dark, lay.spindle, h + 0.9, 0, 0, 0);
-      // Geländer: Pfosten an jeder zweiten Stufe der ersten Flucht und ein schräger Handlauf
-      const rail = item.railing;
-      if (lay.radius && rail && rail !== "none") {
-        // Wendeltreppe: Pfosten am Außenrand
-        lay.treads.forEach((t, k) => {
-          if (k % 2) return;
-          const p = t.poly[2];
-          box(g, M.dark, 0.03, 0.9, 0.03, p[0] * 0.95, t.top, p[1] * 0.95);
-        });
-      } else if ((rail === "left" || rail === "right" || rail === "both") && !lay.treads[0].poly) {
-        const first = lay.treads.filter((t) => !t.landing && !t.poly && Math.abs(t.x1 - t.x0 - (lay.treads[0].x1 - lay.treads[0].x0)) < 1e-6 && t.x0 === lay.treads[0].x0);
-        const sides = rail === "both" ? ["left", "right"] : [rail];
-        for (const side of sides) {
-          const x = side === "left" ? first[0].x0 + 0.03 : first[0].x1 - 0.03;
-          first.forEach((t, k) => k % 2 === 0 && box(g, M.dark, 0.03, 0.9, 0.03, x, t.top, (t.z0 + t.z1) / 2));
-          const a = first[0];
-          const b = first.at(-1);
-          const z0 = (a.z0 + a.z1) / 2;
-          const z1 = (b.z0 + b.z1) / 2;
-          const len = Math.hypot(z1 - z0, b.top - a.top);
-          const bar = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, len), M.dark);
-          bar.position.set(x, (a.top + b.top) / 2 + 0.9, (z0 + z1) / 2);
-          bar.rotation.x = Math.atan2(b.top - a.top, z0 - z1);
-          g.add(bar);
-        }
-      }
+    case "stairs":
+      buildStairs(g, item, w, d, h, M);
       break;
-    }
     case "robot_vacuum":
       cyl(g, M.dark, Math.min(w, d) / 2, h, 0, 0, 0, 28);
       break;

@@ -28,8 +28,8 @@ Was sich je Version geändert hat, steht im [CHANGELOG.md](CHANGELOG.md).
 - **Energie**: Karte mit Tagesverlauf und Speicher-Restzeit, Fluss in Leitungen, PV-Leistung je Dachfeld.
 - **Alltag**: Waschmaschine fertig, Müllabfuhr, Strompreis, Lüften, Schimmelgefahr, Heizungspause, Urlaub.
 - **Zeitstrahl, Bodenfarbe, Begehen**: Tag zurückspulen, Böden nach Messwerten färben, durchs Haus gehen.
-- **Grundriss-Editor** in 2D und 3D mit Grundeinstellungen-Assistent, Katalog „Einrichten“ (205 Typen),
-  Treppen, Dach, Leitungen und Bauplan als Vorlage.
+- **Grundriss-Editor** in 2D und 3D mit Grundeinstellungen-Assistent, Katalog „Einrichten“ (208 Typen),
+  Treppen, Dächern je Etage, Leitungen und Bauplan als Vorlage.
 - **Info-Hologramme**: Antippen eines Raums zeigt über PC, Server, Heizung, 3D-Drucker & Co. die Werte, die
   du dort hinterlegt hast.
 - **Wandtablet** mit Kiosk-Adresse, Ruhemodus, Dimmen, Klingel-Kamera und Diensten für Automationen.
@@ -72,7 +72,8 @@ Ansehen und Schalten gehen ohne PIN; Knöpfe zum Bearbeiten (Stifte, „+“) gi
 - **Kamera**: Ziehen mit der linken Maustaste dreht, das Mausrad zoomt, Ziehen mit der rechten verschiebt;
   ein Finger dreht, zwei Finger zoomen und verschieben. Jede Etage merkt sich ihre letzte Ansicht.
 - **Etagen-Leiste** rechts: ▲, „Alle“, Etagen, ▼; ein Doppeltipp auf die gewählte Etage passt die Ansicht ein.
-  Das Hausdach siehst du nur in „Alle“, sonst schaust du in die Etage hinein.
+  Das Hausdach siehst du nur in „Alle“, sonst schaust du in die Etage hinein; eigene Dächer und Dachteile
+  tieferer Etagen bleiben dabei stehen.
 - **Zahnrad**: Stil (Auto nach `sun.sun`, Tag, Nacht, Cyber), Qualität (Automatisch, Akku, Ausgewogen, Schön),
   Geräte als Symbole oder 3D sowie Kacheln für Raster, Raumnamen, Dach, Schatten, Wetter, Geräte, Möbel,
   Anwesenheit, Leitungen, Kamera-Sicht und Vollbild. Weitere Ebenen stehen unter Admin-Einstellungen →
@@ -193,15 +194,36 @@ im Etagen-Feld. Norden lässt sich nur mit der Admin-PIN ändern.
 - **Werkzeuge**: Auswählen, Raum (Rechteck), Raum (frei), Wand, Fenster, Tür, Garagentor, Einrichten, Gerät,
   Garten, Linie, Leitung, Verteiler, Messen, Vorlage. Am Tablet stehen sie im Werkzeug-Menü (Knopf mit dem aktuellen
   Werkzeug und ▾), weitere Funktionen unter „⋯“.
+- **Dach**: Der Knopf neben der Etagen-Auswahl öffnet die Dach-Ebene der gewählten Etage (auch „Dach bearbeiten“
+  in den Etagen-Eigenschaften), siehe [Dach und Dachgeschoss](#dach-und-dachgeschoss).
+- **3D-Ansicht im Editor**: Möbel und Gegenstände aus „Einrichten“ (auch mit verknüpfter Entität) sowie Verteiler
+  anklicken oder antippen – am gewählten Teil erscheinen drei Pfeile: **rot (X)** und **blau (Z)** verschieben
+  waagrecht, **grün** ändert die Höhe über dem Boden (nicht bei Treppe, Treppenloch, Stellplatz, Säule, Stütze
+  und Durchführung). Die Pfeile bleiben auf dem Bildschirm gleich groß und liegen immer obenauf. Gezogen wird im
+  Raster (Höhe in höchstens 5-cm-Schritten; Umschalt bzw. „Frei“ = zentimetergenau), jeder Zug ist ein
+  Rückgängig-Schritt, Esc bricht ab. Teile lassen sich auch direkt über den Boden ziehen, leere Fläche ziehen
+  dreht die Ansicht. **Strg gedrückt halten** (Mac: ⌘) = **nur Ansicht**: Ziehen dreht die Kamera, die rechte
+  Maustaste schiebt, das Rad zoomt – nichts wird ausgewählt oder verschoben. Dasselbe macht – praktisch am
+  Tablet – der Schalter **„Nur Ansicht“** oben rechts in der 3D-Ansicht. Dächer unterer Etagen bleiben sichtbar,
+  wenn eine Etage darüber gewählt ist.
 - Ist nichts gewählt, zeigt das Eigenschaftenfeld die Etage: Name, Höhen, „Etage in Home Assistant“,
   Wanddicken, Flächen, „+ Etage“ und „Etage löschen“.
 
 ### Räume, Wände, Fenster und Türen
 
 - **Räume** als Rechteck ziehen oder Punkt für Punkt zeichnen und einem HA-Bereich zuordnen; dazu Bodenbelag,
-  Wandfarben, Texturen (Bilder ohne Relief), eigenes Dach (Schuppen, Carport) und „Energie: Balkonkraftwerk“.
-- **Wände** eines gewählten Raums ziehen (Nachbarräume ziehen mit) oder antippen, um nur diese Wand zu
-  gestalten; das Werkzeug „Wand“ zeichnet freie Wände.
+  Wandfarben, Texturen (Bilder ohne Relief), eigenes Dach (Garage, Anbau, Erker, Turm, Dachterrasse – Neigung,
+  Kanten, PV und Kamin über „Im Dach bearbeiten“) und „Energie: Balkonkraftwerk“.
+- **Ecken und Wände** eines gewählten Raums ziehen ändert nur diesen Raum. Mit **Ecken koppeln** (Editor-Leiste,
+  am Tablet unter „⋯“, oder im Eigenschaftenfeld des Raums; der Browser merkt es sich) gehen angrenzende Räume
+  mit. Alt beim Ziehen (am Tablet der Schalter „Mitziehen“ bzw. „Einzeln“) kehrt das für einen Zug um; Länge,
+  Breite und Tiefe folgen derselben Einstellung. Eine gezogene Wand dockt an parallele Wände der Nachbarräume an.
+  Eine Wand antippen wählt sie zum Gestalten; das Werkzeug „Wand“ zeichnet freie Wände und rastet an Ecken,
+  Wandenden und Raumkanten ein.
+- **Wandanschlüsse** berechnet Haus 3D selbst: Außenwände bekommen an Ecken eine Gehrung, Innenwände enden am
+  T-Stoß in der Mitte der durchgehenden Wand, Ecken aus zwei Innen- oder freien Wänden bekommen eine Gehrung, und
+  wo eine Innenwand gerade in eine Außenwand übergeht, bleibt die Raumseite bündig. Freie Wände, die auf einer
+  Wand oder bis 10 cm davor enden, reichen bis in deren Mitte.
 - **Fenster, Türen, Garagentore**: auf eine Wand tippen und zum Verschieben daran entlangziehen. Einstellbar
   sind Maße, Anschlag, Flügel, Türart (z. B. Haustür, Glastür, Schiebetür), Rahmenfarbe, Kontakt, Kippsensor
   und Rollladen. Kellerfenster bekommen auf Wunsch einen **Lichtschacht** außen (Betonschacht mit Gitterrost
@@ -209,17 +231,25 @@ im Etagen-Feld. Norden lässt sich nur mit der Admin-PIN ändern.
 
 ### Einrichten und Geräte
 
-- **Einrichten** (Katalog) mit Suche und 3D-Vorschau: 205 Typen, oben gegliedert in **Drinnen** und
+- **Einrichten** (Katalog) mit Suche und 3D-Vorschau: 208 Typen, oben gegliedert in **Drinnen** und
   **Draußen**, darunter aufklappbare Kategorien – Wohnen, Essen, Küche, Schlafen, Bad & Wäsche, Büro, Technik,
   Licht, Bau, Möbelserien, LED, Gaming, Wechselrichter & Speicher und Eigene Körper bzw. Garten,
-  Wallbox & E-Auto und Solar-Aufständerung. Welche Bereiche offen sind, merkt sich der Browser. Möbelserien gibt es in den Maßen bekannter
-  Serien, Wallboxen, Speicher und Konsolen in den Maßen gängiger Modelle – alles eigene, vereinfachte Formen.
+  Wallbox & E-Auto und Solar-Aufständerung (auch Solarzäune). Welche Bereiche offen sind, merkt sich der
+  Browser. Möbelserien gibt es in den Maßen bekannter Serien, Wallboxen, Speicher und Konsolen in den Maßen
+  gängiger Modelle – alles eigene, vereinfachte Formen.
 - Möbel haben Maße, Drehung, Höhe über Boden, Farbe und eine verknüpfte Entität; Lampen und LEDs leuchten in
   der Farbe ihres Lichts. Der **Magnet** stellt Möbel beim Ziehen bündig an die nächste Wand.
 - **Raster**: Würfelregale mit „Würfel breit/hoch“, Solar-Aufständerungen mit „Module breit/tief“ (Ost-West:
-  Modulpaare, Fassade: Module hoch) – die Maße folgen der Anzahl.
+  Modulpaare, Fassade und Solarzäune: Module hoch, Solarzäune bis 3 übereinander) – die Maße folgen der Anzahl,
+  der Hinweis darunter nennt Modulzahl und kWp (400 Wp je Modul). Solarzäune gibt es senkrecht mit beidseitig
+  aktiven Modulen, an einer Doppelstab-Zaunmatte mit bis 15° geneigten Modulen (bei beiden Module quer oder
+  hochkant) und als blickdichten, rahmenlosen Sichtschutz auf einem Sockel (immer hochkant). Schild, Infokarte
+  und Verschattungsprüfung gibt es nur für PV-Felder auf Dächern; Aufständerungen und Solarzäune zeigen Werte
+  über die verknüpfte Entität oder ein Info-Hologramm und zählen in der Energie über Admin-Einstellungen →
+  Energie (z. B. als PV-Anlage oder Balkonkraftwerk).
 - **Info-Hologramm**: bis zu 6 Werte (Entität und Name) je Gegenstand, z. B. CPU-Temperatur am PC, Fortschritt
-  am 3D-Drucker oder Vorlauf am Heizkessel. Neu im Katalog unter Technik: 3D-Drucker und NAS / Heimserver.
+  am 3D-Drucker oder Vorlauf am Heizkessel; im Katalog stehen dafür unter Technik auch 3D-Drucker und NAS /
+  Heimserver.
 - Werkzeug **Gerät**: setzt Entitäten der Bereiche dieser Etage an ihre echte Stelle; Kameras bekommen
   Blickrichtung, Sichtfeld, Neigung und Reichweite.
 
@@ -235,32 +265,97 @@ im Etagen-Feld. Norden lässt sich nur mit der Admin-PIN ändern.
 - **Hausdach** unter Admin-Einstellungen → Haus & Wetter: Flach-, Sattel-, Walm- oder Pultdach mit Neigung,
   Überstand, First, Flügel-Ende und Dachfarbe; L-, T- und U-Häuser bekommen automatisch ein zusammengesetztes
   Dach. Dort auch PV-Module je Himmelsrichtung oder als PV-Felder (Spalten × Reihen); genauer und
-  verschiebbar geht es auf der Dach-Ebene.
-- **Dach-Ebene** (Etagen-Auswahl → „Dach“): Kamin, Dachfenster, PV-Feld und Gaube setzen, Dachdeckung und
-  Norden einstellen (Norden nur im Admin-Modus), Dachflächen auf die Hauswände ziehen; PV-Module, die nicht
-  passen, werden rot.
-- **Dachgeschoss**: „+ Dachgeschoss“ in der Etagen-Auswahl; das Hausdach setzt dann auf dem Kniestock an.
+  verschiebbar geht es auf der Dach-Ebene. In deren Hausdach-Formular wählst du außerdem, worauf das Hausdach
+  sitzt („Hausdach sitzt auf“) und welche Räume es deckt („Räume unter dem Hausdach“); Räume mit eigenem Dach
+  oder unter einem Dachteil spart es aus. Ändert sich, worauf es sitzt oder welche Räume es deckt (auch durch
+  ein neues eigenes Dach, ein Dachteil oder verschobene Räume), werden seine Kanten-Anpassungen zurückgesetzt –
+  je nach Weg mit Rückfrage oder Hinweis.
+- **Dach-Ebene** je Etage: Knopf **„Dach“** neben der Etagen-Auswahl (auch ohne Hausdach) oder „Dach bearbeiten“ in
+  den Etagen-Eigenschaften; „Hausdach“ in der Etagen-Auswahl (nur mit Hausdach) öffnet die Dach-Ebene der Etage, auf
+  der das Hausdach sitzt. Sie zeigt alle Dächer der Etage – Hausdach, eigene Dächer von Räumen und Dachteile –, die
+  Etage darunter blass zum Ausrichten. Dort Kamin, Dachfenster, PV-Feld und Gaube setzen, Dachdeckung und Norden
+  einstellen (Norden nur mit Admin-PIN) und Dachflächen an den orangen Punkten auf die Hauswände ziehen; PV-Module,
+  die nicht passen, werden rot.
+- **Dach setzen** (Werkzeug der Dach-Ebene): Flachdach, Pultdach, Satteldach, Walmdach, Zeltdach, Mansarddach (auch
+  mit Walm), Krüppelwalmdach, Kegeldach für Türme und Dachterrasse. **Auf Raum tippen** gibt dem Raum ein eigenes
+  Dach, das mit ihm wandert (liegt er unter einem Dachteil, ändert man dort die Form). **Rechteck ziehen**, **Punkte
+  setzen** oder beim Kegeldach **Kreis ziehen** ergibt ein freies **Dachteil**: Ecken ziehen, „+“ fügt Ecken ein
+  (Kegeldach: orangen Punkt ziehen oder Durchmesser eingeben); rechts Neigung, Überstand, First, „Höhe versetzt“,
+  Farben, Texturen und „Duplizieren“, unter einem freien Kegeldach „Runden Raum darunter anlegen“ (Turm). Dächer
+  sitzen auf der Oberkante der Etage, im Dachgeschoss auf dem Kniestock (Flachdach und Dachterrasse auf Raumhöhe).
+  Mehrere Dächer ergeben zusammen auch verwinkelte Formen – Kehlen entstehen von selbst; darunter bleibt es bei
+  Regen und Schnee trocken.
+- **Eigene Dächer**: Dachfläche antippen oder am Raum „Im Dach bearbeiten“ – Dachform, Neigung, Überstand, First,
+  hohe Seite, Flügel-Ende, Farben, Texturen und Kanten wie beim Hausdach. Berührende Räume mit gleicher Dachform
+  (Flach-, Sattel-, Walm-, Pultdach) haben ein gemeinsames Dach, dessen Einstellungen für alle gelten;
+  „abtrennen“ gibt einem Raum ein eigenes, „Mit Nachbardach verbinden“ legt es wieder zusammen. „An der
+  Hauswand kürzen“ nimmt den Überstand zur Hauswand weg, „In Dachteil umwandeln“ macht die Ecken frei ziehbar
+  (das Dach folgt dem Raum dann nicht mehr). Liegt das Dach unter einer Etage darüber, ist es rot gestrichelt
+  und das Formular warnt.
+- **Dachterrasse**: am Raum unter „Eigenes Dach“ → Dachterrasse oder als Dachteil – begehbarer Belag auf
+  Fußbodenhöhe der Etage darüber (Textur und Farbe wählbar) mit Geländer (Glas, Stäbe, Holz oder keins, Höhe
+  einstellbar) an den freien Kanten; an der Wand der Etage darüber bleibt es offen. PV-Felder lassen sich
+  daraufstellen; Möbel für die Terrasse stehen auf der Etage darüber außerhalb der Räume.
+- **Dinge auf dem Dach**: Kamin, Dachfenster, PV-Feld und Gaube (auf geneigten Flächen) gehen auf jedem Dach;
+  auf ein anderes Dach gezogen, wechseln sie dorthin, auf einem Raumdach wandern sie mit dem Raum. PV-Felder
+  bekommen überall Schild, Infokarte und Verschattungsprüfung, ohne eigenen Sensor geschätzt aus der Leistung
+  „PV Dach“; Module unter einem anderen Dach zählen nicht. Bekommt ein Raum unter dem Hausdach ein eigenes Dach
+  oder ein Dachteil darüber, ziehen die Dinge des Hausdachs an dieser Stelle mit um (für ältere Stände: „Auf
+  die Dächer darunter legen“ im Hausdach-Formular).
+- **Automatisches Dach und Dachteile**: „Automatisches Dach in Dachteile umwandeln“ (Hausdach-Formular) macht
+  aus dem Hausdach einzelne, frei bearbeitbare Dachteile; alle Dinge darauf ziehen mit, das Hausdach selbst ist
+  danach aus (Rückgängig möglich).
+- **Dachgeschoss**: „+ Dachgeschoss“ in der Etagen-Auswahl; das Hausdach setzt dann auf dem Kniestock an, eigene
+  Dächer ebenso. Fenster und Türen in Giebelwänden des Hausdachs (auch in der hohen Wand eines Pultdachs) reichen
+  bis unter die Dachschräge (höchstens bis zur Raumhöhe) – der Giebel bekommt passende Öffnungen mit Laibung. An
+  Traufwänden enden sie am Kniestock, an Innenwänden knapp unter der Dachfläche, Rollläden ebenso; liegt eine
+  Öffnung ganz darüber, wird sie in 3D ausgeblendet (der Editor zeigt dazu einen Hinweis). Außenwände ohne Dach
+  darüber oder unter einem Flachdach bzw. einer Dachterrasse reichen bis zur Raumhöhe. Licht von oben geben
+  Dachfenster oder Gaube auf der Dach-Ebene. Die Giebel sind in „Alle“ und auf der Dach-Ebene des Editors zu sehen.
 
 ### Treppen
 
-Einrichten → Drinnen → **Bau** → **Treppe**: gerade, L oder U mit Podest, L gewendelt oder Wendeltreppe, mit Geländer und
-„Bis zur nächsten Etage“; die Deckenöffnung darüber entsteht automatisch. Dazu gibt es Treppenloch, Säule,
-Stütze, Unterzug und Stellplatz.
+Einrichten → Drinnen → **Bau** → **Treppe**: gerade, L oder U mit Podest, L gewendelt oder Wendeltreppe (links
+oder rechts herum – beim Hinaufgehen liegt die Mittelsäule links bzw. rechts; beim Wählen wird die Grundfläche
+quadratisch, ältere Treppen mit „Quadratisch machen“; im Plan erscheint sie als Kreis, oben schließt ein
+Austrittspodest an), mit „Bis zur nächsten Etage“.
+
+- **Geländer**: links, rechts oder beidseitig, bei der Wendeltreppe außen. Durchgehender Handlauf über alle
+  Läufe, Podeste und Wendelstufen bis zum Austritt, Stäbe in engem Abstand, Pfosten an Anfang, Ende und Ecken.
+- **Deckenöffnung** in der Etage darüber: *automatisch* (überall, wo die Kopfhöhe unter 2 m läge, ringsum 8 cm
+  Luft, an der Austrittsseite bündig; Wendeltreppe: Kreis um alle Stufen, am Austrittspodest bündig), *eigene
+  Maße* (Breite, Tiefe, Versatz seitlich und nach vorn, eckig oder rund; im Plan gestrichelt, solange die Treppe
+  gewählt ist) oder *keine*. In der Etage darüber führt ein Tipp auf „Treppe von …“ direkt zur Treppe.
+- **Geländer an der Öffnung**: automatisch (Stäbe, wenn die Treppe ein Geländer hat), Stäbe, Glas, Holz oder
+  keins. Austritt und Seiten an Wänden bleiben frei.
+- **Treppenloch**: echte Öffnung im Boden der eigenen Etage (also in der Decke darunter), eckig oder rund,
+  wahlweise mit Geländer (Stäbe, Glas, Holz); die Vorderseite (dicke Linie im Plan) bleibt als Zugang offen,
+  Drehen wählt die offene Seite.
+
+Dazu gibt es Säule, Stütze, Unterzug und Stellplatz.
 
 ### Leitungen und Verteiler
 
-- **Leitung**: Strom, Wasser kalt, Wasser warm oder Netzwerk, am Boden oder an der Wand (Höhe je Punkt).
-  Punkte rasten an Wänden ein, an Verteilern und gleichartigen Leitungen als „Abzweig“ – auch Zwischenpunkte
-  werden dort verbunden, am Finger mit größerem Fangkreis. Vom Anfang
-  (Zählerschrank, Hauswasser) zum Verbraucher zeichnen; am Ende hängt ein Raum, ein Gerät oder ein Sensor.
-  Gewählte Leitung bearbeiten: Punkte ziehen, Strecke erneut antippen fügt einen Punkt ein, Punkt antippen
-  ändert seine Höhe oder löscht ihn; „Alle Punkte auf Höhe“ setzt alle auf einmal.
+- **Leitung**: Strom, Wasser kalt, Wasser warm oder Netzwerk. Strom und Netzwerk liegen standardmäßig an der
+  Decke (15 cm darunter, im Dachgeschoss unter der Schräge), Wasser am Boden; die Höhe je Punkt wählt man über
+  Boden, Sockelleiste, Steckdose, Schalter, Decke oder als eigene Zahl („Standard“ setzt zurück, jede neue
+  Leitung beginnt wieder auf der Standardhöhe), ein Wechsel läuft an der Wand senkrecht. Punkte rasten an Wänden
+  ein, an Verteilern und gleichartigen Leitungen als „Abzweig“ – auch Zwischenpunkte werden dort verbunden, am
+  Finger mit größerem Fangkreis. Vom Anfang (Zählerschrank, Hauswasser) zum Verbraucher zeichnen; am Ende hängt
+  ein Raum, ein Gerät oder ein Sensor. Gewählte Leitung bearbeiten: Punkte ziehen, Strecke erneut antippen fügt
+  einen Punkt ein, Punkt antippen ändert seine Höhe oder löscht ihn; „Alle Punkte auf Höhe“ setzt alle auf
+  einmal – auch mit eigener Höhe. Endet eine Leitung an einem Verteiler oder einer gleichartigen Leitung auf
+  anderer Höhe, läuft sie in 3D senkrecht hin.
 - **Verteiler**: Haupt- und Unterverteilung (optional mit eigenem Zähler – zeigt dann, was „nicht zugeordnet“
   ist), Einspeisung, **Abzweigdose** (verbindet alle Stromleitungen, die dort beginnen, enden oder
   durchlaufen – z. B. Zuleitung eines Raums mit Steckdosen und Licht), Router, Switch, Wasser-Hausanschluss,
   Warmwasser und Durchführung zwischen Etagen (das Gegenstück entsteht automatisch). Verteiler rasten beim
   Setzen an Leitungen ihres Mediums ein; „als Gegenstand zeigen“ aus macht daraus einen reinen
-  Verbindungspunkt ohne 3D-Modell.
+  Verbindungspunkt ohne 3D-Modell. Haupt- und Unterverteilung, Einspeisung, Router und Switch lassen sich drehen
+  („Drehung (°)“, oranger Drehgriff im Plan, Taste R, ⟳/⟲ am Steuerkreuz); an einer Wand drehen sie sich beim
+  Setzen und Ziehen von selbst zum Raum und stehen mit der Rückseite an der Wand; „An die Wand stellen“ (Kurzmenü)
+  bzw. der Wand-Knopf am Steuerkreuz stellt sie an die nächste Wand (bis 1,2 m). Die Höhe über dem Boden reicht
+  höchstens so weit, dass das Gehäuse unter Decke bzw. Dachschräge bleibt.
 
 ### Hilfen
 
@@ -268,13 +363,16 @@ Stütze, Unterzug und Stellplatz.
   und die echte Länge eingeben – so bekommt das Bild die richtigen Maße; drehen (±90° oder gradgenau) oder
   „An Linie ausrichten“, damit eine Wand im Bild genau waagrecht liegt. **Maße** und **Messen** zeigen Längen,
   Winkel und Flächen; beim Zeichnen lassen sich Länge und Winkel eintippen.
-- **Fang-Hilfen**: Raster und Fluchtlinien; unten links die Schalter „Frei“ (ohne Einrasten), „Einzeln“ (nur
-  dieses Teil) und „Mehrfach“ (mehrere Teile wählen). Mehrere Teile lassen sich kopieren oder als eigener
-  Baustein speichern. **Aufräumen** und **Lücken schließen** (Spalt bis 45 cm) gleichen kleine Versätze aus.
+- **Fang-Hilfen**: Raster und Fluchtlinien; unten links die Schalter „Frei“ (ohne Einrasten), „Mitziehen“ bzw.
+  „Einzeln“ (kehrt „Ecken koppeln“ für einen Zug um; bei gewähltem Möbelstück „Ohne Magnet“) und „Mehrfach“
+  (mehrere Teile wählen). Mehrere Teile lassen sich kopieren oder als eigener Baustein speichern. **Aufräumen**
+  und **Lücken schließen** (Spalt bis 45 cm) gleichen kleine Versätze aus.
   **Außenwände bündig** (Etage gewählt, nichts markiert) setzt Außenwände, die bis 15 cm neben denen der Etage
   darunter liegen, genau darüber.
-- **Tastatur**: Esc, Entf, Strg+Z/Y, Pfeiltasten, R dreht 90°, Strg+C/V/D. Am Tablet öffnet Gedrückthalten
-  ein Kurzmenü.
+- **Tastatur**: Esc, Entf, Strg+Z/Y, Pfeiltasten (auch Verteiler), R dreht 90° (Umschalt+R 15° zurück, auch
+  Verteiler), Alt beim Ziehen (kehrt „Ecken koppeln“ um, Möbel ohne Magnet), Strg+C/V/D; in der 3D-Ansicht Strg
+  (Mac: ⌘) halten = nur Ansicht. Am Tablet öffnet Gedrückthalten mit Finger oder Stift ein Kurzmenü
+  (Duplizieren, Drehen 90°, An die Wand stellen, Löschen, Eigenschaften).
 
 ### Speichern, Entwurf und Verlauf
 
@@ -391,7 +489,10 @@ den Standard, statt den Stand abzulehnen.
 ```text
 floors[] ≤ 20    id*, name*, elevation*, height*, cut_height, ha_floor, attic, knee, background
   rooms[] ≤ 200  id*, name*, points* (3–200), area_id, floor_material (wood), floor_color, wall_color,
-                 exterior_color, floor_texture, wall_texture, exterior_texture, edge_styles, roof,
+                 exterior_color, floor_texture, wall_texture, exterior_texture, edge_styles,
+                 roof {type (none|flat|shed|gable|hip|pyramid|mansard|halfhip|cone|terrace), pitch, overhang,
+                 direction (auto|cross|x|z), flip, wing_end, separate, pitch_low, break, ends, hip_ratio, railing,
+                 railing_height, color, texture, gable_color, gable_texture, items, adjust},
                  solar_panels, energy_role, hidden_entities, panel, scenes
   openings[]     id*, room_id*, edge*, offset*, width*, height*, type* (window|door|garage), sill, hinge,
                  swing, leaves, style, contact, contact2, tilt, cover, frame_color, wall,
@@ -400,19 +501,26 @@ floors[] ≤ 20    id*, name*, elevation*, height*, cut_height, ha_floor, attic,
                  points*, name, area_id, railing, railing_height, texture, heights, line, fence_style
   placements[]   entity_id*, x*, z*, y
   walls[]        id, a, b, thickness, height, color, texture
+  roofs[] ≤ 200  id*, type* (flat|shed|gable|hip|pyramid|mansard|halfhip|cone|terrace), points*, name, pitch,
+                 overhang (0.4), direction (auto|cross|x|z), flip, wing_end, base (0), pitch_low (70),
+                 break (0.35), ends (gable|hip), hip_ratio (0.35), railing (glass|bars|wood|none),
+                 railing_height (1.0), color, texture, gable_color, gable_texture, items, adjust
   furniture[]    id, type, x, z, rotation, w, d, h, mount_y, entity, color, name, variant,
-                 info [{entity, name}] (≤ 6), cols, rows
-                 (Treppe: stair_shape, railing, run_width, cut)
+                 info [{entity, name}] (≤ 6), cols, rows, orient (Solarzaun: portrait|landscape)
+                 (Treppe: stair_shape (straight|l_left|l_right|lw_left|lw_right|u_left|u_right|spiral|
+                 spiral_right), railing (none|left|right|both|outer), run_width, cut,
+                 hole {w, d, dx (0), dz (0), round}, hole_railing (none|bars|glass|wood; ohne = automatisch);
+                 Treppenloch: hole_round, hole_railing)
   pipes[]        id*, type* (strom|wasser_kalt|wasser_warm|netzwerk), points*, heights, entity, room, device,
                  joints
   nodes[]        id*, kind* (hv|uv|einspeisung|abzweig|router|switch|wasser_in|warm_in|durch), x*, z*, y,
-                 name, entity, link, model
+                 name, entity, link, model, rotation
 settings         wall_exterior (0.24), wall_interior (0.12), grid (0.05), wall_colors, wall_textures, title,
                  setup_done,
                  north, weather, season, house_flow, templates, energy_card, cards (≤ 5), quick, functions,
                  alerts, routines, security, safety, climate, presence, doorbell
   roof           type (none|flat|gable|hip|shed), pitch (35), overhang (0.4), direction (auto|x|z), wing_end,
-                 color, texture, items [{type (chimney|skylight|pv|dormer), …}], adjust
+                 floor, rooms, color, texture, items [{type (chimney|skylight|pv|dormer), …}], adjust
   energy         haus, netz, netz_invert, netz_bezug, netz_einspeisung, sources [{type (pv|bkw|speicher),
                  power, energy, soc, capacity, reserve, …}], extra, kurz, ueberschuss
   daily          appliances, calendars, price, price_entity, kwp, vent_min, mold, waste_hour, window_heat

@@ -30,7 +30,8 @@ import {
   stepTarget,
   temperatureColor,
   watchedEntities, cameraCones, conePolygon, areaOf } from "./devices.js";
-import { ROOF_TYPES, compass16, fieldInfo, roofModel, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
+import { ROOF_TYPES, compass16, fieldInfo, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
+import { roofItemsAll } from "./roofunits.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
 import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions, pointerAngle, rotateWheel, wheelFling, wheelLayout, wheelPlusAngle, wheelPositions } from "./hud.js";
@@ -783,7 +784,7 @@ class Haus3DPanel extends HTMLElement {
       });
       el.addEventListener("pointerdown", (ev) => ev.stopPropagation());
       layer.appendChild(el);
-      this._overlays.set(a.key, { el, floorId: null, roof: true, pvField: id, position: a.position });
+      this._overlays.set(a.key, { el, floorId: null, roof: true, roofKey: a.roofKey ?? "house", pvField: id, position: a.position });
     }
     this._energyEl?.remove();
     this._energyEl = null;
@@ -1120,18 +1121,15 @@ class Haus3DPanel extends HTMLElement {
     this._holoUpdate();
   }
 
-  /** PV-Felder (roof.items) mit Kenndaten: Name, kWp, Ausrichtung, Neigung, Entitäten. */
+  /** PV-Felder auf allen Dächern (Hausdach, eigene Dächer, Dachteile) mit Kenndaten: Name, kWp, Ausrichtung, Neigung, Entitäten. */
   _pvFieldInfo() {
     const out = new Map();
-    const items = (this._building?.settings?.roof?.items ?? []).filter((it) => it?.type === "pv" && it.id);
-    if (!items.length) return out;
-    const model = this._scene?.roofModel ?? roofModel(this._building);
-    if (!model) return out;
-    const north = Number(this._building.settings?.north) || 0;
-    items.forEach((it, i) => {
-      const f = fieldInfo(model, it, north, this._building.settings.roof.items);
+    const north = Number(this._building?.settings?.north) || 0;
+    roofItemsAll(this._building ?? {}).filter(({ item }) => item?.type === "pv" && item.id).forEach(({ item: it, unit, others }, i) => {
+      const model = this._scene?.roofUnitModels?.get(unit.key) ?? unit.model;
+      const f = fieldInfo(model, it, north, unit.items, others);
       const dir = f.azimuth === null ? "flach" : compass16(f.azimuth);
-      out.set(it.id, { ...f, id: it.id, name: it.name || `PV ${dir}`, short: it.name || dir, dir, entity: it.entity || null, energy: it.energy_entity || null, index: i });
+      out.set(it.id, { ...f, id: it.id, name: it.name || `PV ${dir}${unit.kind === "house" ? "" : ` · ${unit.label}`}`, short: it.name || dir, dir, entity: it.entity || null, energy: it.energy_entity || null, index: i, roofKey: unit.key });
     });
     return out;
   }
@@ -2116,7 +2114,7 @@ class Haus3DPanel extends HTMLElement {
     if (!this._scene) return;
     this._holoCheck();
     for (const ov of this._overlays.values()) {
-      const visible = ov.roof ? this._scene._roofShown() && this._settings.layers.solar !== false && this._settings.layers.labels !== false : this._scene.isFloorVisible(ov.floorId);
+      const visible = ov.roof ? this._scene.roofKeyShown(ov.roofKey) && this._settings.layers.solar !== false && this._settings.layers.labels !== false : this._scene.isFloorVisible(ov.floorId);
       const p = visible ? this._scene.project(ov.position) : null;
       if (!p) {
         ov.el.style.display = "none";

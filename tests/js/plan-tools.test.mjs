@@ -85,3 +85,20 @@ test("Bauplan-Foto: Lage, Maßstab aus zwei Punkten, Verkleinern", () => {
   assert.deepEqual(fitSize(4000, 3000), [1600, 1200]);
   assert.deepEqual(fitSize(800, 600), [800, 600]);
 });
+
+test("Raum mit Dingen auf dem eigenen Dach kopieren: Abstand bleibt, neue ID, ohne Entität", () => {
+  const f = floor();
+  f.rooms[1].roof = { type: "flat", items: [{ id: "pv_1", type: "pv", x: 5, z: 1, entity: "sensor.pv_leistung", energy_entity: "sensor.pv_energie" }, { id: "k_1", type: "chimney", x: 5.5, z: 2 }] };
+  const clip = copyRefs(f, [{ kind: "room", id: "flur" }]);
+  const { floor: out, added } = pasteClip(f, clip, [20, 20], new Set(["kueche", "flur", "pv_1", "k_1"]));
+  const room = out.rooms.find((r) => r.id === added[0].id);
+  const [pv, k] = room.roof.items;
+  assert.deepEqual([pv.x - room.points[0][0], pv.z - room.points[0][1]], [1, 1]);
+  assert.ok(pv.id.startsWith("pv_") && pv.id !== "pv_1");
+  assert.ok(k.id.startsWith("chimney_"));
+  assert.equal(pv.entity, undefined);
+  assert.equal(pv.energy_entity, undefined);
+  assert.equal(f.rooms[1].roof.items[0].entity, "sensor.pv_leistung");
+  const moved = moveRefs(f, [{ kind: "room", id: "flur" }], 1, 0);
+  assert.equal(moved.rooms[1].roof.items[1].x, 6.5);
+});

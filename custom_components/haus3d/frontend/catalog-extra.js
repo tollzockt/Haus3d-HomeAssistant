@@ -137,6 +137,10 @@ export const EXTRA = {
   pv_facade: ["PV Fassade (Wand)", 1.13, 0.05, 1.72],
   pv_carport: ["Solar-Carport", 3.0, 5.0, 2.5],
   pv_pergola: ["Solarterrasse / Pergola", 3.4, 3.4, 2.5],
+  // Solarzäune (Raster: Module breit × hoch, Modul ca. 1,72 × 1,13 m)
+  pv_fence_vertical: ["Solarzaun senkrecht (bifazial)", 3.52, 0.12, 1.35],
+  pv_fence_mesh: ["Solarzaun auf Zaunmatte (geneigt)", 3.52, 0.4, 1.22],
+  pv_fence_privacy: ["Sichtschutz-Solarzaun (rahmenlos, mit Sockel)", 2.34, 0.15, 1.99],
 };
 
 /** Neue Kategorien (Lampen gehen zusätzlich in „Licht“, siehe furniture.js). */
@@ -168,42 +172,54 @@ export const EXTRA_FREE = [
   "ikea_lack_coffee", "ikea_lack_side", "ikea_nordviken", "ikea_ekedalen", "ikea_linnmon_100", "ikea_linnmon_150", "ikea_markus", "ikea_poang", "ikea_strandmon",
   "lamp_arc", "lamp_tripod", "lamp_globe", "lamp_chandelier", "lamp_ring", "lamp_cluster", "lamp_edison", "lamp_track", "lamp_desk", "lamp_mushroom", "led_cove", "led_bar", "led_bed", "led_stairs",
   "gaming_chair", "monitor_27", "monitor_34", "monitor_49", "monitor_dual", "keyboard_mouse", "pc_speakers", "headset_stand", "streaming_mic", "console_ps5", "console_ps5_pro", "console_xbox_x", "console_xbox_s", "console_switch", "steam_deck", "gamepad", "vr_headset", "racing_cockpit",
-  "ev_car", "pv_flat_south", "pv_flat_ew", "pv_ground", "pv_balcony_tilt", "pv_carport", "pv_pergola",
+  "ev_car", "pv_flat_south", "pv_flat_ew", "pv_ground", "pv_balcony_tilt", "pv_carport", "pv_pergola", "pv_fence_vertical", "pv_fence_mesh", "pv_fence_privacy",
 ];
 
-/** Anzahl PV-Module einer Aufständerung (aus der Breite bzw. Tiefe). */
+/** Raster eines Typs; hochkant (item.orient = "portrait"), wo der Typ das anbietet. */
+export function pvGrid(type, item = null) {
+  const g = PV_GRID[type];
+  return g?.portrait && item?.orient === "portrait" ? { ...g, ...g.portrait } : (g ?? null);
+}
+
+/** Anzahl PV-Module einer Aufständerung (aus der Breite bzw. Tiefe, bei axis "h" aus der Höhe über base). */
 export function pvModules(type, w, d, item = null, h = null) {
-  const g = PV_GRID[type] ?? PV_GRID.pv_flat_south;
+  const g = pvGrid(type, item) ?? PV_GRID.pv_flat_south;
   const int = (v) => (Number.isInteger(Number(v)) && Number(v) >= 1 ? Number(v) : null);
   const across = int(item?.cols) ?? Math.max(1, Math.round(w / g.pw));
   if (!g.pd) return { across, rows: 1 };
-  const span = type === "pv_facade" ? (h ?? item?.h ?? g.pd) : d;
-  const rows = int(item?.rows) ?? Math.max(1, Math.round(span / g.pd));
-  return { across, rows: type === "pv_flat_ew" ? rows * 2 : rows };
+  const base = g.base ?? 0;
+  const span = g.axis === "h" ? (h ?? item?.h ?? base + g.pd) - base : d;
+  const rows = Math.min(g.maxRows ?? Infinity, int(item?.rows) ?? Math.max(1, Math.round(span / g.pd)));
+  return { across, rows: g.pairs ? rows * 2 : rows };
 }
 
 /**
- * Raster der Solar-Aufständerungen: Breite je Modul (pw) und Tiefe je Reihe (pd, Fassade: Höhe), Beschriftung
- * des zweiten Felds; ohne pd gibt es nur eine Reihe.
+ * Raster der Solar-Aufständerungen: Breite je Modul (pw) und Tiefe je Reihe (pd), Beschriftung des zweiten
+ * Felds; ohne pd gibt es nur eine Reihe. Merkmale: axis "h" = Reihen stapeln sich in die Höhe ab base m über
+ * dem Boden; pairs = Ost-West-Paare; maxRows = Obergrenze; portrait = Raster bei hochkant gestellten Modulen
+ * (item.orient = "portrait"); tip = Hinweistext.
  */
 export const PV_GRID = {
   pv_flat_south: { pw: 1.15, pd: 1.7, rowLabel: "Module tief" },
-  pv_flat_ew: { pw: 1.15, pd: 1.7, rowLabel: "Modulpaare tief" },
+  pv_flat_ew: { pw: 1.15, pd: 1.7, rowLabel: "Modulpaare tief", pairs: true },
   pv_ground: { pw: 1.15, pd: 1.55, rowLabel: "Module tief" },
   pv_balcony: { pw: 1.73 },
   pv_balcony_tilt: { pw: 1.72 },
-  pv_facade: { pw: 1.13, pd: 1.72, rowLabel: "Module hoch" },
+  pv_facade: { pw: 1.13, pd: 1.72, rowLabel: "Module hoch", axis: "h" },
   pv_carport: { pw: 1.15, pd: 1.75, rowLabel: "Module tief" },
   pv_pergola: { pw: 1.15, pd: 1.75, rowLabel: "Module tief" },
+  pv_fence_vertical: { pw: 1.76, pd: 1.15, rowLabel: "Module hoch", axis: "h", base: 0.2, maxRows: 3, portrait: { pw: 1.17, pd: 1.74 }, tip: "Beidseitig aktive Module – am meisten Ertrag, wenn die Flächen nach Osten und Westen zeigen." },
+  pv_fence_mesh: { pw: 1.76, pd: 1.12, rowLabel: "Module hoch", axis: "h", base: 0.1, maxRows: 3, portrait: { pw: 1.17, pd: 1.68 }, tip: "Module bis 15° geneigt vor der Matte (die Tiefe begrenzt die Neigung) – Vorderseite (dicke Linie) zur Sonne." },
+  pv_fence_privacy: { pw: 1.17, pd: 1.74, rowLabel: "Module hoch", axis: "h", base: 0.25, maxRows: 3, tip: "Rahmenlose Glas-Glas-Module hochkant auf einem Sockel – blickdicht." },
 };
 
-/** Maße einer Aufständerung aus Modulen breit × tief (Fassade: hoch). */
-export function pvSize(type, cols, rows = 1) {
-  const g = PV_GRID[type];
+/** Maße einer Aufständerung aus Modulen breit × tief (axis "h": hoch, plus Bodenabstand). */
+export function pvSize(type, cols, rows = 1, item = null) {
+  const g = pvGrid(type, item);
   if (!g) return {};
   const r3 = (v) => Math.round(v * 1000) / 1000;
   const out = { w: r3(cols * g.pw) };
-  if (g.pd) out[type === "pv_facade" ? "h" : "d"] = r3(rows * g.pd);
+  if (g.pd) out[g.axis === "h" ? "h" : "d"] = r3((g.base ?? 0) + rows * g.pd);
   return out;
 }
 

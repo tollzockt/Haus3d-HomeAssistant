@@ -1,9 +1,10 @@
-// Leitungen im Editor (Mixin für FloorEditor): Werkzeug „Leitung“ – Strom, Wasser kalt/warm am Boden
-// bzw. an der Wand verlegen. Punkte rasten an Raumkanten (Wand) und Ecken ein; die Höhe gilt je Punkt,
-// ein Höhenwechsel wird an der Wand senkrecht geführt.
+// Leitungen im Editor (Mixin für FloorEditor): Werkzeug „Leitung“ – Strom, Netzwerk und Wasser kalt/warm an
+// Decke, Wand oder Boden verlegen. Punkte rasten an Raumkanten (Wand) und Ecken ein; die Höhe gilt je Punkt
+// (Stufen bis zur Decke, Standard je Medium), ein Höhenwechsel wird an der Wand senkrecht geführt.
 
 import { allIds, newId } from "./edit-ops.js";
-import { PIPE_HEIGHTS, PIPE_TYPES, pipeColor } from "./pipes.js";
+import { PIPE_TYPES, pipeColor } from "./pipes.js";
+import { PIPE_LEVELS, ceilingAlong, clearHeight, defaultLevel, floorRoofModels, levelHeight, levelName, levelOf } from "./pipelevels.js";
 import { nodeMedium, remapJoints } from "./pipenet.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -11,13 +12,54 @@ const de = (v, d = 2) => v.toLocaleString("de-DE", { minimumFractionDigits: d, m
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const WALL_GAP = 0.06; // Abstand Rohrmitte zur Wandoberfläche
 
-export const PIPE_HINT = "Leitung: Punkte antippen – rastet an Wänden und Ecken ein, an bestehenden Leitungen und Verteilern als Abzweig (Ring; auch Zwischenpunkte werden verbunden, am Finger mit größerem Fangkreis). Höhe rechts wählen, ein Wechsel geht an der Wand senkrecht. „Fertig“ beendet. Gewählte Leitung: Punkte ziehen, Strecke antippen fügt einen Punkt ein.";
+export const PIPE_HINT = "Leitung: Punkte antippen – rastet an Wänden und Ecken ein, an bestehenden Leitungen und Verteilern als Abzweig (Ring; auch Zwischenpunkte werden verbunden, am Finger mit größerem Fangkreis). Höhe rechts wählen – Strom und Netzwerk liegen standardmäßig an der Decke, Wasser am Boden; ein Wechsel geht an der Wand senkrecht. „Fertig“ beendet. Gewählte Leitung: Punkte ziehen, Strecke antippen fügt einen Punkt ein.";
 const JUNCTION_PX = 14; // Fangradius für Abzweige (Bildschirm; am Finger größer)
 
 export const PipeMethods = {
+  /** Werkzeug-Einstellungen: Medium und gewählte Höhe (pick: null = Standard des Mediums, Stufen-Schlüssel oder Zahl in m). */
   _pipeOpts() {
-    this.pipeOpts ??= { type: "strom", height: 0.03 };
+    this.pipeOpts ??= { type: "strom", pick: null };
     return this.pipeOpts;
+  },
+
+  /** Höhe (m über dem Boden) eines neuen Punkts q nach last für die Wahl pick; Decke = unter Decke bzw. Dachschräge entlang last → q. */
+  _pipeHeight(q, last = null, pick = this._pipeOpts().pick) {
+    const clear = clearHeight(this.b, this.floor);
+    if (typeof pick === "number") return r3(Math.max(0, Math.min(pick, clear)));
+    const lv = pick ?? defaultLevel(this._pipeOpts().type);
+    if (lv === "decke") return levelHeight("decke", ceilingAlong(this.b, this.floor, last ?? q, q));
+    return levelHeight(lv, clear);
+  },
+
+  /** Punkt an den Entwurf anhängen (Höhe nach der aktuellen Wahl); junction = auf einer Leitung bzw. an einem Verteiler. */
+  _pipeAddPoint(q, junction = false) {
+    const d = this.draft;
+    const pick = this._pipeOpts().pick;
+    d.heights ??= [];
+    d.picks ??= [];
+    d.heights.push(this._pipeHeight(q, d.line.at(-1) ?? null, pick));
+    d.picks.push(pick);
+    d.line.push(q);
+    if (junction) (d.joints ??= []).push(d.line.length - 1);
+  },
+
+  /** Gleiche Wahl wie beim letzten Punkt (gleiche Stufe, null = Standard des Mediums, oder gleiche Höhe)? */
+  _samePick(d, h) {
+    const o = this._pipeOpts();
+    const std = defaultLevel(o.type);
+    const key = (k) => (typeof k === "number" ? null : k ?? std);
+    const prev = d.picks?.length === d.line.length ? d.picks.at(-1) : null;
+    if (key(prev) && key(prev) === key(o.pick)) return true;
+    return Math.abs((d.heights?.at(-1) ?? NaN) - h) < 1e-6;
+  },
+
+  /** Medium gewechselt: Entwurfspunkte mit Standard-Höhe für das neue Medium neu berechnen. */
+  _pipeRetype() {
+    const d = this.draft;
+    if (!d?.pipe) return;
+    d.line.forEach((q, i) => {
+      if ((d.picks?.[i] ?? null) === null) d.heights[i] = this._pipeHeight(q, i ? d.line[i - 1] : null, null);
+    });
   },
 
   /** Wandoberflächen der Etage (zwischengespeichert, solange sich die Etage nicht ändert). */
@@ -99,18 +141,18 @@ export const PipeMethods = {
   },
 
   _pipeTap(ev, p) {
-    const o = this._pipeOpts();
     const d = this.draft;
     if (!d?.pipe) {
-      this.draft = { pipe: true, line: [this._pipeSnap(ev, p, null)], heights: [o.height] };
+      this.draft = { pipe: true, line: [], heights: [], picks: [] };
+      this._pipeAddPoint(this._pipeSnap(ev, p, null));
     } else {
       const last = d.line.at(-1);
       const q = this._pipeSnap(ev, p, last);
-      if (Math.hypot(q[0] - last[0], q[1] - last[1]) < 0.05 && Math.abs(d.heights.at(-1) - o.height) < 1e-6) return this._finishPipe();
-      d.line.push(q);
-      d.heights.push(o.height);
       // Punkt auf einer anderen Leitung bzw. an einem Verteiler: wird verbunden (auch mitten in der Leitung)
-      if (this._snapJunction) (d.joints ??= []).push(d.line.length - 1);
+      const junction = this._snapJunction;
+      // zweites Antippen an derselben Stelle mit gleicher Höhenwahl beendet; mit anderer Wahl = senkrechter Wechsel
+      if (Math.hypot(q[0] - last[0], q[1] - last[1]) < 0.05 && this._samePick(d, this._pipeHeight(q, last))) return this._finishPipe();
+      this._pipeAddPoint(q, junction);
     }
     this.render();
   },
@@ -142,6 +184,9 @@ export const PipeMethods = {
       const c = pipeColor(this._pipeOpts().type);
       parts.push(`<polyline points="${pts.map(P).join(" ")}" fill="none" stroke="${c}" stroke-width="${px(4)}" stroke-dasharray="${px(8)} ${px(4)}" stroke-linecap="round"/>`);
       for (const q of d.line) parts.push(`<circle cx="${r3(q[0])}" cy="${r3(q[1])}" r="${px(4)}" fill="${c}"/>`);
+      const e = d.line.at(-1);
+      const h = d.heights?.at(-1);
+      if (e && Number.isFinite(h)) parts.push(`<text x="${r3(e[0] + px(8))}" y="${r3(e[1] + px(16))}" font-size="${px(11)}" fill="${c}" font-weight="600" stroke="#fff" stroke-width="${px(3)}" paint-order="stroke" pointer-events="none">${de(h)} m</text>`);
       if (d.hover && this._snapJunction) parts.push(`<circle cx="${r3(d.hover[0])}" cy="${r3(d.hover[1])}" r="${px(9)}" fill="none" stroke="${c}" stroke-width="${px(2.5)}" pointer-events="none"/><text x="${r3(d.hover[0])}" y="${r3(d.hover[1] - px(13))}" text-anchor="middle" font-size="${px(11)}" fill="${c}" font-weight="600" pointer-events="none">Abzweig</text>`);
     }
     return parts.join("");
@@ -152,7 +197,9 @@ export const PipeMethods = {
     this.draft = null;
     if (!d?.pipe || d.line.length < 2) return this.render();
     const o = this._pipeOpts();
-    const pipe = { id: newId("leitung", new Set([...allIds(this.b), ...this.b.floors.flatMap((f) => (f.pipes ?? []).map((x) => x.id))])), type: o.type, points: d.line.map((q) => [r3(q[0]), r3(q[1])]), heights: d.heights.map(r3), height: o.height, entity: null, room: null };
+    const heights = d.line.map((_, i) => r3(Number.isFinite(d.heights?.[i]) ? d.heights[i] : this._pipeHeight(d.line[i], d.line[i - 1] ?? null, null)));
+    const pipe = { id: newId("leitung", new Set([...allIds(this.b), ...this.b.floors.flatMap((f) => (f.pipes ?? []).map((x) => x.id))])), type: o.type, points: d.line.map((q) => [r3(q[0]), r3(q[1])]), heights, height: heights.at(-1), entity: null, room: null };
+    o.pick = null;
     const joints = remapJoints(d.joints, { n: pipe.points.length });
     if (joints.length) pipe.joints = joints;
     this.change((fl) => {
@@ -166,24 +213,58 @@ export const PipeMethods = {
     this._toast(`${PIPE_TYPES.find((t) => t[0] === pipe.type)[1]}: ${pipe.points.length} Punkte${joints.length ? `, ${joints.length} Abzweig${joints.length > 1 ? "e" : ""} unterwegs` : ""} – rechts Sensor oder Zielraum wählen.`);
   },
 
+  /** Stufenknöpfe (data-lv, data-h = Höhe bei dieser Decke); cur = gewählte Stufe. */
+  _pipeLevels(attr, ceil, cur, attic = false) {
+    return `<div class="seg wide" ${attr}>${PIPE_LEVELS.map(([k, n]) => {
+      const h = levelHeight(k, ceil);
+      const title = k === "decke" ? (attic ? "15 cm unter Decke bzw. Dachschräge" : `15 cm unter der Decke (${de(h)} m)`) : `${de(h)} m über dem Boden`;
+      return `<button data-lv="${k}" data-h="${h}" class="${cur === k ? "sel" : ""}" title="${title}">${n}</button>`;
+    }).join("")}</div>`;
+  },
+
+  /** Eingabe einer eigenen Höhe (m): endlich, 0 … max; sonst null. */
+  _pipeNum(v, max) {
+    const raw = String(v ?? "").trim().replace(",", ".");
+    const n = raw === "" ? NaN : Number(raw);
+    return Number.isFinite(n) ? r3(Math.max(0, Math.min(max, n))) : null;
+  },
+
   /** Eigenschaften, solange das Werkzeug „Leitung“ aktiv ist. */
   _pipeToolProps(el) {
     const o = this._pipeOpts();
+    const clear = clearHeight(this.b, this.floor);
+    const attic = !!floorRoofModels(this.b, this.floor);
+    const std = defaultLevel(o.type);
+    const cur = typeof o.pick === "number" ? null : o.pick ?? std;
+    const medium = PIPE_TYPES.find((t) => t[0] === o.type)?.[1] ?? o.type;
+    const stdH = std === "decke" ? (attic ? "15 cm unter Decke bzw. Dachschräge" : `${de(levelHeight(std, clear))} m, 15 cm unter der Decke`) : `${de(levelHeight(std, clear))} m`;
     el.innerHTML = `<h3>Leitung legen</h3>
       <div class="seg wide" data-ptype>${PIPE_TYPES.map(([k, n]) => `<button data-k="${k}" class="${o.type === k ? "sel" : ""}">${n}</button>`).join("")}</div>
       <label>Höhe der nächsten Punkte</label>
-      <div class="seg wide" data-pheight>${PIPE_HEIGHTS.map(([h, n]) => `<button data-h="${h}" class="${Math.abs(o.height - h) < 1e-6 ? "sel" : ""}">${n}</button>`).join("")}</div>
+      ${this._pipeLevels("data-pheight", clear, cur, attic)}
+      <div class="row2"><div><label>eigene Höhe (m)</label><input type="number" step="0.05" min="0" max="${clear}" data-phn value="${typeof o.pick === "number" ? o.pick : ""}"></div><div><label>&nbsp;</label><button data-act="plvstd"${o.pick == null ? " disabled" : ""}>Standard</button></div></div>
+      <p class="muted">Standard für ${esc(medium)}: ${levelName(std)} (${stdH}). Jede neue Leitung beginnt auf dieser Höhe.</p>
       <p class="muted">${PIPE_HINT}</p>
       <p class="muted">Vom Anfang (z. B. Zählerschrank, Hauswasser) zum Verbraucher zeichnen – so fließt es in die richtige Richtung.</p>`;
     el.querySelectorAll("[data-ptype] [data-k]").forEach((b) => b.addEventListener("click", () => {
       o.type = b.dataset.k;
+      this._pipeRetype();
       this.renderProps();
       this.render();
     }));
-    el.querySelectorAll("[data-pheight] [data-h]").forEach((b) => b.addEventListener("click", () => {
-      o.height = Number(b.dataset.h);
+    el.querySelectorAll("[data-pheight] [data-lv]").forEach((b) => b.addEventListener("click", () => {
+      o.pick = b.dataset.lv;
       this.renderProps();
     }));
+    el.querySelector("[data-phn]").addEventListener("change", (ev) => {
+      const v = this._pipeNum(ev.target.value, clear);
+      if (v != null) o.pick = v;
+      this.renderProps();
+    });
+    el.querySelector("[data-act=plvstd]").addEventListener("click", () => {
+      o.pick = null;
+      this.renderProps();
+    });
   },
 
   /** Eigenschaften einer gewählten Leitung: Art, Name, Ende (Raum/Gerät/Sensor), Punkte und Höhen. */
@@ -197,7 +278,13 @@ export const PipeMethods = {
     const len = l.points.reduce((s2, q, i) => (i ? s2 + Math.hypot(q[0] - l.points[i - 1][0], q[1] - l.points[i - 1][1]) : 0), 0);
     const hs = l.points.map((_, i) => Number(l.heights?.[i] ?? l.height ?? 0.03));
     const pt = this.pipePt?.id === l.id && this.pipePt.i < l.points.length ? this.pipePt.i : null;
-    const hSeg = (attr, cur) => `<div class="seg wide" ${attr}>${PIPE_HEIGHTS.map(([h, n]) => `<button data-h="${h}" class="${cur != null && Math.abs(cur - h) < 1e-6 ? "sel" : ""}">${n}</button>`).join("")}</div>`;
+    // Decke je Punkt: unter Decke bzw. Dachschräge entlang des Stücks davor (dort liegt die Leitung auf der Höhe des Punkts)
+    const clear = clearHeight(this.b, this.floor);
+    const models = floorRoofModels(this.b, this.floor);
+    const ceil = (x, i) => ceilingAlong(this.b, this.floor, x.points[i - 1] ?? x.points[i], x.points[i], models);
+    const ceils = l.points.map((_, i) => ceil(l, i));
+    const lvs = hs.map((h, i) => levelOf(h, ceils[i]));
+    const allLv = lvs.every((v) => v && v === lvs[0]) ? lvs[0] : null;
     const sensorLabel = l.type === "strom" ? "Leistungs-Sensor (W) dieser Leitung" : l.type === "netzwerk" ? "Datenrate-Sensor (z. B. rx/tx des Routers)" : "Durchfluss-Sensor oder Ventil";
     el.innerHTML = `<h3>Leitung</h3>
       <div class="seg wide" data-ptype>${PIPE_TYPES.map(([k, n]) => `<button data-k="${k}" class="${l.type === k ? "sel" : ""}">${n}</button>`).join("")}</div>
@@ -208,10 +295,11 @@ export const PipeMethods = {
       <label>${sensorLabel}</label><input data-pf="entity" list="dl_pipe" value="${esc(l.entity ?? "")}" placeholder="– keiner –">${dl("dl_pipe", list(sensorRe))}
       <p class="muted">Ohne Ende fließt durch diese Leitung, was an ihr hängt (Abzweige, weitere Leitungen).</p>
       <h4>Punkte</h4>
-      ${pt != null ? `<div class="ptbox"><b>Punkt ${pt + 1} von ${l.points.length}</b> · Höhe ${de(hs[pt])} m
-        ${hSeg("data-pth", hs[pt])}
-        <div class="row2"><div><label>eigene Höhe (m)</label><input type="number" step="0.05" min="0" max="5" data-pthn value="${hs[pt]}"></div><div><label>&nbsp;</label><button data-act="ptdel" class="danger"${l.points.length <= 2 ? " disabled" : ""}>Punkt löschen</button></div></div></div>` : `<p class="muted">Punkt antippen, um seine Höhe zu ändern; ziehen verschiebt ihn. Strecke antippen fügt einen Punkt ein.</p>`}
-      <label>Alle Punkte auf Höhe</label>${hSeg("data-allh", hs.every((h) => Math.abs(h - hs[0]) < 1e-6) ? hs[0] : null)}
+      ${pt != null ? `<div class="ptbox"><b>Punkt ${pt + 1} von ${l.points.length}</b> · Höhe ${de(hs[pt])} m${lvs[pt] ? ` (${levelName(lvs[pt])})` : ""}
+        ${this._pipeLevels("data-pth", ceils[pt], lvs[pt], !!models)}
+        <div class="row2"><div><label>eigene Höhe (m)</label><input type="number" step="0.05" min="0" max="${clear}" data-pthn value="${hs[pt]}"></div><div><label>&nbsp;</label><button data-act="ptdel" class="danger"${l.points.length <= 2 ? " disabled" : ""}>Punkt löschen</button></div></div></div>` : `<p class="muted">Punkt antippen, um seine Höhe zu ändern; ziehen verschiebt ihn. Strecke antippen fügt einen Punkt ein.</p>`}
+      <label>Alle Punkte auf Höhe</label>${this._pipeLevels("data-allh", clear, allLv, !!models)}
+      <label>eigene Höhe für alle Punkte (m)</label><input type="number" step="0.05" min="0" max="${clear}" data-allhn value="${hs.every((h) => Math.abs(h - hs[0]) < 1e-6) ? hs[0] : ""}">
       <p class="muted">${l.points.length} Punkte · ${de(len)} m. Gezeichnet vom Anfang zum Ende.</p>
       <div class="btns"><button data-act="pipeflip">Richtung umdrehen</button><button data-act="pipedel" class="danger">Löschen</button></div>`;
     const upd = (fn) => {
@@ -223,12 +311,21 @@ export const PipeMethods = {
       this.renderProps();
       this.render();
     };
-    el.querySelectorAll("[data-ptype] [data-k]").forEach((b) => b.addEventListener("click", () => upd((x) => (x.type = b.dataset.k))));
-    el.querySelectorAll("[data-pf]").forEach((i) => i.addEventListener("change", () => upd((x) => (x[i.dataset.pf] = i.value.trim() || null))));
-    el.querySelectorAll("[data-pth] [data-h]").forEach((b) => b.addEventListener("click", () => upd((x) => (x.heights[pt] = Number(b.dataset.h)))));
+    el.querySelectorAll("[data-ptype] [data-k]").forEach((b) => b.addEventListener("click", () => upd((x) => {
+      x.type = b.dataset.k;
+    })));
+    el.querySelectorAll("[data-pf]").forEach((i) => i.addEventListener("change", () => upd((x) => {
+      x[i.dataset.pf] = i.value.trim() || null;
+    })));
+    el.querySelectorAll("[data-pth] [data-lv]").forEach((b) => b.addEventListener("click", () => upd((x) => {
+      x.heights[pt] = levelHeight(b.dataset.lv, b.dataset.lv === "decke" ? ceil(x, pt) : clear);
+    })));
     el.querySelector("[data-pthn]")?.addEventListener("change", (ev) => {
-      const v = Number(ev.target.value);
-      if (Number.isFinite(v) && v >= 0) upd((x) => (x.heights[pt] = r3(v)));
+      const v = this._pipeNum(ev.target.value, clear);
+      if (v == null) return this.renderProps();
+      upd((x) => {
+        x.heights[pt] = v;
+      });
     });
     el.querySelector("[data-act=ptdel]")?.addEventListener("click", () => {
       this.pipePt = null;
@@ -239,10 +336,19 @@ export const PipeMethods = {
         if (!x.joints.length) delete x.joints;
       });
     });
-    el.querySelectorAll("[data-allh] [data-h]").forEach((b) => b.addEventListener("click", () => upd((x) => {
-      x.heights = x.points.map(() => Number(b.dataset.h));
-      x.height = Number(b.dataset.h);
+    el.querySelectorAll("[data-allh] [data-lv]").forEach((b) => b.addEventListener("click", () => upd((x) => {
+      const lv = b.dataset.lv;
+      x.heights = x.points.map((_, i) => levelHeight(lv, lv === "decke" ? ceil(x, i) : clear));
+      x.height = x.heights[0];
     })));
+    el.querySelector("[data-allhn]")?.addEventListener("change", (ev) => {
+      const v = this._pipeNum(ev.target.value, clear);
+      if (v == null) return this.renderProps();
+      upd((x) => {
+        x.heights = x.points.map(() => v);
+        x.height = v;
+      });
+    });
     el.querySelector("[data-act=pipeflip]").addEventListener("click", () => upd((x) => {
       x.points.reverse();
       x.heights.reverse();
@@ -263,6 +369,7 @@ export const PipeMethods = {
   /** Ziehen/Antippen von Leitungen, Punkten und Verteilern; undefined = nicht zuständig. */
   _pipeStartDrag(ev, p, kind, t) {
     const id = t?.dataset.id;
+    if (kind === "nrotate") return { mode: "nrotate", id, first: true };
     if (kind === "pipept") {
       this.sel = { kind: "pipe", id };
       this.pipePt = { id, i: Number(t.dataset.i) };
@@ -334,14 +441,23 @@ export const PipeMethods = {
       this.render();
       return true;
     }
+    if (drag.mode === "nrotate") {
+      this._nodeRotateDrag(drag, ev, p);
+      return true;
+    }
     if (drag.mode === "pnode") {
-      const kind = (this.floor.nodes ?? []).find((x) => x.id === drag.id)?.kind;
-      const q = this._pipeSnap(ev, p, null, { type: nodeMedium(kind), skipNode: drag.id });
+      const cur = (this.floor.nodes ?? []).find((x) => x.id === drag.id);
+      if (!cur) return true;
+      const q = this._pipeSnap(ev, p, null, { type: nodeMedium(cur.kind), skipNode: drag.id });
+      // an einer Wand: Rückseite davor, zum Raum gedreht
+      const at = this._nodeWallPlace(cur.kind, q, ev, cur.rotation, p);
       this._dragChange(drag, (fl) => {
         const n = fl.nodes.find((x) => x.id === drag.id);
-        n.x = r3(q[0]);
-        n.z = r3(q[1]);
+        n.x = at.x;
+        n.z = at.z;
+        if (at.wall) n.rotation = at.rotation;
       });
+      if (at.wall) this._nodeRotField(at.rotation);
       this.render();
       return true;
     }

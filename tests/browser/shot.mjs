@@ -303,7 +303,8 @@ const pick3d = await e3.evaluate(() => {
   const x = r.left + (p.x + 1) / 2 * r.width; const y = r.top + (1 - p.y) / 2 * r.height;
   return { x, y, hit: sc.pick(x, y, { furniture: true }), id: m.id };
 });
-// Wand ziehen: Wohnzimmer (0..7 × 0..5), Wand bei x = 7 um 0,5 m nach rechts; Küche geht mit
+// Wand ziehen: Wohnzimmer (0..7 × 0..5), Wand bei x = 7 um 0,5 m nach rechts (Ecken koppeln aus, mit Alt: Küche geht mit,
+// sonst überlappten Wohnzimmer und Küche – das meldet die Szene beim Speichern als Warnung)
 await edTool(e3, "select");
 [px, py] = await plan(2, 2); await e3.mouse.click(px, py);
 const wall = await e3.evaluate(() => {
@@ -312,7 +313,9 @@ const wall = await e3.evaluate(() => {
   return i;
 });
 [px, py] = await plan(7, 1.2); [qx, qy] = await plan(7.5, 1.2);
+await e3.keyboard.down("Alt");
 await e3.mouse.move(px, py); await e3.mouse.down(); await e3.mouse.move(qx, qy, { steps: 5 }); await e3.mouse.up();
+await e3.keyboard.up("Alt");
 const wallMoved = await e3.evaluate((i) => {
   const e = window.panel._editor; const f = e.floor;
   return { edge: i, wz: f.rooms.find((x) => x.id === "wohnzimmer").points.map((p) => p[0]), kueche: f.rooms.find((x) => x.id === "kueche").points.map((p) => p[0]) };

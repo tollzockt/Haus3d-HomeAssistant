@@ -96,7 +96,7 @@ export const LineMethods = {
       <div class="seg wide" data-linekind>${LINE_KINDS.map(([k, n]) => `<button data-k="${k}" class="${o.kind === k ? "sel" : ""}">${n}</button>`).join("")}</div>
       <div class="row2"><div><label>Breite (m)</label><input type="number" min="0.02" max="10" step="0.05" data-lo="width" value="${o.width}"></div>
       ${o.kind === "path" ? "" : `<div><label>Höhe (m)</label><input type="number" min="0.1" max="6" step="0.05" data-lo="height" value="${o.height}"></div>`}</div>
-      ${o.kind === "fence" ? `<label>Zaunart</label><select data-lo="fence_style">${FENCE_STYLES.map(([k, n]) => `<option value="${k}"${o.fence_style === k ? " selected" : ""}>${n}</option>`).join("")}</select>` : ""}
+      ${o.kind === "fence" ? `<label>Zaunart</label><select data-lo="fence_style">${FENCE_STYLES.map(([k, n]) => `<option value="${k}"${o.fence_style === k ? " selected" : ""}>${n}</option>`).join("")}</select><p class="muted">Solarzaun mit Modulen: Einrichten → Draußen → Solar-Aufständerung („Solarzaun“ suchen).</p>` : ""}
       ${o.kind === "wall" ? `<label>Mauer</label><select data-lo="texture">${WALL_LINE_TEXTURES.map(([k, n]) => `<option value="${k}"${o.texture === k ? " selected" : ""}>${n}</option>`).join("")}</select>` : ""}
       <p class="muted">Punkte antippen (rastet bei 0/45/90° ein, „Frei“ ohne), „Fertig“ oder denselben Punkt nochmal antippen. ${o.kind === "wall" ? "Stützmauer auf der unteren Etage zeichnen, Höhe = Geländesprung." : ""}</p>`;
     el.querySelectorAll("[data-linekind] [data-k]").forEach((b) => b.addEventListener("click", () => {
@@ -117,7 +117,7 @@ export const LineMethods = {
     if (!a.line) return "";
     return `<div class="row2"><div><label>Breite (Linie, m)</label><input type="number" min="0.02" step="0.05" data-la="width" value="${a.line.width}"></div>
       ${a.type === "path" ? "" : `<div><label>Höhe (m)</label><input type="number" min="0.1" step="0.05" data-la="height" value="${a.height ?? ""}"></div>`}</div>
-      ${a.type === "fence" ? `<label>Zaunart</label><select data-la="fence_style">${FENCE_STYLES.map(([k, n]) => `<option value="${k}"${(a.fence_style ?? "wood") === k ? " selected" : ""}>${n}</option>`).join("")}</select>` : ""}
+      ${a.type === "fence" ? `<label>Zaunart</label><select data-la="fence_style">${FENCE_STYLES.map(([k, n]) => `<option value="${k}"${(a.fence_style ?? "wood") === k ? " selected" : ""}>${n}</option>`).join("")}</select><p class="muted">Solarzaun mit Modulen: Einrichten → Draußen → Solar-Aufständerung („Solarzaun“ suchen).</p>` : ""}
       <p class="muted">Als Linie gezeichnet (${de(polylineLength(a.line.points))} m). Ecken direkt ziehen macht eine normale Fläche daraus.</p>
       <div class="btns"><button data-act="unline">In normale Fläche umwandeln</button></div>`;
   },

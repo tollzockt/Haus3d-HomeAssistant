@@ -11,6 +11,8 @@
 //  3. Benachbarte Intervalle mit gleicher Belegung werden zu einem Segment zusammengefasst.
 //  4. Öffnungen (room_id + edge + offset der Mitte) werden über die Quellkanten der Segmente
 //     genau einem Segment zugeordnet.
+//  5. Anschlüsse: Gehrung, T-Stoß bis Wandmitte, bündige Raumseite (Außenwand setzt eine Innenwand
+//     gerade fort: Streifen in Raumfarbe, siehe flushFootprint).
 
 const EPS = 0.005;
 /** Toleranz zum Einrasten von Eckpunkten und für "liegt auf derselben Geraden" (Meter). */
@@ -306,6 +308,10 @@ export function computeWalls(floor, settings = {}) {
       outerB: null,
       extendA: 0,
       extendB: 0,
+      // nur zur Laufzeit: Gehrungsecken [links, rechts] an L-Ecken aus Innen-/freien Wänden, bündiger Streifen (Meter)
+      joinA: null,
+      joinB: null,
+      flush: 0,
     };
   });
 
@@ -335,6 +341,9 @@ export function computeWalls(floor, settings = {}) {
       outerB: null,
       extendA: 0,
       extendB: 0,
+      joinA: null,
+      joinB: null,
+      flush: 0,
     });
   }
 
@@ -345,39 +354,125 @@ export function computeWalls(floor, settings = {}) {
 
 const near = (p, q) => Math.abs(p[0] - q[0]) <= SNAP && Math.abs(p[1] - q[1]) <= SNAP;
 
-/** Gehrung der Außenwände und Verlängerung von Innenwänden an Ecken. */
+const parallel = (s, o) => Math.abs(cross(o.u, s.u)) < 1e-4;
+/** Schnittpunkt zweier Geraden {p, u} oder null (parallel). */
+const meet = (l1, l2) => {
+  const den = cross(l1.u, l2.u);
+  if (Math.abs(den) < 1e-6) return null;
+  return add(l1.p, mul(l1.u, cross(sub(l2.p, l1.p), l2.u) / den));
+};
+/** Linke (sgn > 0) bzw. rechte Wandfläche als Gerade. */
+const faceLine = (s, sgn) => ({ p: add(s.a, mul(s.n, sgn > 0 ? s.left : -s.right)), u: s.u });
+/** Größter Spalt vor einer Wandfläche, über den eine freie Wand noch anschließt (Meter). */
+const JOIN_GAP = 0.1;
+
+/**
+ * Anschlüsse an den Wandenden:
+ * - Außenwände: Gehrung mit der Außenwand desselben Raums (nur eine gerade weiterlaufende Außenwand verhindert sie);
+ * - Innen- und freie Wände: läuft eine Wand gerade weiter, stumpfes Ende; T-Stoß bis zur Mitte der durchgehenden Wand;
+ *   L-Ecke aus zwei Innen-/freien Wänden mit Gehrung; eine freie Wand, die auf einer Wand oder bis JOIN_GAP davor
+ *   endet (auch von außen), reicht bis zu deren Mitte;
+ * - danach die bündige Raumseite (markFlush).
+ */
 function joinCorners(segments, interior, rooms) {
+  // Abstand entlang dir von v bis zur Mitte der Wand o (null, wenn dir fast parallel zu o läuft)
+  const toMid = (o, v, dir) => {
+    const c = dot(dir, o.n);
+    if (Math.abs(c) < 0.2) return null;
+    return ((o.left - o.right) / 2 - dot(sub(v, o.a), o.n)) / c;
+  };
   // Außenseite einer Außenwand: Gerade durch a + nOut * dicke in Richtung u
-  const outer = (s) => {
-    const sign = s.left > 0 ? 1 : -1;
-    const off = Math.max(s.left, s.right);
-    return { p: add(s.a, mul(s.n, sign * off)), u: s.u };
-  };
-  const intersect = (l1, l2) => {
-    const den = cross(l1.u, l2.u);
-    if (Math.abs(den) < 1e-6) return null;
-    const t = cross(sub(l2.p, l1.p), l2.u) / den;
-    return add(l1.p, mul(l1.u, t));
-  };
+  const outer = (s) => faceLine(s, s.left > 0 ? 1 : -1);
   for (const s of segments) {
     for (const end of ["a", "b"]) {
       const v = s[end];
+      const key = end === "a" ? "A" : "B";
       const others = segments.filter((o) => o !== s && (near(o.a, v) || near(o.b, v)));
-      const collinear = others.some((o) => Math.abs(cross(o.u, s.u)) < 1e-4);
       if (s.kind === "exterior") {
         // Gehrung mit der Außenwand desselben Raums; nur ohne sie mit einer anderen
         const room = s.roomLeft ?? s.roomRight;
-        const candidates = others.filter((o) => o.kind === "exterior" && Math.abs(cross(o.u, s.u)) >= 1e-4);
+        const candidates = others.filter((o) => o.kind === "exterior" && !parallel(o, s));
         const partner = candidates.find((o) => (o.roomLeft ?? o.roomRight) === room) ?? (candidates.length === 1 ? candidates[0] : null);
-        if (partner && !collinear) {
-          const c = intersect(outer(s), outer(partner));
+        // nur eine gerade weiterlaufende AUSSENwand verhindert die Gehrung (eine Innenwand nicht, sonst flimmert das stumpfe Ende)
+        if (partner && !others.some((o) => o.kind === "exterior" && parallel(o, s))) {
+          const c = meet(outer(s), outer(partner));
           // nur sinnvolle Gehrungen: nicht weiter als 3 Wanddicken vom Eckpunkt und nicht in einem anderen Raum
           const intoRoom = rooms.some((r) => r.id !== room && pointInPolygon(c ?? v, r.points ?? []));
-          if (c && !intoRoom && len(sub(c, v)) < 3 * Math.max(s.left, s.right) + 1e-6) s[end === "a" ? "outerA" : "outerB"] = c;
+          if (c && !intoRoom && len(sub(c, v)) < 3 * Math.max(s.left, s.right) + 1e-6) s[`outer${key}`] = c;
         }
-      } else if (!collinear && others.length) {
-        s[end === "a" ? "extendA" : "extendB"] = interior / 2;
+        continue;
       }
+      if (others.some((o) => parallel(o, s))) continue; // läuft gerade weiter: stumpfes Ende
+      const dir = end === "a" ? mul(s.u, -1) : s.u;
+      const cr = others.filter((o) => !parallel(o, s));
+      let e = null;
+      if (cr.some((o) => cr.some((q) => q !== o && parallel(o, q)))) {
+        // T-Stoß: bis zur Mitte der durchgehenden Wand (Innenwand: 0, Außenwand: halbe Dicke hinein)
+        for (const o of cr) {
+          const m = toMid(o, v, dir);
+          if (m !== null && m > -1e-6) e = e === null ? m : Math.min(e, m);
+        }
+      } else if (cr.length === 1 && cr[0].kind !== "exterior") {
+        // L-Ecke aus Innen-/freien Wänden: Gehrung
+        const j = mitreL(s, end, cr[0]);
+        if (j) {
+          s[`join${key}`] = j;
+          continue;
+        }
+      } else if (!others.length && s.kind === "free") {
+        // freie Wand endet auf einer Wand, bis JOIN_GAP davor oder ragt hinein: bis zu deren Mitte
+        for (const o of segments) {
+          if (o === s || Math.abs(cross(o.u, s.u)) < 0.2) continue;
+          const t = dot(sub(v, o.a), o.u);
+          if (t < -SNAP || t > o.length + SNAP) continue;
+          const m = toMid(o, v, dir);
+          if (m === null) continue;
+          const half = (o.left + o.right) / 2 / Math.abs(dot(dir, o.n));
+          if (m + half < -1e-6 || m - half > JOIN_GAP) continue;
+          e = e === null ? m : Math.min(e, m);
+        }
+        if (e !== null) {
+          s[`extend${key}`] = Math.max(-(s.length - 0.05), e); // darf kürzen, ein Rest von 5 cm bleibt
+          continue;
+        }
+      }
+      if (e !== null) s[`extend${key}`] = Math.max(0, e);
+      else if (others.length) s[`extend${key}`] = interior / 2; // Y, spitze Winkel: wie bisher
+    }
+  }
+  markFlush(segments, interior);
+}
+
+/** Gehrung einer L-Ecke aus zwei Innen-/freien Wänden: [links, rechts] am Ende end von s, oder null (zu spitz). */
+function mitreL(s, end, o) {
+  const v = s[end];
+  // gleiche Seite im Durchlauf s → o: links bleibt links, wenn o an v anfängt und s dort endet
+  const sgn = (end === "b" ? 1 : -1) * (near(o.a, v) ? 1 : -1);
+  const pl = meet(faceLine(s, 1), faceLine(o, sgn));
+  const pr = meet(faceLine(s, -1), faceLine(o, -sgn));
+  const lim = 3 * Math.max(s.left + s.right, o.left + o.right);
+  return pl && pr && len(sub(pl, v)) <= lim && len(sub(pr, v)) <= lim ? [pl, pr] : null;
+}
+
+/**
+ * Bündige Raumseite: Setzt eine Außenwand eine Innenwand DESSELBEN Raums gerade fort, bekommt sie zur Raumseite
+ * einen Streifen von der halben Innenwanddicke (flush); weitergegeben an gerade weiterlaufende Außenwände desselben
+ * Raums (Warteschlange, O(n²)).
+ */
+function markFlush(segments, interior) {
+  const roomOf = (s) => s.roomLeft ?? s.roomRight;
+  // Raum von o auf der Seite, auf der bei s der Raum liegt
+  const roomOn = (o, s) => ((dot(o.u, s.u) > 0) === !!s.roomLeft ? o.roomLeft : o.roomRight);
+  const joins = (o, s) => o !== s && parallel(o, s) && [s.a, s.b].some((v) => near(o.a, v) || near(o.b, v)) && roomOn(o, s) === roomOf(s);
+  const ext = segments.filter((s) => s.kind === "exterior");
+  const queue = ext.filter((s) => segments.some((o) => o.kind === "interior" && joins(o, s)));
+  for (const s of queue) s.flush = interior / 2;
+  while (queue.length) {
+    const o = queue.pop();
+    for (const s of ext) {
+      if (s.flush || !joins(o, s)) continue;
+      s.flush = interior / 2;
+      queue.push(s);
     }
   }
 }
@@ -468,13 +563,14 @@ export function wallPieces(segment, openings, wallHeight) {
 /**
  * Grundriss eines Wandstücks [s0, s1] als Viereck (gegen den Uhrzeigersinn nicht garantiert):
  * links-start, rechts-start, rechts-ende, links-ende. An den Segmentenden wird die Gehrung bzw.
- * Verlängerung berücksichtigt.
+ * Verlängerung (auch eine negative, die kürzt) berücksichtigt. Gehrungsecken, die über das andere Ende
+ * eines kurzen Stücks hinausreichen, werden auf dessen Ende begrenzt (kein umgedrehtes Stück).
  */
 export function pieceFootprint(seg, s0, s1) {
   const atStart = s0 <= 1e-6;
   const atEnd = s1 >= seg.length - 1e-6;
-  const a0 = atStart ? s0 - seg.extendA : s0;
-  const a1 = atEnd ? s1 + seg.extendB : s1;
+  const a0 = atStart ? Math.min(s0 - seg.extendA, s1) : s0;
+  const a1 = atEnd ? Math.max(s1 + seg.extendB, a0) : s1;
   const p0 = add(seg.a, mul(seg.u, a0));
   const p1 = add(seg.a, mul(seg.u, a1));
   let l0 = add(p0, mul(seg.n, seg.left));
@@ -492,7 +588,45 @@ export function pieceFootprint(seg, s0, s1) {
       else r1 = seg.outerB;
     }
   }
+  if (atStart && seg.joinA) [l0, r0] = seg.joinA;
+  if (atEnd && seg.joinB) [l1, r1] = seg.joinB;
+  // je Seite: Anfang nicht hinter dem Ende (Gehrungsecke eines kurzen Stücks auf der Wandfläche begrenzen)
+  const t = (p) => dot(sub(p, seg.a), seg.u);
+  const at = (p, s) => add(p, mul(seg.u, s - t(p)));
+  if (t(l0) > t(l1)) {
+    if (atStart && !atEnd) l0 = at(l0, t(l1));
+    else if (atEnd && !atStart) l1 = at(l1, t(l0));
+    else l0 = l1 = at(l0, (t(l0) + t(l1)) / 2);
+  }
+  if (t(r0) > t(r1)) {
+    if (atStart && !atEnd) r0 = at(r0, t(r1));
+    else if (atEnd && !atStart) r1 = at(r1, t(r0));
+    else r0 = r1 = at(r0, (t(r0) + t(r1)) / 2);
+  }
   return [l0, r0, r1, l1];
+}
+
+/**
+ * Bündiger Streifen einer Außenwand zur Raumseite (seg.flush, halbe Innenwanddicke) für das Stück [s0, s1]:
+ * [p0, p0 + off, p1 + off, p1] mit p auf der Raumseite der Wand; null ohne Streifen.
+ */
+export function flushFootprint(seg, s0, s1) {
+  if (!(seg.flush > 0)) return null;
+  const off = mul(seg.n, seg.roomLeft ? seg.flush : -seg.flush);
+  const p0 = add(seg.a, mul(seg.u, s0));
+  const p1 = add(seg.a, mul(seg.u, s1));
+  return [p0, add(p0, off), add(p1, off), p1];
+}
+
+/** Grundriss aller Wände einer Etage für den Plan: je Segment die ganze Wand, dazu die bündigen Streifen. */
+export function planFootprints(segments) {
+  const out = [];
+  for (const seg of segments) {
+    out.push(pieceFootprint(seg, 0, seg.length));
+    const strip = flushFootprint(seg, 0, seg.length);
+    if (strip) out.push(strip);
+  }
+  return out;
 }
 
 /** Punkt auf einem Segment im Abstand s vom Anfang. */

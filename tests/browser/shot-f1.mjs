@@ -20,7 +20,7 @@ for (const shape of shapes) {
     return { holes, corners: ops[0]?.poly.length ?? 0 };
   }, shape);
   t.results[shape] = r;
-  t.check(r.holes.eg === 1 && !r.holes.kg && r.corners >= (shape === "spiral" ? 12 : 4), `Treppe ${shape}: ${JSON.stringify(r)}`);
+  t.check(r.holes.eg === 1 && !r.holes.kg && r.corners >= (shape === "spiral" ? 24 : 4), `Treppe ${shape}: ${JSON.stringify(r)}`);
   if (shape === "lw_right" || shape === "spiral") {
     await pg.locator("haus3d-panel .floorbar button[data-floor='kg']").click().catch(() => {});
     await pg.waitForTimeout(400);

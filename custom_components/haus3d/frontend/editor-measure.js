@@ -3,7 +3,6 @@
 
 import { edgeDimensions, floorVertices, isAxisRect, nearestEdge, projectOnSegment, setEdgeLength, setRectSize, snapPoint } from "./edit-ops.js";
 import { signedArea } from "./walls.js";
-import { RAILINGS_STAIR, STAIR_SHAPES, runWidth, slabOpenings, stairLayout } from "./stairs.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const de = (v, d = 2) => v.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -73,7 +72,15 @@ export const MeasureMethods = {
   },
 
   _bindMeasureFields(el, r, ei) {
-    const opts = { linked: !this.mods?.solo };
+    // erst beim Ändern lesen (Schalter können seit dem Zeichnen des Felds umgestellt sein); „Einzeln“/„Mitziehen“ gilt einmal
+    const opts = () => {
+      const o = { linked: this._linked() };
+      if (this.mods?.solo) {
+        this.mods.solo = false;
+        this._updateTouch?.();
+      }
+      return o;
+    };
     const moved = (before, after) => {
       const names = after.rooms.filter((x) => x.id !== r.id && JSON.stringify(x.points) !== JSON.stringify(before.rooms.find((y) => y.id === x.id)?.points)).map((x) => x.name);
       if (names.length) this._toast(`Mitgezogen: ${names.join(", ")}`);
@@ -82,77 +89,28 @@ export const MeasureMethods = {
       const v = Number(ev.target.value);
       if (!(v > 0.05)) return;
       const before = this.floor;
-      this.change((fl) => setEdgeLength(fl, r.id, ei, v, opts));
+      const o = opts();
+      const h0 = this._house0();
+      this.change((fl) => {
+        return setEdgeLength(fl, r.id, ei, v, o);
+      });
       moved(before, this.floor);
+      this._houseGuard(h0);
       this.renderProps();
     });
     el.querySelectorAll("[data-rectsize]").forEach((inp) => inp.addEventListener("change", () => {
       const v = Number(inp.value);
       if (!(v > 0.05)) return;
       const before = this.floor;
-      this.change((fl) => setRectSize(fl, r.id, { [inp.dataset.rectsize]: v }, opts));
-      moved(before, this.floor);
-      this.renderProps();
-    }));
-  },
-
-  /** Treppe: Form, Geländer, Deckenöffnung, „Bis zur nächsten Etage“, Stufen und Steigung. */
-  _stairFields(m) {
-    if (m.type !== "stairs") return "";
-    const lay = stairLayout({ shape: m.stair_shape, w: Number(m.w) || 1, d: Number(m.d) || 3, h: Number(m.h) || 2.6 });
-    const sel = (key, list, v) => `<select data-stair="${key}">${list.map(([k, n]) => `<option value="${k}"${k === v ? " selected" : ""}>${n}</option>`).join("")}</select>`;
-    return `<div class="row2"><div><label>Treppenform</label>${sel("stair_shape", STAIR_SHAPES, m.stair_shape ?? "straight")}</div><div><label>Geländer</label>${sel("railing", RAILINGS_STAIR, m.railing ?? "none")}</div></div>
-      ${/^(l|lw|u)_/.test(m.stair_shape ?? "") ? `<label>Laufbreite (m)</label><input type="number" min="0.5" max="2" step="0.05" data-stairnum="run_width" value="${de(runWidth({ shape: m.stair_shape, w: Number(m.w) || 1, d: Number(m.d) || 3, run: m.run_width }), 2).replace(",", ".")}">` : ""}
-      <p class="muted">Breite und Tiefe oben sind die Grundfläche der ganzen Treppe; „Kehre links/rechts“ ist die Richtung, in die die Treppe nach oben abbiegt.</p>
-      <label class="chk"><input type="checkbox" data-stair="cut"${m.cut === false ? "" : " checked"}> Deckenöffnung in der Etage darüber</label>
-      <div class="btns"><button data-act="stairnext">Bis zur nächsten Etage</button></div>
-      <p class="muted">${lay.count} Stufen · Steigung ${de(lay.rise * 100, 1)} cm</p>`;
-  },
-
-  _bindStairFields(el, m) {
-    if (m.type !== "stairs") return;
-    const upd = (fn) => {
+      const o = opts();
+      const h0 = this._house0();
       this.change((fl) => {
-        fn(fl.furniture.find((y) => y.id === m.id));
+        return setRectSize(fl, r.id, { [inp.dataset.rectsize]: v }, o);
       });
+      moved(before, this.floor);
+      this._houseGuard(h0);
       this.renderProps();
-    };
-    el.querySelectorAll("select[data-stair]").forEach((s) => s.addEventListener("change", () => upd((x) => (x[s.dataset.stair] = s.value === "none" && s.dataset.stair === "railing" ? undefined : s.value))));
-    el.querySelector('[data-stairnum="run_width"]')?.addEventListener("change", (ev) => {
-      const v = Number(ev.target.value);
-      if (v > 0.3) upd((x) => (x.run_width = v));
-    });
-    el.querySelector('input[data-stair="cut"]')?.addEventListener("change", (ev) => upd((x) => {
-      if (ev.target.checked) delete x.cut;
-      else x.cut = false;
     }));
-    el.querySelector("[data-act=stairnext]")?.addEventListener("click", () => {
-      const f = this.floor;
-      const next = [...this.b.floors].filter((x) => (x.elevation ?? 0) > (f.elevation ?? 0)).sort((a, b) => a.elevation - b.elevation)[0];
-      if (!next) return this._toast("Keine Etage darüber.");
-      const h = Math.round(((next.elevation ?? 0) - (f.elevation ?? 0) - (Number(m.mount_y) || 0)) * 100) / 100;
-      upd((x) => (x.h = h));
-      this._toast(`Höhe ${de(h)} m – reicht bis ${next.name}.`);
-    });
-  },
-
-  /** Treppe im Plan (im Möbel-System, die Gruppe ist schon verschoben/gedreht): Stufen und Lauflinie. */
-  _stairPlan(m, fw, fd, px) {
-    if (m.type !== "stairs") return "";
-    const lay = stairLayout({ shape: m.stair_shape, w: fw, d: fd, h: Number(m.h) || 2.6, run: m.run_width });
-    const pts = (t) => t.poly ?? [[t.x0, t.z0], [t.x1, t.z0], [t.x1, t.z1], [t.x0, t.z1]];
-    const steps = lay.treads.map((t) => `<polygon points="${pts(t).map((p) => `${r3(p[0])},${r3(p[1])}`).join(" ")}" fill="${t.landing ? "rgba(255,255,255,.18)" : "none"}" stroke="#5d4037" stroke-opacity=".7" stroke-width="${px(0.8)}"/>`).join("");
-    const path = lay.path.map((p) => `${r3(p[0])},${r3(p[1])}`).join(" ");
-    const end = lay.path.at(-1);
-    return `<g pointer-events="none">${steps}<polyline points="${path}" fill="none" stroke="#e91e63" stroke-width="${px(1.5)}"/><circle cx="${r3(lay.path[0][0])}" cy="${r3(lay.path[0][1])}" r="${px(3.5)}" fill="#e91e63"/><circle cx="${r3(end[0])}" cy="${r3(end[1])}" r="${px(5)}" fill="none" stroke="#e91e63" stroke-width="${px(1.5)}"/></g>`;
-  },
-
-  /** Deckenöffnungen dieser Etage (Treppe von unten) gestrichelt. */
-  _openingParts(px, P) {
-    return slabOpenings(this.b, this.floorId).map((o) => {
-      const c = [o.poly.reduce((t, q) => t + q[0], 0) / o.poly.length, o.poly.reduce((t, q) => t + q[1], 0) / o.poly.length];
-      return `<g pointer-events="none" data-slabhole><polygon points="${o.poly.map(P).join(" ")}" fill="none" stroke="#e91e63" stroke-width="${px(1.5)}" stroke-dasharray="${px(5)} ${px(4)}"/><text x="${r3(c[0])}" y="${r3(c[1])}" text-anchor="middle" font-size="${px(11)}" fill="#e91e63">Treppe von ${String(o.from).replace(/[&<>"']/g, "")}</text></g>`;
-    }).join("");
   },
 
   /** Flächen der Etage mit Summe. */

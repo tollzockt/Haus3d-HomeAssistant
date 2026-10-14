@@ -7,6 +7,7 @@ erhalten (extra=ALLOW_EXTRA), damit Zusatzfelder ohne Verlust durchgereicht werd
 from __future__ import annotations
 
 import copy
+import math
 from typing import Any
 
 import voluptuous as vol
@@ -60,13 +61,101 @@ OPENING_STYLES = [
 ]
 OUTDOOR_TYPES = ["lawn", "terrace", "path", "driveway", "pool", "bed", "hedge", "fence", "balcony", "gravel", "paving", "rockery"]
 ROOF_TYPES = ["none", "flat", "gable", "hip", "shed"]
+# 0.23b2: Formen für eigene Dächer und Dachteile (wie roofshapes.js; geprüft von test_roof_types_match_frontend)
+ROOF_PART_TYPES = ["flat", "shed", "gable", "hip", "pyramid", "mansard", "halfhip", "cone", "terrace"]
+ROOM_ROOF_TYPES = ["none", *ROOF_PART_TYPES]
+_HEX = vol.Match(r"^#[0-9a-fA-F]{6}$")
+
+
+def _clamp(lo: float, hi: float, default: Any, *, zero_default: bool = False) -> Any:
+    """Zahl weich prüfen: außerhalb des Bereichs auf den Rand setzen (so zeichnet das Frontend). Keine
+    endliche Zahl – mit zero_default auch 0, wie „Number(x) || Standard“ im Frontend – → Standard."""
+
+    def check(value: Any) -> float:
+        if isinstance(value, bool):
+            raise vol.Invalid("Wahrheitswert statt Zahl")
+        v = float(value)
+        if not math.isfinite(v) or (zero_default and v == 0):
+            raise vol.Invalid("Standard")
+        return min(float(hi), max(float(lo), v))
+
+    return _soft(check, default)
+
+
+def _soft_list(max_len: int) -> Any:
+    """Liste ohne Prüfung der Einträge (Dinge auf dem Dach, Kanten-Anpassungen); keine Liste → leere Liste."""
+    return _soft(vol.All(list, vol.Length(max=max_len)), list)
+
+
+def _soft_items(schema: Any, max_len: int = MAX_ITEMS) -> Any:
+    """Liste weich prüfen: ungültige Einträge fallen einzeln weg, statt den Stand abzulehnen."""
+
+    def check(value: Any) -> list:
+        if not isinstance(value, list):
+            return []
+        out = []
+        for item in value[:max_len]:
+            try:
+                out.append(schema(item))
+            except (vol.Invalid, ValueError, TypeError):
+                continue
+        return out
+
+    return check
+
 
 ROOF_SCHEMA = vol.Schema(
     {
-        vol.Optional("type", default="none"): vol.In(ROOF_TYPES),
-        vol.Optional("pitch", default=35): vol.All(vol.Coerce(float), vol.Range(min=5, max=60)),
-        vol.Optional("overhang", default=0.4): vol.All(vol.Coerce(float), vol.Range(min=0, max=1.5)),
-        vol.Optional("direction", default="auto"): vol.In(["auto", "x", "z"]),
+        vol.Optional("type", default="none"): _soft(vol.In(ROOF_TYPES), "none"),
+        vol.Optional("pitch", default=35): _clamp(5, 60, 35, zero_default=True),
+        vol.Optional("overhang", default=0.4): _clamp(0, 1.5, 0.4),
+        vol.Optional("direction", default="auto"): _soft(vol.In(["auto", "x", "z"]), "auto"),
+        # 0.23b2: „Hausdach sitzt auf“ und „Räume unter dem Hausdach“ (Dach-Ebene)
+        vol.Optional("floor"): _soft(vol.Any(None, _ID), None),
+        vol.Optional("rooms"): _soft(vol.Any(None, vol.All([_ID], vol.Length(max=MAX_ROOMS))), None),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
+# 0.23b2: gemeinsame Felder eigener Dächer und Dachteile – alle weich und ohne Standardwert (alte Stände bleiben gleich).
+# Neigung ungültig oder 0 → None: das Frontend nimmt den Standard der Dachform (35 bzw. PART_PITCH).
+_ROOF_SHAPE_FIELDS = {
+    vol.Optional("pitch"): _clamp(5, 80, None, zero_default=True),
+    vol.Optional("overhang"): _clamp(0, 1.5, 0.4),
+    vol.Optional("direction"): _soft(vol.In(["auto", "cross", "x", "z"]), "auto"),
+    vol.Optional("flip"): _soft(vol.Boolean(), False),
+    vol.Optional("wing_end"): _soft(vol.In(["gable", "hip"]), "gable"),
+    vol.Optional("pitch_low"): _clamp(20, 85, 70),
+    vol.Optional("break"): _clamp(0.1, 0.9, 0.35),
+    vol.Optional("ends"): _soft(vol.In(["gable", "hip"]), "gable"),
+    vol.Optional("hip_ratio"): _clamp(0.1, 0.9, 0.35),
+    vol.Optional("railing"): _soft(vol.In(["glass", "bars", "wood", "none"]), "glass"),
+    vol.Optional("railing_height"): _clamp(0.3, 2.5, 1.0),
+    vol.Optional("color"): _soft(vol.Any(None, _HEX), None),
+    vol.Optional("gable_color"): _soft(vol.Any(None, _HEX), None),
+    vol.Optional("items"): _soft_list(MAX_ITEMS),
+    vol.Optional("adjust"): _soft_list(20),
+}
+
+# 0.23b2: eigenes Dach eines Raums (room.roof); ohne „base“ – Raumwände haben keine eigene Höhe
+ROOM_ROOF_SCHEMA = vol.Schema(
+    {
+        vol.Optional("type"): _soft(vol.In(ROOM_ROOF_TYPES), "none"),
+        vol.Optional("separate"): _soft(vol.Boolean(), False),
+        **_ROOF_SHAPE_FIELDS,
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
+# 0.23b2: freie Dachteile je Etage (floor.roofs)
+ROOF_PART_SCHEMA = vol.Schema(
+    {
+        vol.Required("id"): _ID,
+        vol.Required("type"): _soft(vol.In(ROOF_PART_TYPES), "gable"),
+        vol.Required("points"): vol.All([_POINT], vol.Length(min=3, max=MAX_POINTS)),
+        vol.Optional("name"): _soft(vol.Any(None, vol.All(str, vol.Length(max=60))), None),
+        vol.Optional("base"): _clamp(-5, 20, 0),
+        **_ROOF_SHAPE_FIELDS,
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -78,6 +167,8 @@ ROOM_SCHEMA = vol.Schema(
         vol.Optional("area_id", default=None): _ENTITY,
         vol.Required("points"): vol.All([_POINT], vol.Length(min=3, max=MAX_POINTS)),
         vol.Optional("floor_material", default="wood"): vol.All(str, vol.Length(max=32)),
+        # 0.23b2: eigenes Dach (weich; ungültig → kein Dach statt abgelehnter Stand)
+        vol.Optional("roof"): _soft(vol.Any(None, ROOM_ROOF_SCHEMA), None),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -115,6 +206,31 @@ OPENING_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
+# 0.23: eigene Deckenöffnung einer Treppe (Maße im Treppen-System, Versatz von der Treppenmitte)
+def _hole_len(lo: float | None, hi: float) -> Any:
+    """Maß der Deckenöffnung: zu groß → auf den Rand (sonst ginge die ganze Öffnung verloren); keine endliche
+    Zahl bzw. unter lo → ungültig."""
+
+    def check(value: Any) -> float:
+        v = float(value)
+        if math.isnan(v) or (lo is not None and v < lo):
+            raise vol.Invalid("Maß der Öffnung ungültig")
+        return min(hi, max(-hi, v))
+
+    return vol.All(vol.Coerce(float), check)
+
+
+STAIR_HOLE_SCHEMA = vol.Schema(
+    {
+        vol.Required("w"): _hole_len(0.2, 20.0),
+        vol.Required("d"): _hole_len(0.2, 20.0),
+        vol.Optional("dx", default=0.0): _hole_len(None, 20.0),
+        vol.Optional("dz", default=0.0): _hole_len(None, 20.0),
+        vol.Optional("round", default=False): vol.Boolean(),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
 # 0.23: Möbel und Geräte – Info-Hologramm (Werte über dem Gegenstand) und Raster (Würfel, Module)
 FURNITURE_SCHEMA = vol.Schema(
     {
@@ -124,6 +240,12 @@ FURNITURE_SCHEMA = vol.Schema(
         ),
         vol.Optional("cols"): _soft(vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=20))), None),
         vol.Optional("rows"): _soft(vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=20))), None),
+        # 0.23: Treppe – eigene Deckenöffnung, Geländer an der Öffnung (fehlt = automatisch); Treppenloch rund
+        vol.Optional("hole"): _soft(vol.Any(None, STAIR_HOLE_SCHEMA), None),
+        vol.Optional("hole_railing"): _soft(vol.Any(None, vol.In(["none", "bars", "glass", "wood"])), None),
+        vol.Optional("hole_round"): _soft(vol.Boolean(), False),
+        # 0.23b2: Modullage der Solarzäune (fehlt = quer)
+        vol.Optional("orient"): _soft(vol.Any(None, vol.In(["portrait", "landscape"])), None),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -175,6 +297,8 @@ NODE_SCHEMA = vol.Schema(
         vol.Optional("link", default=None): vol.Any(None, _ID),
         # 0.23: false = nur Verbindungspunkt ohne Gegenstand
         vol.Optional("model"): _soft(vol.Boolean(), True),
+        # 0.23: Drehung in Grad (Vorderseite des Gehäuses); fehlt = zur nächsten Wand (ältere Stände)
+        vol.Optional("rotation"): _soft(_north, 0),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -197,6 +321,8 @@ FLOOR_SCHEMA = vol.Schema(
         # 0.20: Dachgeschoss (Räume unter den Dachschrägen) mit Kniestock in m
         vol.Optional("attic"): _soft(vol.Boolean(), False),
         vol.Optional("knee"): _soft(vol.All(vol.Coerce(float), vol.Range(min=0, max=3)), 1.0),
+        # 0.23b2: freie Dachteile der Etage (ungültige Einträge fallen einzeln weg; zu kleine Flächen zeigt der Editor rot)
+        vol.Optional("roofs"): _soft_items(ROOF_PART_SCHEMA, 200),
     },
     extra=vol.ALLOW_EXTRA,
 )

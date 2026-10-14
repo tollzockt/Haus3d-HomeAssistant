@@ -3,7 +3,7 @@
 // bulbs (folgen einer verknüpften Licht-Entität in Farbe und Helligkeit).
 
 import * as THREE from "./vendor/three.module.min.js";
-import { cubeGrid, pvModules } from "./catalog-extra.js";
+import { cubeGrid, pvGrid, pvModules } from "./catalog-extra.js";
 
 function box(g, mat, w, h, d, x = 0, y = 0, z = 0) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(Math.max(w, 0.004), Math.max(h, 0.004), Math.max(d, 0.004)), mat);
@@ -115,6 +115,16 @@ function panel(g, M, x, y, z, pw, pl, tilt, face = 1) {
   box(p, X(M).pv, pw - 0.03, 0.006, pl - 0.03, 0, -0.004, 0);
   p.position.set(x, y, z);
   p.rotation.x = -tilt * face;
+  g.add(p);
+  return p;
+}
+
+const FENCE_TILT = 15; // Zaunmatte: Module höchstens so weit aus der Senkrechten (Grad)
+/** Senkrechtes Glas-Glas-Modul (Mitte x, Unterkante y, Ebene z): Zellen auf beiden Seiten (bifazial). */
+function glassPanel(g, M, x, y, z, pw, ph) {
+  const p = new THREE.Group();
+  box(p, X(M).pv, pw, ph, 0.016);
+  p.position.set(x, y, z);
   g.add(p);
   return p;
 }
@@ -638,9 +648,49 @@ function energy(type, w, d, h, M, g, bulbs) {
   return false;
 }
 
+/** Solarzäune: senkrecht zwischen Pfosten, geneigt vor einer Doppelstabmatte oder rahmenlos als Sichtschutz auf Sockel. */
+function fence(type, w, d, h, M, g, item) {
+  const x = X(M);
+  const { across, rows } = pvModules(type, w, d, item, h);
+  const base = Math.min(pvGrid(type, item)?.base ?? 0, h / 3);
+  const pw = w / across;
+  const rh = Math.max(0.1, h - base) / rows;
+  const postX = (i) => Math.min(w / 2 - 0.04, Math.max(-w / 2 + 0.04, -w / 2 + i * pw));
+  const mx = (i) => -w / 2 + pw * (i + 0.5);
+  if (type === "pv_fence_mesh") {
+    const zm = -d / 2 + 0.03; // Matte an der Rückseite
+    for (let i = 0; i <= across; i++) box(g, M.dark, 0.06, h, 0.06, postX(i), 0, zm);
+    for (let y = 0.05; y < h; y += 0.2) box(g, M.dark, w, 0.012, 0.024, 0, Math.min(y, h - 0.03), zm); // Doppelstäbe
+    const n = Math.min(120, Math.round(w / 0.15));
+    for (let k = 1; k < n; k++) box(g, M.dark, 0.008, h - 0.06, 0.008, -w / 2 + (k * w) / n, 0.03, zm);
+    const zTop = zm + 0.06;
+    const ph = Math.max(0.05, rh - 0.03);
+    const t = Math.min(THREE.MathUtils.degToRad(FENCE_TILT), Math.atan(Math.max(0, d / 2 - 0.02 - zTop) / ph));
+    const out = Math.tan(t) * ph; // Unterkante so weit vor der Matte
+    for (let r = 0; r < rows; r++) for (let i = 0; i < across; i++) {
+      const yb = base + rh * r;
+      panel(g, M, mx(i), yb + rh / 2, zTop + out / 2, pw - 0.04, ph / Math.cos(t), 0).rotation.set(Math.PI / 2 - t, 0, 0); // Zellen nach vorn (+z), leicht nach oben
+      for (const sx of [-0.3, 0.3]) rod(g, x.alu, [mx(i) + sx * pw, yb + 0.05, zm], [mx(i) + sx * pw, yb + 0.05, zTop + out], 0.008);
+    }
+    return true;
+  }
+  const privacy = type === "pv_fence_privacy";
+  const post = privacy ? 0.06 : 0.08;
+  if (privacy) box(g, M.stoneLight, w, base, d, 0, 0, 0); // Sockel
+  for (let i = 0; i <= across; i++) box(g, M.dark, post, h, post, postX(i), 0, 0);
+  for (let r = 0; r <= rows; r++) {
+    const y = Math.min(h - 0.03, Math.max(base, base + r * rh - 0.015));
+    if (privacy) for (let i = 0; i <= across; i++) box(g, M.dark, 0.12, 0.03, 0.04, postX(i), y, 0); // Klemmen (rahmenlos)
+    else box(g, x.alu, w, 0.03, 0.04, 0, y, 0); // Klemmschiene
+  }
+  for (let r = 0; r < rows; r++) for (let i = 0; i < across; i++) glassPanel(g, M, mx(i), base + rh * r + 0.015, 0, pw - post, rh - 0.03);
+  return true;
+}
+
 /** Solar-Aufständerungen: Module in Reihen mit Gestell. */
 function solar(type, w, d, h, M, g, item = {}) {
   if (!type.startsWith("pv_")) return false;
+  if (type.startsWith("pv_fence_")) return fence(type, w, d, h, M, g, item);
   const x = X(M);
   const { across, rows } = pvModules(type, w, d, item, h);
   const pw = w / across;

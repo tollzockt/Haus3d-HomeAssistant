@@ -1,6 +1,6 @@
-// Editor am Tablet (Mixin für FloorEditor): Schalter „Frei“/„Einzeln“ statt Umschalt/Alt, Leiste beim
-// Zeichnen (Fertig, Punkt zurück, Abbrechen), Langdruck-Menü, Entwurf automatisch sichern und
-// fortsetzen, Zwischenspeichern, zur Auswahl zoomen.
+// Editor am Tablet (Mixin für FloorEditor): Schalter „Frei“ statt Umschalt und „Einzeln“/„Mitziehen“/„Ohne
+// Magnet“ statt Alt, Leiste beim Zeichnen (Fertig, Punkt zurück, Abbrechen), Langdruck-Menü (Finger und Stift),
+// Entwurf automatisch sichern und fortsetzen, Zwischenspeichern, zur Auswahl zoomen.
 
 import { draftState, selectionBounds } from "./edit-ops.js";
 
@@ -8,6 +8,12 @@ export const DRAFT_KEY = "haus3d.editorDraft";
 const LONG_MS = 500;
 
 export const GRID_CHOICES = [[0.01, "1 cm"], [0.05, "5 cm"], [0.1, "10 cm"], [0.25, "25 cm"], [0.5, "50 cm"]];
+// Schalter statt Alt (Beschriftung je nach Auswahl und „Ecken koppeln“): Beschriftung → [Titel, Toast beim Einschalten]
+const SOLO = {
+  Einzeln: ["Nächster Zug: nur dieser Raum, angrenzende Räume bleiben stehen (wie Alt)", "Einzeln an: beim nächsten Zug bleiben angrenzende Räume stehen."],
+  Mitziehen: ["Nächster Zug: angrenzende Räume gehen mit (wie Alt)", "Mitziehen an: beim nächsten Zug gehen angrenzende Räume mit."],
+  "Ohne Magnet": ["Nächster Zug: Möbel ohne Magnet (wie Alt)", "Ohne Magnet an: nächster Zug ohne Einrasten an Wänden."],
+};
 
 export const TouchMethods = {
   /** Umschalt gedrückt oder Schalter „Frei“: ohne Einrasten. */
@@ -15,9 +21,14 @@ export const TouchMethods = {
     return !!ev?.shiftKey || this.mods.free;
   },
 
-  /** Alt gedrückt oder Schalter „Einzeln“: Nachbarn bleiben stehen, Magnet aus. */
+  /** Alt oder Schalter „Einzeln“/„Mitziehen“/„Ohne Magnet“: kehrt „Ecken koppeln“ für einen Zug um, Magnet aus. */
   _solo(ev) {
     return !!ev?.altKey || this.mods.solo;
+  },
+
+  /** Beschriftung des Alt-Schalters: Möbel „Ohne Magnet“, sonst je nach „Ecken koppeln“. */
+  _soloLabel() {
+    return this.sel?.kind === "furniture" ? "Ohne Magnet" : this.link ? "Einzeln" : "Mitziehen";
   },
 
   /** Fangradius in Metern (am Finger größer). */
@@ -31,7 +42,7 @@ export const TouchMethods = {
     const main = this.root.querySelector(".ed-main");
     const el = document.createElement("div");
     el.className = "ed-touch";
-    el.innerHTML = `<div class="ed-mods"><button data-mod="free" title="Ohne Einrasten (wie Umschalt)">Frei</button><button data-mod="solo" title="Nur dieses Teil, Magnet aus (wie Alt)">Einzeln</button><button data-mod="multi" title="Mehrere Teile wählen (wie Umschalt-Klick); auf leerer Fläche ziehen = Rahmen">Mehrfach</button></div>
+    el.innerHTML = `<div class="ed-mods"><button data-mod="free" title="Ohne Einrasten (wie Umschalt)">Frei</button><button data-mod="solo" title="${SOLO[this._soloLabel()][0]}">${this._soloLabel()}</button><button data-mod="multi" title="Mehrere Teile wählen (wie Umschalt-Klick); auf leerer Fläche ziehen = Rahmen">Mehrfach</button></div>
       <div class="ed-draftbar" hidden><span class="ed-len"><input data-dlen inputmode="decimal" placeholder="Länge m" title="Länge in Metern, Enter setzt den Punkt"><input data-ddeg inputmode="decimal" placeholder="Winkel°" title="Winkel in Grad: 0 = rechts, 90 = nach oben; leer = Richtung zum Zeiger"><button data-d="len">Setzen</button></span><button data-d="done" class="primary">Fertig</button><button data-d="back">Punkt zurück</button><button data-d="cancel">Abbrechen</button></div>`;
     main.appendChild(el);
     this._touchEl = el;
@@ -41,7 +52,8 @@ export const TouchMethods = {
       this.mods[k] = !this.mods[k];
       this._updateTouch();
       if (k === "multi") return this._toast(this.mods.multi ? "Mehrfach an: Teile antippen oder auf leerer Fläche einen Rahmen aufziehen." : "Mehrfach aus.");
-      this._toast(k === "free" ? (this.mods.free ? "Frei an: nächster Zug ohne Einrasten." : "Frei aus.") : this.mods.solo ? "Einzeln an: Nachbarräume bleiben stehen, Magnet aus." : "Einzeln aus.");
+      const lab = this._soloLabel();
+      this._toast(k === "free" ? (this.mods.free ? "Frei an: nächster Zug ohne Einrasten." : "Frei aus.") : this.mods.solo ? SOLO[lab][1] : `${lab} aus.`);
     }));
     el.querySelectorAll(".ed-len input").forEach((inp) => inp.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {
@@ -57,6 +69,13 @@ export const TouchMethods = {
   _updateTouch() {
     const el = this._touchEl;
     if (!el) return;
+    const solo = el.querySelector('[data-mod="solo"]');
+    const lab = this._soloLabel();
+    if (solo.textContent !== lab) {
+      solo.textContent = lab; // nur bei Änderung (wird nach jedem Zeichnen aufgerufen)
+      solo.title = SOLO[lab][0];
+      this.mods.solo = false; // Bedeutung wechselt (Möbel ↔ Raum, „Ecken koppeln“): nicht still umdeuten
+    }
     el.querySelectorAll("[data-mod]").forEach((b) => b.classList.toggle("sel", !!this.mods[b.dataset.mod]));
     const d = this.draft;
     const active = !!(d && (d.wall || d.points?.length || d.line?.length));
@@ -82,6 +101,7 @@ export const TouchMethods = {
       if (d.line) {
         d.line.pop();
         d.heights?.pop();
+        d.picks?.pop();
         if (d.joints) d.joints = d.joints.filter((j) => j < d.line.length);
         if (!d.line.length) this.draft = null;
       } else if (d.wall) this.draft = null;
@@ -93,13 +113,17 @@ export const TouchMethods = {
     this.render();
   },
 
-  /** Langdruck auf ein Teil (nur Auswahl-Werkzeug, nie auf „+“-Punkten). */
+  /**
+   * Langdruck auf ein Teil (nur Auswahl-Werkzeug, nie auf „+“-Punkten), nur mit Finger oder Stift: mit der Maus
+   * ginge das Menü sonst mitten im Zug auf, wenn die erste Bewegung spät ankommt.
+   */
   _longPressStart(ev) {
     clearTimeout(this._lpTimer);
     this._lpFired = false;
-    if (this.tool !== "select" || this.roofMode) return;
+    this._lpAt = null;
+    if (this.tool !== "select" || this.roofMode || (ev.pointerType !== "touch" && ev.pointerType !== "pen")) return;
     const t = ev.target.closest?.("[data-kind]");
-    if (!t || t.dataset.kind === "insert") return;
+    if (!t || t.dataset.kind === "insert" || t.dataset.kind === "stairsrc") return; // Tippfeld springt beim Loslassen
     const at = [ev.clientX, ev.clientY];
     this._lpAt = at;
     this._lpTimer = setTimeout(() => {
@@ -125,7 +149,7 @@ export const TouchMethods = {
     const sel = this.sel;
     const items = [];
     if (this.props.querySelector('[data-act="dup"]')) items.push(["dup", "Duplizieren"]);
-    if (sel.kind === "furniture") items.push(["rot", "Drehen 90°"], ["wall", "An die Wand stellen"]);
+    if (sel.kind === "furniture" || (sel.kind === "pnode" && this._nodeTurnable())) items.push(["rot", "Drehen 90°"], ["wall", "An die Wand stellen"]);
     items.push(["del", "Löschen"], ["props", "Eigenschaften"]);
     const el = document.createElement("div");
     el.className = "ed-ctx";
@@ -160,7 +184,7 @@ export const TouchMethods = {
 
   /** Ansicht auf die Auswahl (1 m Rand). */
   zoomToSelection() {
-    const b = selectionBounds(this.floor, this.sel);
+    const b = this.roofMode ? this._roofSelBounds() : selectionBounds(this.floor, this.sel);
     if (!b) return this._toast("Erst etwas auswählen.");
     this.view = { x0: b[0][0] - 1, z0: b[0][1] - 1, x1: b[1][0] + 1, z1: b[1][1] + 1 };
     this._fitPending = true;

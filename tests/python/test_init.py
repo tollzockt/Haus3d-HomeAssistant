@@ -289,7 +289,10 @@ async def test_balcony_roof_and_weather_settings(hass: HomeAssistant, setup_inte
     assert saved["floors"][-1]["outdoor"][-2]["railing"] == "bars"
     assert saved["floors"][-1]["outdoor"][-1]["type"] == "gravel"
     assert saved["floors"][-1]["rooms"][0]["wall_color"] == "#9cc0dc"
-    building["settings"]["roof"]["type"] = "kuppel"
+    # 0.23b2: Dach weich geprüft – unbekannte Form wird „kein Dach“, zu steile Neigung begrenzt, der Stand bleibt gültig
+    building["settings"]["roof"].update(type="kuppel", pitch=80)
     await ws.send_json({"id": 2, "type": "haus3d/building/save", "token": admin_token, "building": building, "revision": msg["result"]["revision"]})
     msg = await ws.receive_json()
-    assert msg["error"]["code"] == "invalid_format"
+    assert msg["success"], msg
+    assert msg["result"]["building"]["settings"]["roof"]["type"] == "none"
+    assert msg["result"]["building"]["settings"]["roof"]["pitch"] == 60.0
