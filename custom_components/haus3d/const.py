@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "haus3d"
-VERSION = "0.23.0b2"
+VERSION = "0.23.0b3"
 
 STORAGE_VERSION = 1
 STORAGE_KEY_BUILDING = f"{DOMAIN}.building"
@@ -16,6 +16,17 @@ BACKGROUND_MAX_CHARS = 3_000_000
 # Testhäuser (Entwickler): eigene Grundrisse zum Ausprobieren, getrennt vom echten Haus
 STORAGE_KEY_SANDBOX = f"{DOMAIN}.sandbox"
 SANDBOX_LIMIT = 5  # Daten-URL (JPEG, im Browser auf höchstens 1600 px verkleinert)
+
+# Eigene 3D-Modelle: Dateien liegen unter <config>/haus3d/models/<id>.<ext>, Angaben dazu im Store
+STORAGE_KEY_MODELS = f"{DOMAIN}.models"
+MODELS_DIR = ("haus3d", "models")
+MODEL_EXTENSIONS = ("glb", "gltf", "obj", "stl")
+MODEL_UNITS = ("m", "cm", "mm")
+MODEL_MAX_BYTES = 25 * 1024 * 1024  # je Datei
+MODELS_MAX_TOTAL = 300 * 1024 * 1024  # alle Modelle zusammen
+MODELS_MAX_COUNT = 200
+MODEL_NAME_MAX = 60
+MODELS_URL = "/api/haus3d/models"
 
 # Signal an offene Panels (Dienste haus3d.show/notify/highlight/reload)
 SIGNAL_COMMAND = f"{DOMAIN}_command"

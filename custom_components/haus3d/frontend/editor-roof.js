@@ -5,7 +5,7 @@
 
 import { allIds, newId } from "./edit-ops.js";
 import { DORMER_STYLES, ROOF_ITEMS, ROOF_TYPES, compass16, dormerShape, fieldInfo, legacyPvItems, pvLayout, roofFloor, roofModel, roofObstacles, roofSettings, roofSurfaceAt, roomRoofType } from "./exterior.js";
-import { textureOptions } from "./model.js";
+import { textureOptions, textureRotation } from "./model.js";
 import { adoptHouseItems, coveredBy, findUnit, floorModels, houseRoomIds, houseToParts, partOver, roofUnits, setAdjust, shiftPart, strayHouseItems, unitAt, unitFaces, unitSpec } from "./roofunits.js";
 import { adjustFieldsHtml, applyRoofKey, bindAdjustFields, bindRoofFields, roofColorField, roofFieldsHtml, roofTexField, setEdge, unitIn } from "./editor-roofunits.js";
 import { roofPartMove, roofPartStart, roofPartSvg } from "./editor-roofparts.js";
@@ -58,9 +58,32 @@ function pvDatalists(hass) {
   return `<datalist id="dl_pvw">${ids.filter((id) => cls(id) === "power").map(opt).join("")}</datalist><datalist id="dl_pve">${ids.filter((id) => cls(id) === "energy").map(opt).join("")}</datalist>`;
 }
 
-/** Auswahlfeld für eine Textur (data-tex=key). kind: w (Wand), f (Boden), r (Dach), g (Gelände). */
-export function textureField(key, label, value, kind) {
-  return `<label>${label}</label><select data-tex="${key}">${textureOptions(kind).map(([k, n]) => `<option value="${k}"${k === (value ?? "") ? " selected" : ""}>${esc(n)}</option>`).join("")}</select>`;
+/**
+ * Auswahlfeld für eine Textur (data-tex=key). kind: w (Wand), f (Boden), r (Dach), g (Gelände). rot = [Schlüssel,
+ * Wert]: darunter „Textur drehen (°)“ (nicht bei „glatt“).
+ */
+export function textureField(key, label, value, kind, rot = null) {
+  return `<label>${label}</label><select data-tex="${key}">${textureOptions(kind).map(([k, n]) => `<option value="${k}"${k === (value ?? "") ? " selected" : ""}>${esc(n)}</option>`).join("")}</select>${rot && value !== "none" ? texRotField(...rot) : ""}`;
+}
+
+/** Feld „Textur drehen (°)“ (data-texrot=key, 15°-Schritte) mit Knopf +90°. */
+export function texRotField(key, value) {
+  return `<label>Textur drehen (°)</label><div class="colorrow"><input type="number" step="15" data-texrot="${key}" value="${textureRotation(value)}"><button data-texrot90="${key}" title="Um 90° weiterdrehen">+90°</button></div>`;
+}
+
+/** Felder von texRotField binden: apply(key, Grad 0 … 360; 0 = nicht gedreht). */
+export function bindTexRot(el, apply) {
+  el.querySelectorAll("[data-texrot]").forEach((inp) =>
+    inp.addEventListener("change", () => {
+      if (inp.value === "" || Number.isFinite(Number(inp.value))) apply(inp.dataset.texrot, textureRotation(inp.value));
+    }),
+  );
+  el.querySelectorAll("[data-texrot90]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const inp = el.querySelector(`[data-texrot="${b.dataset.texrot90}"]`);
+      apply(b.dataset.texrot90, textureRotation(Number(inp?.value) + 90));
+    }),
+  );
 }
 
 /** Grundriss-Ecken eines gedrehten Rechtecks (Mitte, Achse along, Breite w entlang, Tiefe d quer). */

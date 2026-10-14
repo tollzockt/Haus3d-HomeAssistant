@@ -82,12 +82,12 @@ export const SceneRoofParts = {
     return this._texMat(m, textureFor("roof", spec.texture, type), "roof", custom); // Schnee/Jahreszeit über _groundRoofMats
   },
 
-  /** Belag der Dachterrasse wie die Gartenfläche „Terrasse“, eigene Farbe als Kopie. */
+  /** Belag der Dachterrasse wie die Gartenfläche „Terrasse“ (auch gedreht), eigene Farbe als Kopie. */
   _terraceMat(spec) {
     const custom = hex(spec.color) && this.style !== "cyber";
     let m = custom ? this.outdoorMats.terrace.clone() : this.outdoorMats.terrace;
     if (custom) this._ownColor(m, spec.color);
-    return this._texMat(m, textureFor("ground", spec.texture, "terrace"), "ground:terrace", custom);
+    return this._texMat(m, textureFor("ground", spec.texture, "terrace"), "ground:terrace", custom, spec.texture_rotation);
   },
 
   /** Giebel und Plattenkanten: gable_color, bei Raumdächern die Außenwand des Raums, sonst die Außenwände des Hauses. */

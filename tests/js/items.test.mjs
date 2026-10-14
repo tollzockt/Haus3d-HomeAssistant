@@ -7,11 +7,13 @@ import { applyGrid, itemGrid, orientGrid, pvNote } from "../../custom_components
 import { FURNITURE_CATEGORIES, FURNITURE_GROUPS, buildFurniture, furnitureMaterials } from "../../custom_components/haus3d/frontend/furniture.js";
 import * as THREE from "../../custom_components/haus3d/frontend/vendor/three.module.min.js";
 
-test("Einrichten: jede Kategorie in genau einer Gruppe, Draußen = Garten, Solar, Wallbox", () => {
+test("Einrichten: jede Kategorie in genau einer Gruppe, Draußen = Garten, Solar, Wallbox und die Garten-Kategorien", () => {
   const all = FURNITURE_GROUPS.flatMap(([, cs]) => cs);
   assert.deepEqual([...all].sort(), FURNITURE_CATEGORIES.map(([c]) => c).sort());
   assert.deepEqual(FURNITURE_GROUPS.map(([g]) => g), ["Drinnen", "Draußen"]);
-  assert.deepEqual([...FURNITURE_GROUPS[1][1]].sort(), ["Garten", "Solar-Aufständerung", "Wallbox & E-Auto"]);
+  assert.deepEqual([...FURNITURE_GROUPS[1][1]].sort(), ["Beet & Gewächshaus", "Garten", "Gartenmöbel", "Hof & Einfahrt", "Solar-Aufständerung", "Spiel & Freizeit", "Wallbox & E-Auto"]);
+  // Garage und Hydroponik stehen drinnen
+  for (const c of ["Garage & Werkstatt", "Hydroponik & Anzucht"]) assert.ok(FURNITURE_GROUPS[0][1].includes(c), c);
 });
 
 test("Würfelregal: Maße aus der Würfelzahl treffen die Katalogmaße, eigene Zahl gewinnt", () => {

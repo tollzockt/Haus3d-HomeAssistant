@@ -1,16 +1,21 @@
 // Leitungsnetz in 3D (Mixin für HouseScene): Rohre an Decke, Wand oder Boden je Etage; Enden senkrecht an
-// Verteiler und Leitungen; Verteiler (Haupt-/Unterverteilung, Router, Hausanschluss, Durchführung …) zur Wand
-// gedreht; laufende Punkte je Netzstück (pipenet.js): Dichte und Tempo nach Menge, Richtung nach
-// Flussrichtung. Ebene „pipes“, Punkte nur mit „Energiefluss“.
+// Verteiler, Leitungen und Geräte (dort mit kleinem Stecker auf der Anschlusshöhe); Verteiler (Haupt-/
+// Unterverteilung, Router, Hausanschluss, Durchführung …) zur Wand gedreht; laufende Punkte je Netzstück
+// (pipenet.js): Dichte und Tempo nach Menge, Richtung nach Flussrichtung. Ebene „pipes“, Punkte nur mit
+// „Energiefluss“.
 
 import * as THREE from "./vendor/three.module.min.js";
 import { PIPE_TYPES, pipeRoute } from "./pipes.js";
 import { flowLook } from "./pipenet.js";
 import { NODE_BODY, nodePose, nodeSpan, pipeEndDrops } from "./pipenodes.js";
+import { furnitureSpan, pipeEnds } from "./pipeends.js";
+import { FURNITURE, furnitureBaseY } from "./furniture.js";
 import { wallFaces } from "./edit-ops.js";
 
 const RADIUS = 0.035;
 const MAX_DOTS = 60;
+/** Höhenbereich eines Möbelstücks (Montagehöhe wie beim Bauen des Modells) für die Anschlusshöhe an Geräten. */
+const FURN_SPAN = furnitureSpan(furnitureBaseY, FURNITURE);
 
 /** 3D-Weg einer Leitung (pipes.js:pipeRoute, Höhen angehoben, Anschlussstücke ends) und Länge bis zu jeder Stelle. */
 function pipeGeometry(pipe, elev, ends = {}) {
@@ -44,7 +49,7 @@ export const ScenePipes = {
     group.userData.noShadow = true;
     const mats = this._pipeMats();
     for (const pipe of list) {
-      const g = pipeGeometry(pipe, elev, pipeEndDrops(pipe, floor));
+      const g = pipeGeometry(pipe, elev, pipeEndDrops(pipe, floor, { furnSpan: FURN_SPAN }));
       if (g.len < 0.05) continue;
       const curve = new THREE.CurvePath();
       for (let i = 1; i < g.path.length; i++) if (g.path[i - 1].distanceTo(g.path[i]) > 1e-4) curve.add(new THREE.LineCurve3(g.path[i - 1], g.path[i]));
@@ -53,6 +58,16 @@ export const ScenePipes = {
       const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(400, Math.ceil(g.len * 6) + g.path.length * 4), RADIUS, 6, false), m.idle);
       tube.userData.pipe = pipe.id;
       group.add(tube);
+      // Stecker am Gerät: kurzes, dickeres Stück am Ende des senkrechten Anschlusses
+      const devs = pipeEnds(pipe, floor);
+      for (const [dev, at] of [[devs.a, g.path[0]], [devs.b, g.path.at(-1)]]) {
+        if (!dev) continue;
+        const plug = new THREE.Mesh((this._pPlug ??= new THREE.CylinderGeometry(RADIUS * 1.5, RADIUS * 1.5, 0.05, 10)), m.on);
+        plug.position.copy(at);
+        plug.userData.pipe = pipe.id;
+        plug.userData.pipePlug = true;
+        group.add(plug);
+      }
       this._pipes.set(pipe.id, { id: pipe.id, floorId: floor.id, type: pipe.type, name: pipe.name, curve, len: g.len, lenAt: g.lenAt, path: g.path, tube, mats: m, group, active: false });
     }
     const faces = nodes.length ? wallFaces(segments) : [];

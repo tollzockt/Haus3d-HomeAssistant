@@ -4,6 +4,7 @@
 import { roomPower } from "./devices.js";
 import { energyEntities, watt } from "./energymodel.js";
 import { NODE_KINDS, computeNet, fmtFlow } from "./pipenet.js";
+import { endDevice } from "./pipeends.js";
 import { PIPE_TYPES } from "./pipes.js";
 import { esc } from "./panel-util.js";
 
@@ -25,13 +26,17 @@ export function mbit(st) {
   return Math.abs(v) * scale * (m[2] === "B" ? 8 : 1);
 }
 
-/** Last am Ende einer Leitung (W, l/min, Mbit/s) aus Sensor, Gerät oder Zielraum. */
-export function pipeEndLoad(pipe, hass, roomW = null) {
+/**
+ * Last am Ende einer Leitung (W, l/min, Mbit/s) aus Sensor, Gerät oder Zielraum. device = Gerät des
+ * angeschlossenen Möbelstücks bzw. platzierten Geräts (pipeends.endDevice); gilt, wenn die Leitung kein eigenes hat.
+ */
+export function pipeEndLoad(pipe, hass, roomW = null, device = null) {
   const st = (id) => (id ? hass?.states?.[id] : null);
+  const dev = pipe.device || device;
   if (pipe.type === "strom") {
     if (pipe.entity) return watt(st(pipe.entity));
-    if (pipe.device) {
-      const d = st(pipe.device);
+    if (dev) {
+      const d = st(dev);
       const a = d?.attributes ?? {};
       const p = Number(a.current_power_w ?? a.power ?? a.current_power);
       if (Number.isFinite(p)) return p;
@@ -41,14 +46,14 @@ export function pipeEndLoad(pipe, hass, roomW = null) {
     return Number.isFinite(roomW) ? roomW : null;
   }
   if (pipe.type === "netzwerk") {
-    const id = pipe.entity || pipe.device;
+    const id = pipe.entity || dev;
     const s = st(id);
     if (!s) return null;
     if (s.attributes?.unit_of_measurement) return mbit(s);
     return ["home", "on", "connected"].includes(s.state) ? 0.5 : 0; // online: kleiner Grundwert
   }
   // Wasser: Durchfluss (l/min) oder Ventil/Pumpe an
-  const s = st(pipe.entity || pipe.device);
+  const s = st(pipe.entity || dev);
   if (!s) return null;
   if (["on", "open", "opening"].includes(s.state)) return 6;
   const v = num(s);
@@ -65,9 +70,11 @@ export const PipeNetMethods = {
     const off = this._building.settings?.house_flow === false;
     this._net = computeNet(this._building, {
       load: (p) => {
+        // Gerät am Leitungsende: eigenes, sonst das des angeschlossenen Möbelstücks bzw. platzierten Geräts
+        const dev = p.entity || p.device ? null : endDevice(p.endTargets);
         const room = p.room ? rooms.get(p.room) : null;
-        const w = !p.entity && !p.device && room && p.type === "strom" ? roomPower(room, hass, this._byArea, exclude) : null;
-        return pipeEndLoad(p, hass, w);
+        const w = !p.entity && !p.device && !dev && room && p.type === "strom" ? roomPower(room, hass, this._byArea, exclude) : null;
+        return pipeEndLoad(p, hass, w, dev);
       },
       nodeValue: (n) => {
         const s = n.entity ? hass?.states?.[n.entity] : null;

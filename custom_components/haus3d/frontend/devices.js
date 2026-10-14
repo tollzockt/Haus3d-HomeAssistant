@@ -347,6 +347,7 @@ export function watchedEntities(building, hass, byArea, { links = null, extra = 
   const pipeRooms = new Set();
   for (const floor of building.floors ?? []) {
     for (const n of floor.nodes ?? []) put(n.entity);
+    for (const m of floor.furniture ?? []) put(m.entity); // verknüpfte Möbel (Licht, Kamin, Vorhang …)
     for (const p of floor.pipes ?? []) {
       put(p.device);
       if (p.entity) put(p.entity);

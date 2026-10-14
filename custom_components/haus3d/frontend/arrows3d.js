@@ -3,6 +3,7 @@
 
 import { FURNITURE, furnitureBaseY } from "./furniture.js";
 import { NODE_BODY, nodeBaseY, nodeMaxY } from "./pipenodes.js";
+import { furniturePose, hasPose } from "./pose.js";
 
 /** Achsen: Schlüssel, Richtung (Welt), Farbe (rot X, grün Höhe, blau Z). */
 export const AXES = [
@@ -88,7 +89,9 @@ export function arrowAnchor(floor, sel, building = null) {
     const h = rawH || fh;
     const b = Number(furnitureBaseY(m, fh, h));
     const base = Number.isFinite(b) ? b : 0;
-    return { x: m.x, z: m.z, y: base + h / 2, base, max: 20, axes: FLAT.has(m.type) || !rawH ? "xz" : "xyz" };
+    // geneigt/gekippt: Mitte der Hülle (die Mitte der Grundfläche bleibt bei x/z)
+    const ph = hasPose(m) ? furniturePose(m, Number(m.w) || def[1], Number(m.d) || def[2], h, rawH ? null : fh).h : h;
+    return { x: m.x, z: m.z, y: base + ph / 2, base, max: 20, axes: FLAT.has(m.type) || !rawH ? "xz" : "xyz" };
   }
   if (sel.kind === "pnode") {
     const n = (floor.nodes ?? []).find((q) => q.id === sel.id);

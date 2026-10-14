@@ -221,7 +221,7 @@ export function liveTarget(sc, sel) {
 
 /**
  * Live-Vorschau: Objekt um d ([dx, dy, dz] ab Start) verschieben, optional auf rotationDeg (Grad wie im Plan)
- * drehen; Schatten bleiben am Boden (nur x/z) und drehen mit. Ohne Ziel nichts (false).
+ * um die Mitte seiner Grundfläche drehen; Schatten bleiben am Boden (nur x/z) und drehen mit. Ohne Ziel nichts (false).
  */
 export function moveLive(sc, live, d, rotationDeg = null) {
   const obj = live?.obj;
@@ -229,15 +229,23 @@ export function moveLive(sc, live, d, rotationDeg = null) {
   const [dx, dy, dz] = (Array.isArray(d) ? d : [d?.x, d?.y, d?.z]).map((v) => (Number.isFinite(Number(v)) ? Number(v) : 0));
   const r0 = live.r0 ?? 0;
   const ry = rotationDeg != null && Number.isFinite(Number(rotationDeg)) ? -THREE.MathUtils.degToRad(Number(rotationDeg)) : r0;
-  obj.position.set(live.p0.x + dx, live.p0.y + dy, live.p0.z + dz);
+  // geneigt/gekippt (furniture.js): der Ursprung liegt um poseOff (eigener Rahmen) neben der Mitte der
+  // Grundfläche; gedreht wird um diese Mitte, Neigen/Kippen (rotation.x/z) bleiben
+  const off = obj.userData.poseOff;
+  const turn = (r) => (off ? [off[0] * Math.cos(r) + off[2] * Math.sin(r), -off[0] * Math.sin(r) + off[2] * Math.cos(r)] : [0, 0]);
+  const [ox0, oz0] = turn(r0);
+  const [ox, oz] = turn(ry);
+  const cx = live.p0.x - ox0;
+  const cz = live.p0.z - oz0;
+  obj.position.set(cx + dx + ox, live.p0.y + dy, cz + dz + oz);
   obj.rotation.y = ry;
   const dr = ry - r0;
   const c = Math.cos(dr);
   const s = Math.sin(dr);
   for (const b of live.blobs ?? []) {
-    const rx = b.p0.x - live.p0.x;
-    const rz = b.p0.z - live.p0.z;
-    b.o.position.set(live.p0.x + dx + rx * c + rz * s, b.p0.y, live.p0.z + dz - rx * s + rz * c);
+    const rx = b.p0.x - cx;
+    const rz = b.p0.z - cz;
+    b.o.position.set(cx + dx + rx * c + rz * s, b.p0.y, cz + dz - rx * s + rz * c);
     b.o.rotation.y = b.r0 + dr;
   }
   obj.updateMatrixWorld(true);

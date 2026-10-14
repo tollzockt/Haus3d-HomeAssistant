@@ -5,7 +5,7 @@
 import { canAdmin } from "./access.js";
 import { roomAt, validPolygon } from "./edit-ops.js";
 import { ROOF_ITEMS, isPvShed, roofFloor, roofItemFootprint, roofModel, roofSettings, roomRoofType } from "./exterior.js";
-import { COLOR_SWATCHES, textureOptions } from "./model.js";
+import { COLOR_SWATCHES, textureOptions, textureRotation } from "./model.js";
 import { BAND_TYPES, GROUP_TYPES, PART_PITCH, ROOF_PART_TYPES, ROOM_ROOF_TYPES, SINGLE_TYPES, circleOf, circlePoints } from "./roofshapes.js";
 import {
   addRoomRoof,
@@ -90,7 +90,9 @@ export function roofFieldsHtml(spec, { kind = "room", type = spec?.type, frames 
   if (part.length) out.push(`<div class="row2">${part.join("")}</div>`);
   if (type === "terrace") {
     out.push(`<div class="row2">${selField("railing", "Geländer", s.railing ?? "glass", RAILINGS)}${numField("railing_height", "Geländerhöhe (m)", s.railing_height ?? 1, 0.05, ' min="0.3" max="2.5"')}</div>`);
-    out.push(roofTexField("texture", "Belag (Textur)", s.texture, "g"), roofColorField("color", "Belagfarbe", s.color));
+    out.push(roofTexField("texture", "Belag (Textur)", s.texture, "g"));
+    if (s.texture !== "none") out.push(numField("texture_rotation", "Textur drehen (°)", textureRotation(s.texture_rotation), 15));
+    out.push(roofColorField("color", "Belagfarbe", s.color));
   }
   return out.join("");
 }

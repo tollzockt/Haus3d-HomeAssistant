@@ -1,18 +1,21 @@
 // Leitungen im Editor (Mixin für FloorEditor): Werkzeug „Leitung“ – Strom, Netzwerk und Wasser kalt/warm an
 // Decke, Wand oder Boden verlegen. Punkte rasten an Raumkanten (Wand) und Ecken ein; die Höhe gilt je Punkt
-// (Stufen bis zur Decke, Standard je Medium), ein Höhenwechsel wird an der Wand senkrecht geführt.
+// (Stufen bis zur Decke, Standard je Medium), ein Höhenwechsel wird an der Wand senkrecht geführt. Anfang und
+// Ende rasten auch an Geräten ein (Möbel, platzierte Geräte; pipe.ends, pipeends.js) und ziehen mit (follow-pipes.js).
 
 import { allIds, newId } from "./edit-ops.js";
+import { FURNITURE } from "./furniture.js";
 import { PIPE_TYPES, pipeColor } from "./pipes.js";
 import { PIPE_LEVELS, ceilingAlong, clearHeight, defaultLevel, floorRoofModels, levelHeight, levelName, levelOf } from "./pipelevels.js";
 import { nodeMedium, remapJoints } from "./pipenet.js";
+import { deviceSnap, endDevice, endTarget, pipeEnds, unplugEnd } from "./pipeends.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const de = (v, d = 2) => v.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const WALL_GAP = 0.06; // Abstand Rohrmitte zur Wandoberfläche
 
-export const PIPE_HINT = "Leitung: Punkte antippen – rastet an Wänden und Ecken ein, an bestehenden Leitungen und Verteilern als Abzweig (Ring; auch Zwischenpunkte werden verbunden, am Finger mit größerem Fangkreis). Höhe rechts wählen – Strom und Netzwerk liegen standardmäßig an der Decke, Wasser am Boden; ein Wechsel geht an der Wand senkrecht. „Fertig“ beendet. Gewählte Leitung: Punkte ziehen, Strecke antippen fügt einen Punkt ein.";
+export const PIPE_HINT = "Leitung: Punkte antippen – rastet an Wänden und Ecken ein, außerdem an Verteilern, Leitungen und Geräten (Ring; an Leitungen als Abzweig, auch mit Zwischenpunkten; an Möbeln und platzierten Geräten als Anschluss, der beim Verschieben mitgeht; am Finger mit größerem Fangkreis). Höhe rechts wählen – Strom und Netzwerk liegen standardmäßig an der Decke, Wasser am Boden; ein Wechsel geht an der Wand senkrecht. „Fertig“ beendet. Gewählte Leitung: Punkte ziehen, Strecke antippen fügt einen Punkt ein.";
 const JUNCTION_PX = 14; // Fangradius für Abzweige (Bildschirm; am Finger größer)
 
 export const PipeMethods = {
@@ -31,8 +34,11 @@ export const PipeMethods = {
     return levelHeight(lv, clear);
   },
 
-  /** Punkt an den Entwurf anhängen (Höhe nach der aktuellen Wahl); junction = auf einer Leitung bzw. an einem Verteiler. */
-  _pipeAddPoint(q, junction = false) {
+  /**
+   * Punkt an den Entwurf anhängen (Höhe nach der aktuellen Wahl); junction = auf einer Leitung bzw. an einem
+   * Verteiler; dev = Gerät an diesem Punkt (pipeends.deviceSnap; zählt am Anfang und am Ende der Leitung).
+   */
+  _pipeAddPoint(q, junction = false, dev = null) {
     const d = this.draft;
     const pick = this._pipeOpts().pick;
     d.heights ??= [];
@@ -41,6 +47,8 @@ export const PipeMethods = {
     d.picks.push(pick);
     d.line.push(q);
     if (junction) (d.joints ??= []).push(d.line.length - 1);
+    // je Stelle überschrieben – nach „Punkt zurück“ gilt so der Bezug des neuen Punkts
+    (d.devs ??= [])[d.line.length - 1] = dev?.ref ? { ...dev.ref } : null;
   },
 
   /** Gleiche Wahl wie beim letzten Punkt (gleiche Stufe, null = Standard des Mediums, oder gleiche Höhe)? */
@@ -73,11 +81,13 @@ export const PipeMethods = {
    * Punkt an der nächsten Wandoberfläche (knapp davor, im Raum), in Ecken an beiden Wänden;
    * sonst 0/45/90° zum letzten Punkt bzw. Raster.
    */
-  _pipeSnap(ev, p, last, { exclude = null, type = this._pipeOpts().type, skipNode = null } = {}) {
-    // Abzweig: an Verteiler oder bestehender Leitung desselben Mediums einrasten (Vorrang vor der Wand)
-    const j = this._pipeJunction(p, { exclude, type, skipNode });
-    this._snapJunction = !!j;
-    if (j) return j;
+  _pipeSnap(ev, p, last, { exclude = null, type = this._pipeOpts().type, skipNode = null, devices = this.tool === "pipe" } = {}) {
+    // Abzweig: an Verteiler oder bestehender Leitung desselben Mediums einrasten, Anschluss an einem Gerät
+    // (devices: beim Zeichnen und beim Ziehen eines Leitungsendes) – Vorrang vor der Wand
+    const j = this._pipeJunction(p, { exclude, type, skipNode, devices });
+    this._snapJunction = !!j && !j.dev;
+    this._snapDevice = j?.dev ?? null;
+    if (j) return j.q;
     const tol = Math.max(0.25, this._snapTol() * 1.5);
     const hits = [];
     for (const f of this._pipeFaces()) {
@@ -109,10 +119,20 @@ export const PipeMethods = {
     return last ? this._wallSnap(last, p, this._free(ev)) : this._snap(p);
   },
 
-  /** Punkt auf einer Leitung bzw. an einem Verteiler in Fangweite (oder null). */
-  _pipeJunction(p, { exclude = null, type = null, skipNode = null } = {}) {
+  /**
+   * Punkt auf einer Leitung bzw. an einem Verteiler in Fangweite, mit devices auch an einem Gerät:
+   * {q, dev} (dev = Gerät aus pipeends.deviceSnap, sonst null) oder null.
+   */
+  _pipeJunction(p, { exclude = null, type = null, skipNode = null, devices = false } = {}) {
     if (this._free?.()) return null;
     const tol = Math.max(0.12, (this.coarse ? 24 : JUNCTION_PX) / (this.scale || 40));
+    // Verteiler und Leitungen behalten Vorrang, wenn sie näher liegen (5 mm Spielraum: ein Leitungsende, das
+    // schon am Anschluss liegt, zählt als dasselbe Gerät)
+    const choose = (best) => {
+      const dev = devices ? deviceSnap(this.floor, p, tol) : null;
+      if (dev && (!best || best.d >= dev.d - 0.005)) return { q: dev.q, dev };
+      return best ? { q: best.q, dev: null } : null;
+    };
     let best = null;
     for (const n of this.floor.nodes ?? []) {
       if (n.id === skipNode) continue;
@@ -122,7 +142,7 @@ export const PipeMethods = {
       const d = Math.hypot(p[0] - n.x, p[1] - n.z);
       if (d < tol && (!best || d < best.d)) best = { d, q: [n.x, n.z] };
     }
-    if (best) return best.q;
+    if (best) return choose(best);
     for (const l of this.floor.pipes ?? []) {
       if (l.id === exclude || (type && l.type !== type)) continue;
       for (let i = 0; i < l.points.length - 1; i++) {
@@ -137,22 +157,32 @@ export const PipeMethods = {
         if (d < tol && (!best || d < best.d)) best = { d, q: [r3(q[0]), r3(q[1])] };
       }
     }
-    return best?.q ?? null;
+    return choose(best);
+  },
+
+  /** Name eines Geräts am Leitungsende (Möbel: Name bzw. Art; platziertes Gerät: Anzeigename); fehlt es: null. */
+  _endName(ref, floor = this.floor) {
+    const t = endTarget(floor, ref);
+    if (!t) return null;
+    if (t.kind === "placement") return this.hass?.states?.[t.item.entity_id]?.attributes?.friendly_name ?? t.item.entity_id;
+    return t.item.name || FURNITURE[t.item.type]?.[0] || t.item.type || "Gerät";
   },
 
   _pipeTap(ev, p) {
     const d = this.draft;
     if (!d?.pipe) {
       this.draft = { pipe: true, line: [], heights: [], picks: [] };
-      this._pipeAddPoint(this._pipeSnap(ev, p, null));
+      const q = this._pipeSnap(ev, p, null);
+      this._pipeAddPoint(q, false, this._snapDevice);
     } else {
       const last = d.line.at(-1);
       const q = this._pipeSnap(ev, p, last);
       // Punkt auf einer anderen Leitung bzw. an einem Verteiler: wird verbunden (auch mitten in der Leitung)
       const junction = this._snapJunction;
+      const dev = this._snapDevice;
       // zweites Antippen an derselben Stelle mit gleicher Höhenwahl beendet; mit anderer Wahl = senkrechter Wechsel
       if (Math.hypot(q[0] - last[0], q[1] - last[1]) < 0.05 && this._samePick(d, this._pipeHeight(q, last))) return this._finishPipe();
-      this._pipeAddPoint(q, junction);
+      this._pipeAddPoint(q, junction, dev);
     }
     this.render();
   },
@@ -177,19 +207,32 @@ export const PipeMethods = {
           parts.push(`<circle data-kind="pipept" data-id="${esc(l.id)}" data-i="${i}" cx="${r3(q[0])}" cy="${r3(q[1])}" r="${px(this.coarse ? 11 : 7)}" fill="${on ? c : "#fff"}" stroke="${c}" stroke-width="${px(2.5)}" style="cursor:move"/>`);
         });
       }
+      // Enden an Geräten: kleiner Stecker
+      const devs = pipeEnds(l, this.floor);
+      if (devs.a) parts.push(this._plugMark(px, l.points[0], c, `data-plug="a" data-id="${esc(l.id)}"`));
+      if (devs.b) parts.push(this._plugMark(px, l.points.at(-1), c, `data-plug="b" data-id="${esc(l.id)}"`));
     }
     const d = this.draft;
     if (d?.pipe) {
       const pts = [...d.line, ...(d.hover ? [d.hover] : [])];
       const c = pipeColor(this._pipeOpts().type);
       parts.push(`<polyline points="${pts.map(P).join(" ")}" fill="none" stroke="${c}" stroke-width="${px(4)}" stroke-dasharray="${px(8)} ${px(4)}" stroke-linecap="round"/>`);
-      for (const q of d.line) parts.push(`<circle cx="${r3(q[0])}" cy="${r3(q[1])}" r="${px(4)}" fill="${c}"/>`);
+      d.line.forEach((q, i) => parts.push(d.devs?.[i] && (i === 0 || i === d.line.length - 1) ? this._plugMark(px, q, c) : `<circle cx="${r3(q[0])}" cy="${r3(q[1])}" r="${px(4)}" fill="${c}"/>`));
       const e = d.line.at(-1);
       const h = d.heights?.at(-1);
       if (e && Number.isFinite(h)) parts.push(`<text x="${r3(e[0] + px(8))}" y="${r3(e[1] + px(16))}" font-size="${px(11)}" fill="${c}" font-weight="600" stroke="#fff" stroke-width="${px(3)}" paint-order="stroke" pointer-events="none">${de(h)} m</text>`);
       if (d.hover && this._snapJunction) parts.push(`<circle cx="${r3(d.hover[0])}" cy="${r3(d.hover[1])}" r="${px(9)}" fill="none" stroke="${c}" stroke-width="${px(2.5)}" pointer-events="none"/><text x="${r3(d.hover[0])}" y="${r3(d.hover[1] - px(13))}" text-anchor="middle" font-size="${px(11)}" fill="${c}" font-weight="600" pointer-events="none">Abzweig</text>`);
+      // Gerät am Zeiger: eckiger Ring und Name
+      const dev = d.hover && this._snapDevice ? this._endName(this._snapDevice.ref) : null;
+      if (dev) parts.push(`<rect x="${r3(d.hover[0] - px(9))}" y="${r3(d.hover[1] - px(9))}" width="${px(18)}" height="${px(18)}" rx="${px(4)}" fill="none" stroke="${c}" stroke-width="${px(2.5)}" pointer-events="none"/><text x="${r3(d.hover[0])}" y="${r3(d.hover[1] - px(14))}" text-anchor="middle" font-size="${px(11)}" fill="${c}" font-weight="600" stroke="#fff" stroke-width="${px(3)}" paint-order="stroke" pointer-events="none">${esc(dev)}</text>`);
     }
     return parts.join("");
+  },
+
+  /** Stecker-Symbol an einem Leitungsende (Plan): kleines Quadrat in der Farbe der Leitung mit weißem Rand. */
+  _plugMark(px, q, c, attrs = "") {
+    const s = px(11);
+    return `<rect ${attrs} x="${r3(q[0] - s / 2)}" y="${r3(q[1] - s / 2)}" width="${s}" height="${s}" rx="${px(2.5)}" fill="${c}" stroke="#fff" stroke-width="${px(2)}" pointer-events="none"/><line x1="${r3(q[0] - s / 5)}" y1="${r3(q[1])}" x2="${r3(q[0] + s / 5)}" y2="${r3(q[1])}" stroke="#fff" stroke-width="${px(1.5)}" pointer-events="none"/>`;
   },
 
   _finishPipe() {
@@ -202,6 +245,11 @@ export const PipeMethods = {
     o.pick = null;
     const joints = remapJoints(d.joints, { n: pipe.points.length });
     if (joints.length) pipe.joints = joints;
+    // Anfang/Ende an einem Gerät
+    const ra = d.devs?.[0];
+    const rb = d.devs?.[d.line.length - 1];
+    if (ra || rb) pipe.ends = { ...(ra ? { a: { ...ra } } : {}), ...(rb ? { b: { ...rb } } : {}) };
+    const at = [ra && `Anfang an ${this._endName(ra)}`, rb && `Ende an ${this._endName(rb)}`].filter(Boolean);
     this.change((fl) => {
       fl.pipes = [...(fl.pipes ?? []), pipe];
     });
@@ -210,7 +258,7 @@ export const PipeMethods = {
     this.renderBar();
     this.render();
     this.renderProps();
-    this._toast(`${PIPE_TYPES.find((t) => t[0] === pipe.type)[1]}: ${pipe.points.length} Punkte${joints.length ? `, ${joints.length} Abzweig${joints.length > 1 ? "e" : ""} unterwegs` : ""} – rechts Sensor oder Zielraum wählen.`);
+    this._toast(`${PIPE_TYPES.find((t) => t[0] === pipe.type)[1]}: ${pipe.points.length} Punkte${joints.length ? `, ${joints.length} Abzweig${joints.length > 1 ? "e" : ""} unterwegs` : ""}${at.length ? `, ${at.join(", ")}` : ""} – rechts Sensor oder Zielraum wählen.`);
   },
 
   /** Stufenknöpfe (data-lv, data-h = Höhe bei dieser Decke); cur = gewählte Stufe. */
@@ -286,12 +334,17 @@ export const PipeMethods = {
     const lvs = hs.map((h, i) => levelOf(h, ceils[i]));
     const allLv = lvs.every((v) => v && v === lvs[0]) ? lvs[0] : null;
     const sensorLabel = l.type === "strom" ? "Leistungs-Sensor (W) dieser Leitung" : l.type === "netzwerk" ? "Datenrate-Sensor (z. B. rx/tx des Routers)" : "Durchfluss-Sensor oder Ventil";
+    // angeschlossene Geräte (Anfang/Ende) mit „lösen“; deren Entität gilt als Gerät am Ende, wenn keins gewählt ist
+    const devs = pipeEnds(l, this.floor);
+    const plugs = ["a", "b"].filter((k) => devs[k]).map((k) => `<div class="colorrow" data-pend="${k}" style="margin-top:6px"><span style="flex:1">${k === "a" ? "Anfang" : "Ende"}: <b>${esc(this._endName(l.ends[k]))}</b></span><button data-unplug="${k}">lösen</button></div>`).join("");
+    const derived = endDevice(devs);
     el.innerHTML = `<h3>Leitung</h3>
       <div class="seg wide" data-ptype>${PIPE_TYPES.map(([k, n]) => `<button data-k="${k}" class="${l.type === k ? "sel" : ""}">${n}</button>`).join("")}</div>
       <label>Name</label><input data-pf="name" value="${esc(l.name ?? "")}" placeholder="z. B. Büro Steckdosen">
       <h4>Endet an</h4>
+      ${plugs}
       ${l.type === "strom" ? `<label>Raum (Verbrauch des Raums)</label><select data-pf="room"><option value="">– keiner –</option>${rooms.map(([id, n]) => `<option value="${esc(id)}"${l.room === id ? " selected" : ""}>${esc(n)}</option>`).join("")}</select>` : ""}
-      <label>${l.type === "netzwerk" ? "Netzwerkgerät" : "Gerät"}</label><input data-pf="device" list="dl_pdev" value="${esc(l.device ?? "")}" placeholder="– keins –">${dl("dl_pdev", list(devRe))}
+      <label>${l.type === "netzwerk" ? "Netzwerkgerät" : "Gerät"}</label><input data-pf="device" list="dl_pdev" value="${esc(l.device ?? "")}" placeholder="${derived ? `vom angeschlossenen Gerät: ${esc(derived)}` : "– keins –"}">${dl("dl_pdev", list(devRe))}
       <label>${sensorLabel}</label><input data-pf="entity" list="dl_pipe" value="${esc(l.entity ?? "")}" placeholder="– keiner –">${dl("dl_pipe", list(sensorRe))}
       <p class="muted">Ohne Ende fließt durch diese Leitung, was an ihr hängt (Abzweige, weitere Leitungen).</p>
       <h4>Punkte</h4>
@@ -317,6 +370,9 @@ export const PipeMethods = {
     el.querySelectorAll("[data-pf]").forEach((i) => i.addEventListener("change", () => upd((x) => {
       x[i.dataset.pf] = i.value.trim() || null;
     })));
+    el.querySelectorAll("[data-unplug]").forEach((b) => b.addEventListener("click", () => upd((x) => {
+      unplugEnd(x, b.dataset.unplug);
+    })));
     el.querySelectorAll("[data-pth] [data-lv]").forEach((b) => b.addEventListener("click", () => upd((x) => {
       x.heights[pt] = levelHeight(b.dataset.lv, b.dataset.lv === "decke" ? ceil(x, pt) : clear);
     })));
@@ -330,6 +386,9 @@ export const PipeMethods = {
     el.querySelector("[data-act=ptdel]")?.addEventListener("click", () => {
       this.pipePt = null;
       upd((x) => {
+        // Anfang bzw. Ende gelöscht: der neue Endpunkt hängt an keinem Gerät
+        if (pt === 0) unplugEnd(x, "a");
+        if (pt === x.points.length - 1) unplugEnd(x, "b");
         x.points.splice(pt, 1);
         x.heights.splice(pt, 1);
         x.joints = remapJoints(x.joints, { remove: pt, n: x.points.length });
@@ -353,6 +412,7 @@ export const PipeMethods = {
       x.points.reverse();
       x.heights.reverse();
       if (x.joints) x.joints = remapJoints(x.joints, { flip: true, n: x.points.length });
+      if (x.ends) x.ends = { ...(x.ends.b ? { a: x.ends.b } : {}), ...(x.ends.a ? { b: x.ends.a } : {}) };
       this.pipePt = null;
     }));
     el.querySelector("[data-act=pipedel]").addEventListener("click", () => {
@@ -426,8 +486,11 @@ export const PipeMethods = {
     if (drag.mode === "pipept") {
       const l = (this.floor.pipes ?? []).find((x) => x.id === drag.id);
       if (!l) return true;
-      const q = this._pipeSnap(ev, p, null, { exclude: drag.id, type: l.type });
+      // Anfang bzw. Ende rastet auch an Geräten ein
+      const end = drag.i === 0 ? "a" : drag.i === l.points.length - 1 ? "b" : null;
+      const q = this._pipeSnap(ev, p, null, { exclude: drag.id, type: l.type, devices: !!end });
       const junction = this._snapJunction;
+      const dev = end ? this._snapDevice : null;
       this._dragChange(drag, (fl) => {
         const x = fl.pipes.find((y) => y.id === drag.id);
         x.points[drag.i] = [r3(q[0]), r3(q[1])];
@@ -437,6 +500,9 @@ export const PipeMethods = {
         else js.delete(drag.i);
         x.joints = remapJoints([...js], { n: x.points.length });
         if (!x.joints.length) delete x.joints;
+        // Ende an ein Gerät gezogen = angeschlossen, weggezogen = gelöst
+        if (end && dev) x.ends = { ...(x.ends ?? {}), [end]: { ...dev.ref } };
+        else if (end) unplugEnd(x, end);
       });
       this.render();
       return true;

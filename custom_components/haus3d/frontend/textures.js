@@ -4,6 +4,7 @@
 
 import * as THREE from "./vendor/three.module.min.js";
 import { seeded } from "./exterior.js";
+import { textureRotation } from "./model.js";
 
 const N = 256;
 
@@ -11,6 +12,7 @@ const N = 256;
 const TILE = {
   plaster: [1.5, 1.5], brick: [1, 0.5], timber: [2.4, 2.6], stone: [1.2, 1.2], wood_v: [0.96, 1.5], wood_h: [1.5, 0.96], panel: [0.8, 1.5],
   concrete: [2, 1], tiles: [0.6, 0.6], tiles_large: [1.2, 1.2], parquet: [1.2, 1.2], carpet: [0.6, 0.6],
+  concrete_polished: [2, 2], concrete_formwork: [2.4, 1.2], screed: [1.5, 1.5], epoxy_chips: [1, 1], concrete_slabs: [1.2, 1.2],
   roof_tiles: [1.2, 1.32], roof_slate: [0.8, 0.8], roof_metal: [1.5, 1.5], roof_shingle: [1, 1],
   grass: [1.5, 1.5], gravel: [1, 1], paving: [1, 1], slabs: [1.2, 1.2], deck: [1.2, 1.2], asphalt: [2, 2], soil: [1.2, 1.2],
 };
@@ -130,6 +132,148 @@ const DRAW = {
       g.fill();
     }
   },
+  // Beton geschliffen: glatt, leicht wolkig, feine Körnung (angeschliffene Zuschläge)
+  concrete_polished: (g, rnd) => {
+    shade(g, 228);
+    g.fillRect(0, 0, N, N);
+    clouds(g, rnd, 46, 22, 80, 0.22);
+    for (let i = 0; i < 2200; i++) {
+      shade(g, 165 + rnd() * 90, 0.2 + rnd() * 0.3);
+      const s = 0.8 + rnd() * 1.4;
+      g.fillRect(rnd() * N, rnd() * N, s, s);
+    }
+    grain_overlay(g, rnd, 0.03);
+  },
+  // Sichtbeton: Schaltafel 2,4 × 1,2 m (Fugen an den Kachelrändern), schwach sichtbare Bretter, Ankerlöcher,
+  // einzelne Poren. Bild oben = Wand oben
+  concrete_formwork: (g, rnd) => {
+    shade(g, 222);
+    g.fillRect(0, 0, N, N);
+    clouds(g, rnd, 26, 18, 60, 0.16);
+    const bh = N / 8; // Bretter je 15 cm
+    for (let r = 0; r < 8; r++) {
+      shade(g, rnd() < 0.5 ? 255 : 150, 0.05 + rnd() * 0.06);
+      g.fillRect(0, r * bh, N, bh);
+      for (let i = 0; i < 18; i++) {
+        shade(g, 170 + rnd() * 40, 0.12);
+        g.fillRect(rnd() * N, r * bh + 2 + rnd() * (bh - 4), 20 + rnd() * 60, 1);
+      }
+      shade(g, 160, 0.35);
+      g.fillRect(0, r * bh, N, 1);
+    }
+    for (let i = 0; i < 70; i++) {
+      shade(g, 140 + rnd() * 40, 0.35);
+      g.beginPath();
+      g.ellipse(rnd() * N, rnd() * N, 0.5 + rnd() * 0.6, 1 + rnd() * 1.2, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+    // Fugen der Tafel: links und oben je 2 px (die Nachbarkachel setzt die Fuge fort)
+    shade(g, 140, 0.8);
+    g.fillRect(0, 0, 2, N);
+    g.fillRect(0, 0, N, 2);
+    // Ankerlöcher: 3 × 2 Raster, Konus von etwa 5 cm mit dunklem Loch (Kachel doppelt so breit wie hoch: im
+    // Bild als Ellipse, auf der Wand rund)
+    for (const x of [N / 6, N / 2, (5 * N) / 6]) {
+      for (const y of [N / 4 + bh / 2, (3 * N) / 4 + bh / 2]) {
+        shade(g, 175);
+        g.beginPath();
+        g.ellipse(x, y, 2.6, 5.2, 0, 0, Math.PI * 2);
+        g.fill();
+        shade(g, 95);
+        g.beginPath();
+        g.ellipse(x, y, 1.4, 2.8, 0, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+  },
+  // Estrich: rau und grau, fleckig, Spuren der Glättkelle
+  screed: (g, rnd) => {
+    grain(g, rnd, 24, 214, 16000, 1.6);
+    clouds(g, rnd, 40, 14, 55, 0.2, 0.4);
+    g.lineCap = "round";
+    for (let i = 0; i < 26; i++) {
+      const x = rnd() * N;
+      const y = rnd() * N;
+      const r = 26 + rnd() * 60;
+      const a0 = rnd() * Math.PI * 2;
+      const len = 0.6 + rnd() * 1.1;
+      const lw = 4 + rnd() * 10;
+      const v = rnd() < 0.6 ? 250 : 170;
+      const al = 0.08 + rnd() * 0.08;
+      wrap(x, y, r + lw, (px, py) => {
+        g.strokeStyle = `rgba(${v},${v},${v},${al})`;
+        g.lineWidth = lw;
+        g.beginPath();
+        g.arc(px, py, r, a0, a0 + len);
+        g.stroke();
+      });
+    }
+    grain_overlay(g, rnd, 0.06);
+  },
+  // Epoxid mit Chips (Garagenboden): glatter Grund mit bunten Flocken; die Bodenfarbe tönt alles
+  epoxy_chips: (g, rnd) => {
+    grain(g, rnd, 4, 232, 3000, 1.2);
+    const chips = [[96, 98, 102], [160, 162, 166], [250, 250, 248], [222, 210, 190], [150, 164, 186], [196, 160, 140]];
+    for (let i = 0; i < 1100; i++) {
+      const [r, gg, b] = chips[Math.floor(rnd() * chips.length)];
+      const x = rnd() * N;
+      const y = rnd() * N;
+      const s = 1 + rnd() * 2;
+      const k = 3 + Math.floor(rnd() * 3);
+      const a0 = rnd() * Math.PI * 2;
+      g.fillStyle = `rgba(${r},${gg},${b},${0.75 + rnd() * 0.25})`;
+      g.beginPath();
+      for (let j = 0; j < k; j++) {
+        const a = a0 + (j / k) * Math.PI * 2;
+        const q = s * (0.6 + rnd() * 0.6);
+        if (j) g.lineTo(x + Math.cos(a) * q, y + Math.sin(a) * q);
+        else g.moveTo(x + Math.cos(a) * q, y + Math.sin(a) * q);
+      }
+      g.fill();
+    }
+  },
+  // Betonplatten 60 × 60 cm mit schmalen Fugen (Kachel 1,2 m = 2 × 2 Platten)
+  concrete_slabs: (g, rnd) => {
+    shade(g, 150);
+    g.fillRect(0, 0, N, N);
+    const s = N / 2;
+    for (let r = 0; r < 2; r++) {
+      for (let k = 0; k < 2; k++) {
+        const x = k * s + 1;
+        const y = r * s + 1;
+        const w = s - 2;
+        shade(g, 214 + (rnd() - 0.5) * 22);
+        g.fillRect(x, y, w, w);
+        g.save();
+        g.beginPath();
+        g.rect(x, y, w, w);
+        g.clip();
+        for (let i = 0; i < 7; i++) {
+          const cx = x + rnd() * w;
+          const cy = y + rnd() * w;
+          const rr = 14 + rnd() * 40;
+          const v = rnd() < 0.5 ? 250 : 140;
+          const grd = g.createRadialGradient(cx, cy, 0, cx, cy, rr);
+          grd.addColorStop(0, `rgba(${v},${v},${v},0.16)`);
+          grd.addColorStop(1, `rgba(${v},${v},${v},0)`);
+          g.fillStyle = grd;
+          g.fillRect(cx - rr, cy - rr, 2 * rr, 2 * rr);
+        }
+        g.restore();
+        // leichte Fase: oben/links hell, unten/rechts dunkel
+        shade(g, 255, 0.35);
+        g.fillRect(x, y, w, 1);
+        g.fillRect(x, y, 1, w);
+        shade(g, 110, 0.3);
+        g.fillRect(x, y + w - 1, w, 1);
+        g.fillRect(x + w - 1, y, 1, w);
+      }
+    }
+    for (let i = 0; i < 4000; i++) {
+      shade(g, rnd() < 0.5 ? 130 : 250, 0.12);
+      g.fillRect(rnd() * N, rnd() * N, 1.3, 1.3);
+    }
+  },
   tiles: (g, rnd) => tilesGrid(g, rnd, 2),
   tiles_large: (g, rnd) => tilesGrid(g, rnd, 2),
   parquet: (g, rnd) => {
@@ -236,22 +380,71 @@ function grain_overlay(g, rnd, alpha) {
   }
 }
 
+/** fn(x, y) an der Stelle und – wo Radius r über einen Rand reicht – an den gegenüberliegenden Stellen (nahtlos). */
+function wrap(x, y, r, fn) {
+  for (const dx of [-N, 0, N]) {
+    for (const dy of [-N, 0, N]) {
+      const px = x + dx;
+      const py = y + dy;
+      if (px + r > 0 && px - r < N && py + r > 0 && py - r < N) fn(px, py);
+    }
+  }
+}
+
+/** Weiche Flecken (Verlauf nach außen), hell mit Anteil light, sonst dunkel; nahtlos über die Ränder. */
+function clouds(g, rnd, n, rMin, rMax, alpha, light = 0.5) {
+  for (let i = 0; i < n; i++) {
+    const x = rnd() * N;
+    const y = rnd() * N;
+    const r = rMin + rnd() * (rMax - rMin);
+    const v = rnd() < light ? 255 : 120;
+    const a = alpha * (0.5 + rnd() * 0.5);
+    wrap(x, y, r, (px, py) => {
+      const grd = g.createRadialGradient(px, py, 0, px, py, r);
+      grd.addColorStop(0, `rgba(${v},${v},${v},${a})`);
+      grd.addColorStop(1, `rgba(${v},${v},${v},0)`);
+      g.fillStyle = grd;
+      g.fillRect(px - r, py - r, 2 * r, 2 * r);
+    });
+  }
+}
+
+/** Schlüssel aller Texturen, die getTexture zeichnen kann. */
+export const TEXTURE_KEYS = Object.keys(DRAW);
+
 const cache = new Map();
 
-/** Textur zu einem Schlüssel (oder null). Wird je Schlüssel einmal erzeugt und geteilt. */
-export function getTexture(key, renderer = null) {
+/**
+ * Textur zu einem Schlüssel (oder null). Wird je Schlüssel einmal erzeugt und geteilt. rotation (Grad, im Plan im
+ * Uhrzeigersinn um den Weltursprung): eigene Kopie je Drehung, ebenfalls geteilt; Bild und GPU-Textur bleiben
+ * dieselben, die geteilte Textur ohne Drehung wird nie verändert.
+ */
+export function getTexture(key, renderer = null, rotation = 0) {
   if (!key || !DRAW[key]) return null;
-  if (cache.has(key)) return cache.get(key);
-  const [c, g] = canvas();
-  DRAW[key](g, seeded(key));
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  const [w, h] = TILE[key] ?? [1, 1];
-  t.repeat.set(1 / w, 1 / h);
-  t.anisotropy = Math.min(4, renderer?.capabilities?.getMaxAnisotropy?.() ?? 1);
-  cache.set(key, t);
-  return t;
+  let t = cache.get(key);
+  if (!t) {
+    const [c, g] = canvas();
+    DRAW[key](g, seeded(key));
+    t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    const [w, h] = TILE[key] ?? [1, 1];
+    t.repeat.set(1 / w, 1 / h);
+    t.anisotropy = Math.min(4, renderer?.capabilities?.getMaxAnisotropy?.() ?? 1);
+    cache.set(key, t);
+  }
+  const deg = textureRotation(rotation);
+  if (!deg) return t;
+  const k = `${key}@${deg}`;
+  let r = cache.get(k);
+  if (!r) {
+    r = t.clone();
+    // UVs der Flächen: u = x, v = −z (Meter, um den Ursprung); mit −Grad dreht das Muster im Plan (x nach
+    // rechts, z nach unten) im Uhrzeigersinn wie die Möbel-Drehung
+    r.rotation = (-deg * Math.PI) / 180;
+    cache.set(k, r);
+  }
+  return r;
 }
 
 /**

@@ -3,6 +3,8 @@
 
 import { alignAxes, computeWalls, pointInPolygon, signedArea } from "./walls.js";
 import { EXTRA_FREE } from "./catalog-extra.js";
+import { MORE_FREE } from "./catalog-more.js";
+import { hasPose, planSize } from "./pose.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
@@ -236,7 +238,17 @@ export function outdoorAt(floor, p) {
   return [...(floor.outdoor ?? [])].reverse().find((o) => pointInPolygon(p, o.points)) ?? null;
 }
 
-/** Möbelstück unter einem Punkt (gedrehtes Rechteck). */
+/**
+ * Grundfläche [Breite, Tiefe] eines Möbelstücks im eigenen Rahmen (geneigt/gekippt: Hülle des Rahmens, pose.js).
+ * Höhe 0 (Säule, Stütze) reicht bis zur Decke (ceil).
+ */
+export function footprintSize(m, ceil = 2.5) {
+  const w = m.w || 0.6;
+  const d = m.d || 0.6;
+  return hasPose(m) ? planSize(m, w, d, m.h || ceil, m.h ? null : ceil) : [w, d];
+}
+
+/** Möbelstück unter einem Punkt (gedrehtes Rechteck der Grundfläche). */
 export function furnitureAt(floor, p) {
   return (
     [...(floor.furniture ?? [])].reverse().find((m) => {
@@ -246,7 +258,8 @@ export function furnitureAt(floor, p) {
       const dz = p[1] - m.z;
       const lx = dx * Math.cos(a) + dz * Math.sin(a);
       const lz = -dx * Math.sin(a) + dz * Math.cos(a);
-      return Math.abs(lx) <= (m.w || 0.6) / 2 + 0.05 && Math.abs(lz) <= (m.d || 0.6) / 2 + 0.05;
+      const [w, d] = footprintSize(m, floor.height || 2.5);
+      return Math.abs(lx) <= w / 2 + 0.05 && Math.abs(lz) <= d / 2 + 0.05;
     }) ?? null
   );
 }
@@ -466,7 +479,7 @@ export function wallFaces(segments) {
 
 /** Möbeltypen, die nicht an Wänden einrasten (liegen frei im Raum oder hängen an der Decke). */
 const FREE_EXTRA = new Set(EXTRA_FREE);
-const FREE_TYPES = new Set([...EXTRA_FREE, "beam", "column", "rug", "parking", "stairwell", "robot_vacuum", "table", "table_round", "coffee_table", "island", "lamp_ceiling", "lamp_downlight", "lamp_panel", "lamp_pendant", "chair", "stool", "bar_stool", "custom_box", "custom_cylinder"]);
+const FREE_TYPES = new Set([...EXTRA_FREE, ...MORE_FREE, "beam", "column", "rug", "parking", "stairwell", "robot_vacuum", "table", "table_round", "coffee_table", "island", "lamp_ceiling", "lamp_downlight", "lamp_panel", "lamp_pendant", "chair", "stool", "bar_stool", "custom_box", "custom_cylinder", "custom_model"]);
 
 /**
  * Möbel an der nächsten Wand ausrichten (Rückseite bündig, Vorderseite zum Raum) und, wenn nah,
@@ -474,8 +487,7 @@ const FREE_TYPES = new Set([...EXTRA_FREE, "beam", "column", "rug", "parking", "
  */
 export function snapToWall(item, faces, { tol = 0.3 } = {}) {
   if (FREE_TYPES.has(item.type)) return null;
-  const w = item.w || 0.6;
-  const d = item.d || 0.6;
+  const [w, d] = footprintSize(item); // geneigt: Hülle (ein angelehntes Regal berührt die Wand oben)
   const p = [item.x, item.z];
   let best = null;
   for (const f of faces) {
@@ -526,8 +538,9 @@ export function pushOutOfWalls(item, faces) {
   const a = ((item.rotation || 0) * Math.PI) / 180;
   const ux = [Math.cos(a), Math.sin(a)]; // lokale Breite
   const uz = [-Math.sin(a), Math.cos(a)]; // lokale Tiefe
-  const w = (item.w || 0.6) / 2;
-  const d = (item.d || 0.6) / 2;
+  const [fw, fd] = footprintSize(item);
+  const w = fw / 2;
+  const d = fd / 2;
   let p = [item.x, item.z];
   let moved = false;
   for (let round = 0; round < 3; round++) {

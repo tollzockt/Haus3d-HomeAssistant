@@ -4,6 +4,7 @@
 
 import { FURNITURE, FURNITURE_CATEGORIES, FURNITURE_GROUPS } from "./furniture.js";
 import { furnitureThumb, renderThumbs } from "./thumbs.js";
+import { MODEL_GROUP, MODEL_STYLE, ModelCatalogMethods } from "./editor-models.js";
 
 const KEY = "haus3d.catalogOpen";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -37,9 +38,10 @@ export const CatalogMethods = {
       <input class="search" type="search" placeholder="Suchen …" value="${esc(this.furnSearch)}"><div class="catalog"></div>`;
     const cats = el.querySelector(".catalog");
     const style = this.sceneStyle === "cyber" ? "cyber" : "standard";
+    this._modelsInit(); // eigene 3D-Modelle: Liste holen
     const open = loadOpen();
     const cur = catalogCategory(this.furnType);
-    const isOpenG = (g) => open.g[g] ?? (g === "Drinnen" || FURNITURE_GROUPS.find(([x]) => x === g)?.[1].includes(cur));
+    const isOpenG = (g) => open.g[g] ?? (g === "Drinnen" || g === MODEL_GROUP || FURNITURE_GROUPS.find(([x]) => x === g)?.[1].includes(cur));
     const isOpenC = (c) => open.c[c] ?? c === cur;
     const tile = (t) => {
       const img = furnitureThumb(t, style);
@@ -50,13 +52,14 @@ export const CatalogMethods = {
       const q = this.furnSearch.trim().toLowerCase();
       if (q) {
         // Suche: alle Treffer aufgeklappt, Gruppen und Merkzustand bleiben unberührt
-        cats.innerHTML = FURNITURE_CATEGORIES.map(([cat, types]) => {
+        cats.innerHTML = this._modelFound(q, style) + FURNITURE_CATEGORIES.map(([cat, types]) => {
           const list = types.filter((t) => FURNITURE[t][0].toLowerCase().includes(q) || cat.toLowerCase().includes(q));
           return list.length ? `<div class="cat found">${esc(cat)}</div><div class="tiles">${list.map(tile).join("")}</div>` : "";
         }).join("") || `<p class="muted">Nichts gefunden.</p>`;
+        this._modelThumbs(cats, style);
         return;
       }
-      cats.innerHTML = FURNITURE_GROUPS.map(([g, cs]) => {
+      cats.innerHTML = this._modelSection(isOpenG(MODEL_GROUP), head, style) + FURNITURE_GROUPS.map(([g, cs]) => {
         const go = isOpenG(g);
         const count = cs.reduce((n, c) => n + (TYPES.get(c)?.length ?? 0), 0);
         return `${head("grp", g, g, count, go)}${go ? `<div class="grpbody">${cs.map((c) => {
@@ -65,13 +68,16 @@ export const CatalogMethods = {
           return `${head("cat", c, c, types.length, co)}${co ? `<div class="tiles">${types.map(tile).join("")}</div>` : ""}`;
         }).join("")}</div>` : ""}`;
       }).join("");
+      this._modelThumbs(cats, style);
     };
     draw();
+    this._modelsWatch(cats, draw);
     el.querySelector(".search").addEventListener("input", (ev) => {
       this.furnSearch = ev.target.value;
       draw();
     });
     cats.addEventListener("click", (ev) => {
+      if (this._modelClick(ev, cats)) return;
       const g = ev.target.closest("[data-grp]");
       const c = ev.target.closest("[data-cat]");
       if (g || c) {
@@ -84,6 +90,7 @@ export const CatalogMethods = {
       const b = ev.target.closest("[data-furn]");
       if (!b) return;
       this.furnType = b.dataset.furn;
+      this.furnModel = null;
       cats.querySelectorAll(".tile").forEach((t) => t.classList.toggle("sel", t === b));
     });
     // Vorschaubilder nach und nach einsetzen (auch in später aufgeklappten Kategorien)
@@ -92,6 +99,7 @@ export const CatalogMethods = {
       if (ph) ph.outerHTML = `<img alt="" src="${url}">`;
     }, style);
   },
+  ...ModelCatalogMethods,
 };
 
 export const CATALOG_STYLE = `
@@ -109,4 +117,4 @@ export const CATALOG_STYLE = `
 .ed-props .tile img, .ed-props .tile .ph { width: 64px; height: 64px; object-fit: contain; }
 .ed-props .tile .ph { border-radius: 8px; background: rgba(127,127,127,.12); }
 .ed-props .tile.sel { border-color: var(--primary-color, #03a9f4); background: rgba(3,169,244,.12); }
-`;
+${MODEL_STYLE}`;

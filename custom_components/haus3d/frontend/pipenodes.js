@@ -1,8 +1,9 @@
 // Verteiler-Geometrie (ohne DOM, mit node testbar): Gehäusemaße, Lage an der Wand (Vorderseite zum Raum,
-// Rückseite an der Wand), Gehäusehöhe und senkrechte Anschlüsse von Leitungsenden an Verteiler und Leitungen.
+// Rückseite an der Wand), Gehäusehöhe und senkrechte Anschlüsse von Leitungsenden an Verteiler, Leitungen und Geräte.
 
 import { nodeMedium } from "./pipenet.js";
 import { ceilingAlong } from "./pipelevels.js";
+import { endHeight, pipeEnds } from "./pipeends.js";
 
 /** Abstand Rohrmitte bzw. Verteilerpunkt zur Wandoberfläche (m). */
 export const WALL_GAP = 0.06;
@@ -166,19 +167,26 @@ export function nodeSpan(n, floor) {
 }
 
 /**
- * Senkrechte Anschlüsse der Leitungsenden: Ende an einem Verteiler gleichen Mediums → auf die Höhe seines
- * Gehäuses; sonst Ende auf einer anderen Leitung gleichen Mediums (mitten darauf, oder Ende an Ende mit einer
- * früheren Leitung) → auf deren Höhe. Werte in m über dem Boden, null = kein Anschlussstück.
+ * Senkrechte Anschlüsse der Leitungsenden: Ende an einem Gerät (pipe.ends, pipeends.js) → auf seine
+ * Anschlusshöhe (furnSpan: Höhenbereich eines Möbelstücks, pipeends.furnitureSpan); Ende an einem Verteiler
+ * gleichen Mediums → auf die Höhe seines Gehäuses; sonst Ende auf einer anderen Leitung gleichen Mediums (mitten
+ * darauf, oder Ende an Ende mit einer früheren Leitung) → auf deren Höhe. Werte in m über dem Boden, null = kein
+ * Anschlussstück.
  * @returns {{head: number|null, tail: number|null}}
  */
-export function pipeEndDrops(pipe, floor) {
+export function pipeEndDrops(pipe, floor, { furnSpan = null } = {}) {
   const pts = pipe?.points ?? [];
   if (pts.length < 2) return { head: null, tail: null };
   const pipes = floor?.pipes ?? [];
   let idx = pipes.indexOf(pipe);
   if (idx < 0) idx = pipes.findIndex((q) => q.id != null && q.id === pipe.id);
   if (idx < 0) idx = pipes.length;
-  const end = (p, h) => {
+  const devs = pipeEnds(pipe, floor);
+  const end = (p, h, dev) => {
+    if (dev) {
+      const y = endHeight(dev, pipe.type, floor, furnSpan);
+      return Math.abs(y - h) > 0.01 ? r3(y) : null;
+    }
     let target = null;
     let node = null;
     for (const n of floor?.nodes ?? []) {
@@ -200,5 +208,5 @@ export function pipeEndDrops(pipe, floor) {
     }
     return target != null && Math.abs(target - h) > 0.01 ? r3(target) : null;
   };
-  return { head: end(pts[0], heightAt(pipe, 0)), tail: end(pts.at(-1), heightAt(pipe, pts.length - 1)) };
+  return { head: end(pts[0], heightAt(pipe, 0), devs.a), tail: end(pts.at(-1), heightAt(pipe, pts.length - 1), devs.b) };
 }

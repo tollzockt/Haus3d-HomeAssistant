@@ -72,6 +72,11 @@ export const FLOOR_MATERIALS = [
   ["carpet_beige", "Teppich beige", "#c9b79a"],
   ["carpet_red", "Teppich rot", "#9c3b3b"],
   ["epoxy", "Epoxid", "#7d8b99"],
+  ["concrete_polished", "Beton geschliffen", "#b0aea9"],
+  ["exposed_concrete", "Sichtbeton", "#a9a8a3"],
+  ["screed", "Estrich", "#a19d96"],
+  ["epoxy_chips", "Epoxid mit Chips", "#8e949b"],
+  ["concrete_slabs", "Betonplatten groß", "#aaa8a2"],
 ];
 
 /** Farbvorschläge für Wände und Böden (eigene Farbe zusätzlich frei wählbar). */
@@ -101,6 +106,11 @@ export const TEXTURES = [
   ["wood_h", "Holz waagerecht", "w"],
   ["panel", "Fassadenpaneele", "wr"],
   ["concrete", "Beton", "wfg"],
+  ["concrete_polished", "Beton geschliffen", "wf"],
+  ["concrete_formwork", "Sichtbeton (Schalung)", "wf"],
+  ["screed", "Estrich", "fg"],
+  ["epoxy_chips", "Epoxid mit Chips", "f"],
+  ["concrete_slabs", "Betonplatten groß", "fg"],
   ["tiles", "Fliesen", "wf"],
   ["tiles_large", "Fliesen groß", "fg"],
   ["parquet", "Dielen / Parkett", "f"],
@@ -127,6 +137,8 @@ const FLOOR_TEXTURE = {
   wood: "parquet", oak: "parquet", laminate_light: "parquet", walnut: "parquet", parquet_grey: "parquet", vinyl_grey: "parquet",
   tiles: "tiles", tiles_dark: "tiles", tiles_white: "tiles", marble: "tiles_large", terracotta: "tiles", slate: "tiles_large",
   carpet: "carpet", carpet_beige: "carpet", carpet_red: "carpet", stone: "stone", concrete: "concrete", epoxy: "concrete",
+  concrete_polished: "concrete_polished", exposed_concrete: "concrete_formwork", screed: "screed", epoxy_chips: "epoxy_chips",
+  concrete_slabs: "concrete_slabs",
 };
 const GROUND_TEXTURE = { lawn: "grass", terrace: "slabs", path: "paving", driveway: "asphalt", pool: "tiles", bed: "soil", hedge: "grass", fence: "wood_v", balcony: "slabs", gravel: "gravel", paving: "paving", rockery: "gravel" };
 
@@ -144,4 +156,16 @@ export function textureFor(kind, chosen, base) {
   if (kind === "roof") return base === "flat" ? "gravel" : "roof_tiles";
   if (kind === "ground") return GROUND_TEXTURE[base] ?? null;
   return null;
+}
+
+/**
+ * Drehung einer Textur in Grad (im Plan im Uhrzeigersinn, um den Weltursprung – angrenzende Flächen mit
+ * gleicher Drehung laufen durch): 0 … 360, auf 0,001° gerundet; keine endliche Zahl → 0.
+ */
+export function textureRotation(v) {
+  if (v === null || v === "" || typeof v === "boolean") return 0;
+  const x = Number(v);
+  if (!Number.isFinite(x)) return 0;
+  const a = Math.round(((((Math.round(x * 1000) / 1000) % 360) + 360) % 360) * 1000) / 1000;
+  return a >= 360 ? 0 : a + 0;
 }

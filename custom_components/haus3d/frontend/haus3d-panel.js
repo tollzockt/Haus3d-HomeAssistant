@@ -68,6 +68,7 @@ import { VIEW_PRESETS, normalizeViews, poseInBox } from "./camera.js";
 
 import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive, touchScroll } from "./panel-util.js";
 import { DialogMethods } from "./panel-dialogs.js";
+import { setModelHass } from "./models.js";
 
 /** Uhrzeit der Simulation („echt“ oder HH:MM). */
 const simTime = (min) => (min === null || min === undefined ? "echt" : `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`);
@@ -109,6 +110,7 @@ class Haus3DPanel extends HTMLElement {
 
   set hass(real) {
     this._realHass = real;
+    setModelHass(real); // eigene 3D-Modelle laden über das echte hass (fetchWithAuth)
     // Simulation: Schicht über dem echten hass, nichts geht an Home Assistant
     // Schlösser entriegeln/öffnen nur mit der Tür-PIN (Simulation schaltet ohnehin nichts Echtes)
     // Zeitstrahl: Zustände zum gewählten Zeitpunkt (nur ansehen)
@@ -1090,7 +1092,7 @@ class Haus3DPanel extends HTMLElement {
     const heating = new Set(this._watched.filter((id) => id.startsWith("climate.") && hass.states[id]?.attributes?.hvac_action === "heating"));
     const alertRooms = this._applyHighlight(this._evalAlerts(energy));
     if (this._securityView) temps.clear(); // Böden neutral grau
-    this._scene?.applyStates({ security, lit, temps, tempMode: view !== "none" || this._securityView, tempColor: (v) => viewColor(view, v) ?? [0.6, 0.6, 0.6], open, covers, feedIn: energy.einspeisung, onEntities, heating, heatRooms, alerts: alertRooms, lights, lightLooks });
+    this._scene?.applyStates({ security, lit, temps, tempMode: view !== "none" || this._securityView, tempColor: (v) => viewColor(view, v) ?? [0.6, 0.6, 0.6], open, covers, feedIn: energy.einspeisung, onEntities, heating, heatRooms, alerts: alertRooms, lights, lightLooks, states: hass.states });
     this._updateHouseFlow(energy);
     this._renderRoomPanel();
 

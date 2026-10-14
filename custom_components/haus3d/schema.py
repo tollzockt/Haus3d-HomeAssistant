@@ -46,6 +46,14 @@ def _soft(validator: Any, default: Any) -> Any:
 def _north(value: Any) -> float:
     return round(float(value) % 360, 3)
 
+
+def _open_flag(value: Any) -> Any:
+    """Abdeckung offen: Wahrheitswert; Zahlen (etwa eine Stellung) bleiben unverändert, alles andere ungültig."""
+    if isinstance(value, bool) or (isinstance(value, (int, float)) and math.isfinite(value)):
+        return value
+    return vol.Boolean()(value)
+
+
 OPENING_TYPES = ["window", "door", "garage"]
 OPENING_STYLES = [
     "interior",
@@ -59,7 +67,9 @@ OPENING_STYLES = [
     "standard",
     "bars",
 ]
-OUTDOOR_TYPES = ["lawn", "terrace", "path", "driveway", "pool", "bed", "hedge", "fence", "balcony", "gravel", "paving", "rockery"]
+OUTDOOR_TYPES = ["lawn", "terrace", "path", "driveway", "pool", "bed", "hedge", "fence", "balcony", "gravel", "paving", "rockery", "kerb"]
+# Randstein/Kante rund um eine Gartenfläche (area.edge) bzw. Art der Randstein-Linie (type "kerb")
+KERB_EDGES = ["none", "concrete", "granite", "metal", "palisade", "paver"]
 ROOF_TYPES = ["none", "flat", "gable", "hip", "shed"]
 # 0.23b2: Formen für eigene Dächer und Dachteile (wie roofshapes.js; geprüft von test_roof_types_match_frontend)
 ROOF_PART_TYPES = ["flat", "shed", "gable", "hip", "pyramid", "mansard", "halfhip", "cone", "terrace"]
@@ -80,6 +90,24 @@ def _clamp(lo: float, hi: float, default: Any, *, zero_default: bool = False) ->
         return min(float(hi), max(float(lo), v))
 
     return _soft(check, default)
+
+
+def _angle(*, half: bool) -> Any:
+    """Winkel in Grad weich prüfen: modulo 360 (half: −180 … 180 wie Neigen/Kippen, sonst 0 … 360 wie die
+    Drehung einer Textur), auf 0,001° gerundet. Keine endliche Zahl → None (das Frontend nimmt 0)."""
+
+    def check(value: Any) -> float:
+        if isinstance(value, bool):
+            raise vol.Invalid("Wahrheitswert statt Zahl")
+        v = float(value)
+        if not math.isfinite(v):
+            raise vol.Invalid("keine endliche Zahl")
+        a = round(round(v, 3) % 360, 3) % 360
+        if half and a > 180:
+            a -= 360
+        return round(a, 3) + 0.0
+
+    return _soft(check, None)
 
 
 def _soft_list(max_len: int) -> Any:
@@ -135,6 +163,8 @@ _ROOF_SHAPE_FIELDS = {
     vol.Optional("gable_color"): _soft(vol.Any(None, _HEX), None),
     vol.Optional("items"): _soft_list(MAX_ITEMS),
     vol.Optional("adjust"): _soft_list(20),
+    # Drehung des Belags der Dachterrasse (Grad)
+    vol.Optional("texture_rotation"): _angle(half=False),
 }
 
 # 0.23b2: eigenes Dach eines Raums (room.roof); ohne „base“ – Raumwände haben keine eigene Höhe
@@ -169,6 +199,8 @@ ROOM_SCHEMA = vol.Schema(
         vol.Optional("floor_material", default="wood"): vol.All(str, vol.Length(max=32)),
         # 0.23b2: eigenes Dach (weich; ungültig → kein Dach statt abgelehnter Stand)
         vol.Optional("roof"): _soft(vol.Any(None, ROOM_ROOF_SCHEMA), None),
+        # Drehung der Bodentextur (Grad)
+        vol.Optional("floor_texture_rotation"): _angle(half=False),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -246,6 +278,14 @@ FURNITURE_SCHEMA = vol.Schema(
         vol.Optional("hole_round"): _soft(vol.Boolean(), False),
         # 0.23b2: Modullage der Solarzäune (fehlt = quer)
         vol.Optional("orient"): _soft(vol.Any(None, vol.In(["portrait", "landscape"])), None),
+        # eigenes 3D-Modell (Kennung der hochgeladenen Datei) und Einpassen (fehlt = Seitenverhältnis behalten)
+        vol.Optional("model"): _soft(vol.Any(None, vol.All(str, vol.Match(r"^[0-9a-f]{16}\Z"))), None),
+        vol.Optional("fit"): _soft(vol.Any(None, vol.In(["keep", "stretch"])), None),
+        # Neigen (Oberseite nach hinten) und Kippen (nach rechts) in Grad, −180 … 180; fehlt = 0
+        vol.Optional("tilt"): _angle(half=True),
+        vol.Optional("roll"): _angle(half=True),
+        # Whirlpool – Abdeckung offen (fehlt/false = abgedeckt)
+        vol.Optional("open"): _soft(_open_flag, False),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -265,6 +305,35 @@ OUTDOOR_SCHEMA = vol.Schema(
         vol.Required("id"): _ID,
         vol.Required("type"): vol.In(OUTDOOR_TYPES),
         vol.Required("points"): vol.All([_POINT], vol.Length(min=3, max=MAX_POINTS)),
+        # Drehung der Textur (Grad)
+        vol.Optional("texture_rotation"): _angle(half=False),
+        # Randstein/Kante (weich: ungültige Art → keine) und Höhe über der Fläche in m (fehlt oder 0 = Standard der Art)
+        vol.Optional("edge"): _soft(vol.In(KERB_EDGES), "none"),
+        vol.Optional("edge_h"): _clamp(0.005, 0.6, None, zero_default=True),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
+
+def _pipe_end(value: Any) -> dict[str, Any]:
+    """Bezug eines Leitungsendes: genau eins von furniture (ID eines Möbelstücks) oder entity (platziertes Gerät)."""
+    if not isinstance(value, dict):
+        raise vol.Invalid("Bezug ist kein Objekt")
+    furniture, entity = value.get("furniture"), value.get("entity")
+    if (furniture is None) == (entity is None):
+        raise vol.Invalid("genau ein Bezug")
+    if furniture is not None:
+        _ID(furniture)
+    elif not (isinstance(entity, str) and 3 <= len(entity) <= 255 and "." in entity):
+        raise vol.Invalid("Entität ungültig")
+    return value
+
+
+# Leitungsenden an Geräten (a = erster, b = letzter Punkt); ungültige Bezüge fallen einzeln weg
+_PIPE_ENDS = vol.Schema(
+    {
+        vol.Optional("a"): _soft(vol.Any(None, _pipe_end), None),
+        vol.Optional("b"): _soft(vol.Any(None, _pipe_end), None),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -280,6 +349,8 @@ PIPE_SCHEMA = vol.Schema(
         vol.Optional("device", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
         # 0.23: Zwischenpunkte, die als Abzweig auf einer anderen Leitung liegen
         vol.Optional("joints"): _soft(vol.Any(None, vol.All([vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_POINTS))], vol.Length(max=MAX_POINTS))), None),
+        # Anfang/Ende an einem Gerät (weich; ungültig → kein Bezug, der Stand bleibt gültig)
+        vol.Optional("ends"): _soft(vol.Any(None, _PIPE_ENDS), None),
     },
     extra=vol.ALLOW_EXTRA,
 )

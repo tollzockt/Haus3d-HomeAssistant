@@ -28,8 +28,8 @@ Was sich je Version geändert hat, steht im [CHANGELOG.md](CHANGELOG.md).
 - **Energie**: Karte mit Tagesverlauf und Speicher-Restzeit, Fluss in Leitungen, PV-Leistung je Dachfeld.
 - **Alltag**: Waschmaschine fertig, Müllabfuhr, Strompreis, Lüften, Schimmelgefahr, Heizungspause, Urlaub.
 - **Zeitstrahl, Bodenfarbe, Begehen**: Tag zurückspulen, Böden nach Messwerten färben, durchs Haus gehen.
-- **Grundriss-Editor** in 2D und 3D mit Grundeinstellungen-Assistent, Katalog „Einrichten“ (208 Typen),
-  Treppen, Dächern je Etage, Leitungen und Bauplan als Vorlage.
+- **Grundriss-Editor** in 2D und 3D mit Grundeinstellungen-Assistent, Katalog „Einrichten“ (über 440 Typen
+  plus eigene 3D-Modelle), Treppen, Dächern je Etage, Leitungen bis ans Gerät und Bauplan als Vorlage.
 - **Info-Hologramme**: Antippen eines Raums zeigt über PC, Server, Heizung, 3D-Drucker & Co. die Werte, die
   du dort hinterlegt hast.
 - **Wandtablet** mit Kiosk-Adresse, Ruhemodus, Dimmen, Klingel-Kamera und Diensten für Automationen.
@@ -214,6 +214,11 @@ im Etagen-Feld. Norden lässt sich nur mit der Admin-PIN ändern.
 - **Räume** als Rechteck ziehen oder Punkt für Punkt zeichnen und einem HA-Bereich zuordnen; dazu Bodenbelag,
   Wandfarben, Texturen (Bilder ohne Relief), eigenes Dach (Garage, Anbau, Erker, Turm, Dachterrasse – Neigung,
   Kanten, PV und Kamin über „Im Dach bearbeiten“) und „Energie: Balkonkraftwerk“.
+- **Textur drehen (°)** mit Knopf „+90°“ unter der Bodentextur eines Raums, der Textur einer Gartenfläche und dem
+  Belag der Dachterrasse – für Parkett, Fliesen, Dielen und alle anderen Muster; angrenzende Räume mit gleicher
+  Drehung laufen durch. Für Beton gibt es neben „Beton“ auch Beton geschliffen, Sichtbeton (Schalung, auch für
+  Wände), Estrich, Epoxid mit Chips (Garagenboden) und Betonplatten groß (60 × 60 cm) – als Textur und als
+  Bodenbelag.
 - **Ecken und Wände** eines gewählten Raums ziehen ändert nur diesen Raum. Mit **Ecken koppeln** (Editor-Leiste,
   am Tablet unter „⋯“, oder im Eigenschaftenfeld des Raums; der Browser merkt es sich) gehen angrenzende Räume
   mit. Alt beim Ziehen (am Tablet der Schalter „Mitziehen“ bzw. „Einzeln“) kehrt das für einen Zug um; Länge,
@@ -231,14 +236,44 @@ im Etagen-Feld. Norden lässt sich nur mit der Admin-PIN ändern.
 
 ### Einrichten und Geräte
 
-- **Einrichten** (Katalog) mit Suche und 3D-Vorschau: 208 Typen, oben gegliedert in **Drinnen** und
-  **Draußen**, darunter aufklappbare Kategorien – Wohnen, Essen, Küche, Schlafen, Bad & Wäsche, Büro, Technik,
-  Licht, Bau, Möbelserien, LED, Gaming, Wechselrichter & Speicher und Eigene Körper bzw. Garten,
-  Wallbox & E-Auto und Solar-Aufständerung (auch Solarzäune). Welche Bereiche offen sind, merkt sich der
-  Browser. Möbelserien gibt es in den Maßen bekannter Serien, Wallboxen, Speicher und Konsolen in den Maßen
-  gängiger Modelle – alles eigene, vereinfachte Formen.
-- Möbel haben Maße, Drehung, Höhe über Boden, Farbe und eine verknüpfte Entität; Lampen und LEDs leuchten in
-  der Farbe ihres Lichts. Der **Magnet** stellt Möbel beim Ziehen bündig an die nächste Wand.
+- **Einrichten** (Katalog) mit Suche und 3D-Vorschau: über 440 Typen, oben gegliedert in **Eigene 3D-Modelle**,
+  **Drinnen** und **Draußen**, darunter aufklappbare Kategorien – drinnen Wohnen, Wohnen & Deko, Pflanzen,
+  Essen, Küche, Küchengeräte, Kamin & Ofen, Vorhänge, Schlafen, Kinderzimmer, Haustiere, Bad & Wäsche, Büro,
+  Technik, Steckdosen & Schalter, Heizungsraum, Server & NAS, Garage & Werkstatt, Hydroponik & Anzucht, Licht,
+  Bau, Möbelserien, LED, Gaming, Wechselrichter & Speicher und Eigene Körper; draußen Garten, Gartenmöbel,
+  Beet & Gewächshaus, Spiel & Freizeit, Hof & Einfahrt, Wallbox & E-Auto und Solar-Aufständerung (auch
+  Solarzäune). Welche Bereiche offen sind, merkt sich der Browser. Möbelserien gibt es in den Maßen bekannter
+  Serien, Wallboxen, Speicher und Konsolen in den Maßen gängiger Modelle – alles eigene, vereinfachte Formen.
+- Möbel haben Maße, Drehung, **Neigung** (nach vorn/hinten) und **Kippen** (zur Seite; nicht Treppe, Treppenloch
+  und Stellplatz), Höhe über Boden, Farbe und eine verknüpfte Entität; Lampen und LEDs leuchten in der Farbe ihres Lichts. Beim Neigen und Kippen bleibt
+  die tiefste Ecke auf „Höhe über Boden“ und die Mitte der Grundfläche an ihrer Stelle – ein umgekipptes Regal
+  liegt auf dem Boden; Plan, Antippen und Magnet nutzen die Grundfläche des geneigten Gegenstands. Der
+  **Magnet** stellt Möbel beim Ziehen bündig an die nächste Wand.
+- **Gegenstände mit Zustand** folgen ihrer verknüpften Entität: Vorhänge öffnen und schließen mit einem
+  Rollladen bzw. einer Abdeckung (cover, Position) oder einem Schalter, ohne Entität gilt „Geöffnet (%)“; Kamin
+  und Ofen zeigen Flammen, solange die Entität an ist bzw. heizt (sonst Feld „Feuer an“); der Whirlpool hat
+  „Abdeckung“ (abgedeckt/offen) und folgt einer Abdeckung (cover), Pumpe oder Heizung „an“ lässt das Wasser
+  sprudeln; Steckdosen, Schalter und Melder zeigen den Zustand mit einer Kontroll-LED. Tippen schaltet Licht,
+  Schalter und Lüfter, sonst öffnet sich das Detailfenster.
+- **Steckdosen & Schalter** rasten an Wänden ein und hängen in der üblichen Höhe (Steckdosen 30 cm, Schalter,
+  Dimmer und Thermostat 1,05 m, Herdanschlussdose 60 cm); Leitungen lassen sich an ihnen anschließen.
+- **Server- und Netzwerkschrank**: 19-Zoll-Geräte (Server, Rack-NAS, Switch, Patchfeld, USV, Fachboden …) und
+  Tischgeräte (NAS, Mini-PC, Router, Modem …), die man in einen Schrank setzt oder hineinzieht, ziehen in die
+  unterste freie Höheneinheit ein (Netzwerkschrank 22 HE, Serverschrank 42 HE; zu tiefe Geräte nur in den
+  Serverschrank). Verschiebt oder dreht man den Schrank, gehen sie mit; herausziehen oder „Ausbauen“ baut aus.
+  Am Gerät „Höheneinheit (unten)“ und „In Schrank einbauen“, am Schrank „Belegt: x von y HE“ mit der Liste der
+  Geräte (antippen wählt das Gerät). Im Plan erscheinen eingebaute Geräte nur, wenn sie gewählt sind.
+- **Erweiterungsakkus**: Am Balkonspeicher stapelt „Erweiterungsakkus darunter“ (0–5) Akkus unter dem Gerät;
+  die Kapazität für die Energie stellt man in den Energie-Einstellungen ein.
+- **Eigene 3D-Modelle**: „Modell hochladen …“ im Katalog nimmt .glb und .gltf (mit Farben und Texturen; .gltf
+  nur mit eingebetteten Daten) sowie .obj und .stl (einfarbig, Farbe wählbar) bis 25 MB je Datei. Der Dialog
+  misst die Datei, schlägt die Einheit vor (m, cm, mm), fragt bei OBJ und STL, welche Achse oben ist, und zeigt
+  die entstehende Größe. Kachel wählen und in den Plan tippen setzt das Modell in Originalgröße; in den
+  Eigenschaften „Einpassen“ (Seitenverhältnis behalten oder auf Maße strecken), „Originalgröße“, Modellwechsel,
+  „Umbenennen“ und „Modell löschen …“. Hochladen, Umbenennen und Löschen brauchen die Bearbeiten-PIN. Die Dateien
+  liegen im HA-Konfigurationsordner (`haus3d/models/`, in HA-Backups enthalten) und gelten für alle Häuser; der
+  JSON-Export enthält nur den Verweis. Hinter einem Reverse-Proxy muss dessen Grenze für die Größe einer Anfrage
+  mindestens 25 MB erlauben.
 - **Raster**: Würfelregale mit „Würfel breit/hoch“, Solar-Aufständerungen mit „Module breit/tief“ (Ost-West:
   Modulpaare, Fassade und Solarzäune: Module hoch, Solarzäune bis 3 übereinander) – die Maße folgen der Anzahl,
   der Hinweis darunter nennt Modulzahl und kWp (400 Wp je Modul). Solarzäune gibt es senkrecht mit beidseitig
@@ -257,8 +292,14 @@ im Etagen-Feld. Norden lässt sich nur mit der Admin-PIN ändern.
 
 - **Gartenflächen**: Rasen, Terrasse, Weg, Einfahrt, Pool, Beet, Hecke, Zaun, Balkon, Kies, Pflaster oder
   Steingarten – mit HA-Bereich für Gartenlicht und Sensoren und mit Geländer oder Zaun am Rand.
-- **Linie** zeichnet Wege, Hecken, Zäune und Mauern; **Höhen automatisch** verbindet Gartenflächen
-  verschiedener Etagen zu einem Hang. Bäume, Büsche, Grill und mehr stehen im Katalog unter „Garten“.
+- **Randstein / Kante** an Gartenflächen: Randstein Beton, Granit-Randstein, Rasenkante Metall, Palisaden Holz
+  oder Pflaster-Läufer, dazu „Höhe über Fläche (cm)“. Der Rand läuft an allen freien Kanten (nicht an
+  Hauswänden), mit Gehrung in den Ecken und Fugen; am Hang folgt er den Eckhöhen.
+- **Linie** zeichnet Wege, Hecken, Zäune, Mauern und **Randsteine** (Art, Breite und Höhe einstellbar);
+  **Höhen automatisch** verbindet Gartenflächen verschiedener Etagen zu einem Hang. Bäume, Büsche, Grill und mehr
+  stehen im Katalog unter „Garten“, Stühle, Lounge, Hochbeete, Gewächshaus, Gartenhaus, Spielgeräte, Teich,
+  Whirlpool, Mülltonnen und Briefkasten unter „Gartenmöbel“, „Beet & Gewächshaus“, „Spiel & Freizeit“ und
+  „Hof & Einfahrt“.
 
 ### Dach und Dachgeschoss
 
@@ -346,6 +387,14 @@ Dazu gibt es Säule, Stütze, Unterzug und Stellplatz.
   einen Punkt ein, Punkt antippen ändert seine Höhe oder löscht ihn; „Alle Punkte auf Höhe“ setzt alle auf
   einmal – auch mit eigener Höhe. Endet eine Leitung an einem Verteiler oder einer gleichartigen Leitung auf
   anderer Höhe, läuft sie in 3D senkrecht hin.
+- **Leitungen an Geräten**: Anfang und Ende rasten auch an Geräten ein – an allen Möbeln und
+  Katalog-Gegenständen (z. B. Steckdose, Waschmaschine, Server, Heizkessel) und an platzierten Geräten; Verteiler
+  und Leitungen gehen vor, wenn sie näher sind, „Frei“ rastet nirgends ein. Angeschlossen wird an der Rückseite
+  (kleine und flache Gegenstände mittig). Verschiebt oder dreht man das Gerät, zieht das Leitungsende mit
+  (rechtwinklige Führung bleibt); wird es gelöscht, bleibt die Leitung mit gelöstem Ende stehen. Die Leitung
+  zeigt „Endet an“ mit „lösen“, der Plan ein Stecker-Symbol, 3D ein senkrechtes Endstück bis zur Anschlusshöhe.
+  Hat die Leitung kein eigenes Gerät und keinen Sensor, liefert die Entität des angeschlossenen Geräts die Werte
+  (Leistung bzw. Datenrate).
 - **Verteiler**: Haupt- und Unterverteilung (optional mit eigenem Zähler – zeigt dann, was „nicht zugeordnet“
   ist), Einspeisung, **Abzweigdose** (verbindet alle Stromleitungen, die dort beginnen, enden oder
   durchlaufen – z. B. Zuleitung eines Raums mit Steckdosen und Licht), Router, Switch, Wasser-Hausanschluss,
@@ -471,7 +520,8 @@ Geräts“ damit übereinstimmt.
 
 Admin-Einstellungen → **Daten & Verlauf**:
 
-- **Exportieren (JSON)** lädt `haus3d-JJJJ-MM-TT.json` herunter (ohne Bauplan-Fotos).
+- **Exportieren (JSON)** lädt `haus3d-JJJJ-MM-TT.json` herunter (ohne Bauplan-Fotos; eigene 3D-Modelle nur als
+  Verweis – die Dateien liegen im HA-Konfigurationsordner und sind in HA-Backups enthalten).
 - **Importieren (JSON) …** liest rohe Grundrisse (`version: 1`, `floors`) und Exporte
   (`{format: "haus3d", building}`), bietet Lücken bis 45 cm zum Schließen an und ersetzt Grundriss und
   Einstellungen.
@@ -541,7 +591,7 @@ Option „Betaversionen anzeigen“ an ist.
 ## Entwicklung und Tests
 
 ```bash
-node --test tests/js/*.test.mjs                          # Wände, Geräte, Import, Marken-Regeln (Node 20+)
+node --test tests/js/*.test.mjs                          # Wände, Geräte, Import, Marken-Regeln (Node 22+)
 pip install -r requirements_test.txt && python -m pytest -q tests/python   # Backend (HA 2024.7, Python 3.12)
 NODE_PATH="$(npm root -g)" node tests/browser/run.mjs <ausgabeordner> [filter]   # Oberfläche (Playwright)
 ```

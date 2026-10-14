@@ -11,7 +11,7 @@ await ed.locator("haus3d-panel .floorsel").selectOption("eg");
 await ed.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
 await ed.waitForTimeout(3000); // Vorschaubilder
 const groups = await E(() => [...window.panel._editor.props.querySelectorAll(".grp")].map((h) => h.querySelector("span").textContent));
-t.check(groups.join() === "Drinnen,Draußen", `Gruppen: ${groups}`);
+t.check(groups.join() === "Eigene 3D-Modelle,Drinnen,Draußen", `Gruppen: ${groups}`);
 t.check(await ed.locator("haus3d-panel .ed-bar button[data-tool=furniture]").getAttribute("title") === "Einrichten", "Werkzeug heißt „Einrichten“");
 await ed.locator('haus3d-panel .ed-props .grp[data-grp="Draußen"]').click();
 const cats = await E(() => [...window.panel._editor.props.querySelectorAll(".cat")].map((h) => (h.querySelector("span") ?? h).textContent.trim()));

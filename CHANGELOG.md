@@ -1,5 +1,82 @@
 # Änderungen
 
+## 0.23.0b3 (Vorabversion)
+
+- **Mehr Wohnlichkeit drinnen**: „Wohnen & Deko“ (Bilderrahmen, Leinwandbild,
+  Bildergruppe, Spiegel, Wanduhr, Bücherreihe, Vase mit Blumen, Kerzen, Kissen, Wolldecke, Sitzsack, Pouf,
+  Schaukelstuhl, Klavier, Gitarre, Plattenspieler, Lichterkette, runder Teppich …), „Pflanzen“ (Monstera, Ficus,
+  Palme, Kaktus, Olivenbaum, Orchidee, Hängepflanze, Kräuter …), „Küchengeräte“ (Kaffeevollautomat,
+  Siebträger, Mikrowelle, Wasserkocher, Toaster, Dunstabzug, Inselhaube, Backofen im Hochschrank,
+  Weinkühlschrank, Küchen- und Barwagen …), „Haustiere“ (Kratzbaum, Hundekorb, Aquarium mit Licht,
+  Vogelkäfig, Terrarium …) und „Kinderzimmer“ (Babybett, Wickelkommode, Tipi, Spielküche, Schaukelpferd,
+  Hochbett mit Rutsche …).
+- **Kamin & Ofen**: Kaminofen (Rohr nach hinten oder zur Decke), Pelletofen, offener Kamin, Eckkamin,
+  Ethanol-Wandkamin, Kachelofen mit Bank, Kaminholzregal und Kaminbesteck. Feld „Feuer an“ zeigt leuchtende
+  Flammen hinter Glas; eine verknüpfte Entität hat Vorrang (an, heizt).
+- **Vorhänge**: zweiteilig, einseitig, mit Schlaufen, Gardine (durchscheinend), Thermovorhang, Raffrollo und
+  Plissee, mit Faltenwurf. „Geöffnet (%)“ rafft die Schals bzw. zieht Raffrollo und Plissee hoch; mit einem
+  verknüpften Rollladen bzw. einer Abdeckung (cover) oder einem Schalter folgt der Vorhang deren Zustand.
+- **Eigene 3D-Modelle**: Im Katalog „Einrichten“ steht oben „Eigene 3D-Modelle“ mit „Modell hochladen …“ –
+  .glb und .gltf (mit Farben und Texturen) sowie .obj und .stl (einfarbig, Farbe wählbar), bis 25 MB je Datei.
+  Der Dialog misst die Datei, schlägt die Einheit vor (m, cm, mm), fragt bei OBJ und STL, welche Achse oben ist,
+  und zeigt die entstehende Größe. Kachel wählen und in den Plan tippen setzt das Modell in Originalgröße; in den
+  Eigenschaften „Einpassen“ (Seitenverhältnis behalten oder auf Maße strecken), „Originalgröße“, Modellwechsel,
+  „Umbenennen“ und „Modell löschen …“ (mit Nachfrage, wie viele Möbel es nutzen). Die Dateien bleiben auf dem
+  eigenen Home Assistant (Konfigurationsordner, in HA-Backups enthalten); der JSON-Export enthält nur den Verweis.
+- **Neigen und Kippen**: Gegenstände haben neben „Drehung (°)“ auch „Neigung (°)“ und „Kippen (°)“ (nicht
+  Treppe, Treppenloch und Stellplatz). Die tiefste Ecke bleibt auf „Höhe über Boden“, die Mitte der Grundfläche
+  bleibt stehen – ein umgekipptes Regal liegt auf dem Boden, ein leicht geneigtes lehnt an der Wand. Plan,
+  Antippen, Magnet und 3D-Pfeile nutzen die Grundfläche des geneigten Gegenstands.
+- **Bodentexturen drehen**: „Textur drehen (°)“ mit Knopf „+90°“ unter der Bodentextur eines Raums, unter der
+  Textur einer Gartenfläche und unter dem Belag der Dachterrasse – für Parkett, Fliesen, Dielen und alle anderen
+  Muster; angrenzende Räume mit gleicher Drehung laufen durch.
+- **Neue Betontexturen und Beläge**: Beton geschliffen, Sichtbeton (Schalung, auch für Wände), Estrich, Epoxid
+  mit Chips (Garagenboden) und Betonplatten groß (60 × 60 cm); das bisherige „Beton“ bleibt unverändert.
+- **Steckdosen & Schalter**: neue Kategorie mit Steckdosen (einfach bis dreifach, mit USB, außen mit Klappe),
+  Herdanschlussdose, Licht-, Serien- und Jalousieschalter, Dimmer, Taster, Netzwerk- und Antennendose,
+  Bewegungsmelder, Smart-Wandtaster, Wandthermostat, Rauchmelder und Klingel. Sie rasten an Wänden ein und hängen
+  in der üblichen Höhe (Steckdose 30 cm, Schalter 1,05 m); mit verknüpfter Entität zeigt eine Kontroll-LED den
+  Zustand, Tippen schaltet.
+- **Heizungsraum**: Pufferspeicher, Gastherme, Brennwert- und Pelletkessel, Pelletlager, Öltank,
+  Ausdehnungsgefäß, Fußbodenheizungs- und Heizkreisverteiler, Hauswasserwerk, Enthärtung, Hauswasserfilter,
+  Wasserzähler, Lüftungsgerät, Inneneinheit der Wärmepumpe, Solarstation, Luftentfeuchter und mehr.
+- **Server & NAS mit Einbau in Schränke**: 19-Zoll-Geräte (Server 1/2/4 HE, Rack-NAS, Switch, PoE-Switch,
+  Patchfeld, Firewall, USV, Fachboden …) und Tischgeräte (NAS 2/5/8-Bay, Mini-PC, Tower-Server, Router,
+  Access Point, Modem, USV). Ein Gerät, das man in einen Netzwerk- oder Serverschrank setzt oder hineinzieht,
+  zieht in die unterste freie Höheneinheit ein (Netzwerkschrank 22 HE, Serverschrank 42 HE); verschiebt oder
+  dreht man den Schrank, gehen die Geräte mit, herausziehen oder „Ausbauen“ baut aus. Am Gerät „Höheneinheit
+  (unten)“ und „In Schrank einbauen“, am Schrank „Belegt: x von y HE“ mit der Liste der Geräte. Der Schrank hat
+  eine getönte Glastür; leer zeigt er wie bisher Platzhalter-Einschübe.
+- **Erweiterungsakkus für den Balkonspeicher**: zwei neue Akkus (1,6 und 2,7 kWh) unter „Wechselrichter &
+  Speicher“; am Balkonspeicher stapelt „Erweiterungsakkus darunter“ (0–5) die Akkus unter dem Gerät, die Höhe
+  folgt. Die Kapazität für die Energie stellt man weiter in den Energie-Einstellungen ein.
+- **Leitungen an Geräten**: Anfang und Ende jeder Leitung (Strom, Wasser, Netzwerk) rasten auch an Geräten ein –
+  an allen Möbeln und Katalog-Gegenständen und an platzierten Geräten; Verteiler und Leitungen gehen vor, wenn sie
+  näher sind. Wird das Gerät verschoben oder gedreht, zieht das Leitungsende mit (rechtwinklige Führung bleibt);
+  wird es gelöscht, bleibt die Leitung mit gelöstem Ende stehen. Die Leitung zeigt „Endet an“ mit „lösen“, der
+  Plan ein Stecker-Symbol, 3D ein senkrechtes Endstück bis zur Anschlusshöhe. Hat die Leitung kein eigenes Gerät,
+  liefert die Entität des angeschlossenen Geräts Leistung bzw. Datenrate.
+- **Garten**: neue Kategorien „Gartenmöbel“ (Stühle, Bänke, Lounge, Liegestuhl, Hängematte, Hollywoodschaukel,
+  Strandkorb, Pavillon, Feuerschale, Außenküche …), „Beet & Gewächshaus“ (Hochbeete, Gewächshaus,
+  Tomatenhaus, Frühbeet, Kräuterspirale, Regentonne, Gartenhaus, Insektenhotel …), „Spiel & Freizeit“ (Schaukel,
+  Spielturm mit Rutsche, Trampolin, Sandkasten, Aufstellpool, Teich, eckiger Whirlpool …) und „Hof & Einfahrt“
+  (Mülltonnen, Fahrradständer, Briefkasten, Paketbox …).
+- **Garage & Werkstatt** und **Hydroponik & Anzucht**: Werkbank, Werkzeugwand, Schwerlastregal, Reifen,
+  Fahrräder, Motorrad, Rasenmäher, Mähroboter, Gefriertruhe und mehr; Hydroponik-Turm, Rinnenanlage, Growbox,
+  Anzuchtregal mit LED (folgt einem verknüpften Licht), Nährstofftank und Aquaponik.
+- **Whirlpool abgedeckt oder offen**: Feld „Abdeckung“ am aufblasbaren und am neuen eckigen Whirlpool – offen
+  steht die Abdeckung an der Seite und das Wasser ist zu sehen. Mit verknüpfter Entität folgt die Darstellung:
+  eine Abdeckung (cover) öffnet und schließt, Pumpe oder Heizung „an“ lässt das Wasser sprudeln.
+- **Randsteine**: Gartenflächen haben „Randstein / Kante“ – Randstein Beton, Granit-Randstein, Rasenkante
+  Metall, Palisaden Holz oder Pflaster-Läufer, dazu „Höhe über Fläche (cm)“; der Rand läuft an allen freien
+  Kanten (nicht an Hauswänden), mit Gehrung und Fugen, am Hang entlang der Eckhöhen. Neue Linienart „Randstein“
+  neben Weg, Hecke, Zaun und Mauer.
+- **Modelle folgen ihrer Entität**: Verknüpfte Entitäten aller Möbel werden beobachtet, nicht nur die von
+  Lampen – Grundlage für Kontroll-LEDs, Whirlpool, Kamin und Vorhänge. Die Entitäts-Vorschläge an Möbeln
+  enthalten jetzt auch Rollläden/Abdeckungen (cover), Schalter-Helfer und Melder.
+- **Browser-Tests** warten auf das Panel statt eine feste Zeit (stabil mit vielen Jobs gleichzeitig); Einrichtung
+  auf dem eigenen Rechner auch unter Windows ohne WSL beschrieben (Python-Tests dort in WSL).
+
 ## 0.23.0b2 (Vorabversion)
 
 - **Räume einzeln anpassen**: Ecken und Wände eines Raums ziehen ändert jetzt nur diesen Raum – angrenzende

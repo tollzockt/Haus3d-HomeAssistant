@@ -28,12 +28,13 @@ import {
   validPolygon,
   wallFaces,
 } from "./edit-ops.js";
-import { FURNITURE, FURNITURE_CATEGORIES } from "./furniture.js";
+import { FURNITURE, FURNITURE_CATEGORIES, furniturePlanSize } from "./furniture.js";
+import { NO_POSE, setPoseKey } from "./pose.js";
 import { COLOR_SWATCHES, FLOOR_MATERIALS, floorColor } from "./model.js";
 import { autoHeights, isPvShed, roofFloor, roofSettings } from "./exterior.js";
 import { newFloor } from "./setup.js";
 import { isCubeShelf } from "./catalog-extra.js";
-import { ROOF_HINTS, ROOF_TOOLS, roofDeleteSel, roofMoveDrag, roofNudgeItem, roofNudgePart, roofProps, roofStartDrag, roofSvg, textureField } from "./editor-roof.js";
+import { ROOF_HINTS, ROOF_TOOLS, roofDeleteSel, roofMoveDrag, roofNudgeItem, roofNudgePart, roofProps, roofStartDrag, roofSvg, textureField, bindTexRot } from "./editor-roof.js";
 import { EDITOR3D_STYLE, Editor3dMethods } from "./editor-3d.js";
 import { GRID_CHOICES, TOUCH_STYLE, TouchMethods } from "./editor-touch.js";
 import { MEASURE_STYLE, MeasureMethods } from "./editor-measure.js";
@@ -49,6 +50,8 @@ import { arrowAnchor } from "./arrows3d.js";
 import { PLAN_HINTS, PLAN_STYLE, PlanMethods } from "./editor-plan.js";
 import { CATALOG_STYLE, CatalogMethods } from "./editor-catalog.js";
 import { ITEMS_STYLE, ItemMethods } from "./editor-items.js";
+import { MoreFieldMethods } from "./editor-more.js";
+import { followMoves } from "./follow.js";
 import { SETUP_STYLE, SetupMethods } from "./editor-setup.js";
 import { WallMethods } from "./editor-walls.js";
 import { closeGaps, computeWalls, labelPoint, planFootprints, signedArea } from "./walls.js";
@@ -67,6 +70,7 @@ const OUTDOOR_TYPES = [
   ["gravel", "Kies", "#c4beb2"],
   ["paving", "Pflaster", "#a39a8e"],
   ["rockery", "Steingarten", "#8a8378"],
+  ["kerb", "Randstein", "#b9b9b4"],
 ];
 const RAILINGS = [
   ["", "Standard (Balkon: Glas, sonst keins)"],
@@ -113,7 +117,7 @@ const HINTS = {
   furniture: "Rechts etwas zum Einrichten wählen (Suche, Drinnen oder Draußen), dann in den Plan tippen.",
   device: "Rechts ein Gerät wählen, dann an seine Stelle tippen. Ziehen im Auswahl-Modus verschiebt es.",
   outdoor: "Punkte der Gartenfläche antippen, ersten Punkt erneut antippen zum Abschließen.",
-  line: "Weg, Hecke, Zaun oder Mauer: Punkte antippen (0/45/90°, „Frei“ ohne Einrasten), „Fertig“ beendet.",
+  line: "Weg, Hecke, Zaun, Mauer oder Randstein: Punkte antippen (0/45/90°, „Frei“ ohne Einrasten), „Fertig“ beendet.",
   pipe: PIPE_HINT,
   node: NODE_HINT,
   measure: "Zwei Punkte antippen – rastet an Ecken und Wänden ein. Bis zu drei Messungen bleiben stehen (werden nicht gespeichert).",
@@ -345,9 +349,10 @@ export class FloorEditor {
   /** Änderung mit Rückgängig-Schritt. fn bekommt die Etage und gibt die neue zurück (oder ändert sie). */
   change(fn, { merge = false } = {}) {
     this._pushUndo(merge);
-    const f = structuredClone(this.floor);
+    const before = this.floor;
+    const f = structuredClone(before);
     const out = fn(f);
-    this.floor = out ?? f;
+    this.floor = followMoves(before, out ?? f);
     this.dirty = true;
     this.render();
     this.renderBar();
@@ -797,8 +802,8 @@ export class FloorEditor {
     // Möbel
     for (const m of f.furniture ?? []) {
       const sel = this.sel?.kind === "furniture" && this.sel.id === m.id;
-      const fw = m.w || FURNITURE[m.type]?.[1] || 0.6;
-      const fd = m.d || FURNITURE[m.type]?.[2] || 0.6;
+      if (m.in_rack && !sel) continue; // im Schrank eingebaut: im Plan nur, wenn gewählt – der Schrank bleibt anwählbar
+      const [fw, fd] = furniturePlanSize(m, f.height || 2.5); // geneigt/gekippt: Grundfläche der Hülle
       const name = m.name || (FURNITURE[m.type]?.[0] ?? m.type);
       const fill = sel ? "#03a9f4" : /^#[0-9a-f]{6}$/i.test(m.color ?? "") ? m.color : "#795548";
       const round = m.type === "custom_cylinder" || m.type === "column" || m.type === "water_tank" || m.type.startsWith("tree") || m.type === "bush" || m.type === "flowers" || this._roundPlan(m);
@@ -1097,6 +1102,7 @@ export class FloorEditor {
     if (tool === "furniture") {
       const def = FURNITURE[this.furnType];
       const m = { id: newId("m", allIds(this.b)), type: this.furnType, x: r3(this._snap(p)[0]), z: r3(this._snap(p)[1]), rotation: 0, w: def[1], d: def[2], h: def[3], variant: null, entity: null };
+      this._modelPlacement(m); // eigenes 3D-Modell: Verweis und natürliche Größe
       this.change((fl) => {
         fl.furniture = [...(fl.furniture ?? []), m];
       });
@@ -1430,11 +1436,13 @@ export class FloorEditor {
     this.undoStack.push(JSON.stringify(this.b));
     if (merge) this.undoStack.pop();
     else this.redoStack = [];
+    const before = structuredClone(this.floor);
     for (const fl of this.b.floors) fl.placements = (fl.placements ?? []).filter((x) => x.entity_id !== entityId || fl.id === this.floorId);
     const f = this.floor;
     const existing = f.placements.find((x) => x.entity_id === entityId);
     if (existing) Object.assign(existing, { x: q[0], z: q[1] });
     else f.placements.push({ entity_id: entityId, x: q[0], z: q[1], y: null });
+    followMoves(before, f); // angeschlossene Leitungsenden ziehen mit
     this.dirty = true;
     this.render();
     this.renderBar();
@@ -1519,14 +1527,19 @@ export class FloorEditor {
       el.querySelector("[data-act=wall]")?.addEventListener("click", () => this.snapSelToWall());
     };
     if (this.roofMode) return roofProps(this, el, pad, bindPad);
-    // Textur-Auswahl neben den Farben (Wert "" = Standard, "none" = glatt)
-    const bindTextures = (apply) =>
+    // Textur-Auswahl neben den Farben (Wert "" = Standard, "none" = glatt); „Textur drehen“ mit 0 = Feld weg
+    const bindTextures = (apply) => {
       el.querySelectorAll("[data-tex]").forEach((inp) =>
         inp.addEventListener("change", () => {
           this.change((fl) => apply(fl, inp.dataset.tex, inp.value || null));
           this.renderProps();
         }),
       );
+      bindTexRot(el, (key, v) => {
+        this.change((fl) => apply(fl, key, v || null));
+        this.renderProps();
+      });
+    };
 
     if (this.tool === "line") return this._lineToolProps(el);
     if (this.tool === "pipe") return this._pipeToolProps(el);
@@ -1662,7 +1675,7 @@ export class FloorEditor {
         ${this._linkField()}
         <label>Bereich in Home Assistant</label><select data-room="area_id">${areaOptions(r.area_id)}</select>
         <label>Bodenbelag</label><select data-room="floor_material">${FLOOR_MATERIALS.map(([k, n]) => `<option value="${k}"${k === r.floor_material ? " selected" : ""}>${n}</option>`).join("")}</select>
-        ${textureField("floor_texture", "Boden: Textur (Standard nach Belag)", r.floor_texture, "f")}
+        ${textureField("floor_texture", "Boden: Textur (Standard nach Belag)", r.floor_texture, "f", ["floor_texture_rotation", r.floor_texture_rotation])}
         ${colorField("floor_color", "Bodenfarbe (statt Belag)", r.floor_color)}
         ${colorField("wall_color", "Wandfarbe innen", r.wall_color)}
         ${textureField("wall_texture", "Wand innen: Textur", r.wall_texture, "w")}
@@ -1823,11 +1836,13 @@ export class FloorEditor {
         <label>Name ${custom ? "" : "(optional)"}</label><input data-m="name" value="${esc(m.name ?? "")}" placeholder="${esc(FURNITURE[m.type]?.[0] ?? "")}">
         <div class="row3">${num("w", custom && m.type === "custom_cylinder" ? "Ø Breite" : "Breite", m.w)}${num("d", custom && m.type === "custom_cylinder" ? "Ø Tiefe" : "Tiefe", m.d)}${num("h", ["column", "pillar"].includes(m.type) ? "Höhe (0 = Decke)" : "Höhe", m.h)}</div>
         <div class="row2">${num("rotation", "Drehung (°)", m.rotation, 15)}${num("mount_y", "Höhe über Boden", m.mount_y ?? "", 0.05)}</div>
+        ${NO_POSE.has(m.type) ? "" : `<div class="row2" title="Neigung + = Oberseite nach hinten, Kippen + = nach rechts (von vorn gesehen); die tiefste Ecke bleibt auf der Höhe über Boden">${num("tilt", "Neigung (°)", m.tilt ?? 0, 15)}${num("roll", "Kippen (°)", m.roll ?? 0, 15)}</div>`}
         ${this._stairFields(m)}
         ${this._itemFields(m)}
+        ${this._moreFields(m)}
         ${colorField("color", custom ? "Farbe" : "Farbe (statt Standard)", m.color)}
         ${pad(true)}
-        <label>${lamp ? "Licht (Entität)" : "Verknüpfte Entität (optional)"}</label><input data-m="entity" list="dl_furn" value="${esc(m.entity && m.entity !== "none" ? m.entity : "")}" placeholder="${lamp ? "light.…" : "z. B. media_player.…"}">${entityList("dl_furn", lamp ? ["light", "switch"] : ["light", "switch", "media_player", "fan", "climate", "vacuum", "sensor"])}
+        <label>${lamp ? "Licht (Entität)" : "Verknüpfte Entität (optional)"}</label><input data-m="entity" list="dl_furn" value="${esc(m.entity && m.entity !== "none" ? m.entity : "")}" placeholder="${lamp ? "light.…" : "z. B. media_player.…"}">${entityList("dl_furn", lamp ? ["light", "switch"] : ["light", "switch", "cover", "input_boolean", "binary_sensor", "media_player", "fan", "climate", "vacuum", "sensor"])}
         <p class="muted">Ziehen verschiebt (Magnet: rastet an Wänden ein), der orange Punkt dreht (Umschalt = frei). Pfeiltasten schieben, R dreht. ${arrowAnchor(f, sel)?.axes.includes("y") ? "In 3D: Pfeile ziehen, grün = Höhe." : "In 3D: rote und blaue Pfeile verschieben."}</p>
         <div class="btns"><button data-act="dup">Duplizieren</button><button data-act="del" class="danger">Löschen</button></div>`;
       el.querySelector("[data-m=type]").addEventListener("change", (ev) => {
@@ -1862,8 +1877,10 @@ export class FloorEditor {
       bindPad();
       this._bindStairFields(el, m);
       this._bindItemFields(el, m);
+      this._bindMoreFields(el, m);
       bindNums((fl, k, v) => {
         const x = fl.furniture.find((y) => y.id === m.id);
+        if (k === "tilt" || k === "roll") return setPoseKey(x, k, v);
         x[k] = k === "mount_y" ? v : v ?? 0;
         this._stairDims(x, k);
         if (["w", "d", "h"].includes(k)) {
@@ -1947,10 +1964,11 @@ export class FloorEditor {
         <label>Name</label><input data-g="name" value="${esc(o.name ?? "")}">
         <label>Art</label><select data-g="type">${OUTDOOR_TYPES.map(([k, n]) => `<option value="${k}"${k === o.type ? " selected" : ""}>${n}</option>`).join("")}</select>
         ${this._lineAreaFields(o)}
-        ${textureField("texture", "Textur", o.texture, "g")}
+        ${textureField("texture", "Textur", o.texture, "g", ["texture_rotation", o.texture_rotation])}
         <label>Bereich (für Gartenlicht, Sensoren)</label><select data-g="area_id">${areaOptions(o.area_id)}</select>
         <label>Geländer / Zaun am Rand (nicht an Hauswänden)</label><select data-g="railing">${RAILINGS.map(([k, n]) => `<option value="${k}"${k === (o.railing ?? "") ? " selected" : ""}>${n}</option>`).join("")}</select>
         <label>Geländerhöhe (m)</label><input data-g="railing_height" type="number" step="0.05" min="0.3" max="2.5" value="${o.railing_height ?? ""}" placeholder="1,0">
+        ${this._kerbFields(o)}
         <label>Hang: Höhe je Ecke (m über der Etage ${esc(f.name)})</label>
         ${Array.isArray(o.heights) ? `<div class="row3">${o.points.map((_, i) => `<div><label>Ecke ${i + 1}</label><input type="number" step="0.05" data-h="${i}" value="${Number(o.heights[i]) || 0}"></div>`).join("")}</div>` : `<p class="muted">Eben. „Höhen automatisch“ verbindet die Fläche mit den Gartenflächen anderer Etagen (z. B. Böschung von unten nach oben).</p>`}
         <div class="btns"><button data-act="autoh">Höhen automatisch</button>${Array.isArray(o.heights) ? `<button data-act="flat">Eben machen</button>` : `<button data-act="hmanual">Höhen von Hand</button>`}</div>
@@ -1958,10 +1976,11 @@ export class FloorEditor {
         <div class="btns"><button data-act="del" class="danger">Löschen</button></div>`;
       bindPad();
       this._bindLineArea(el, o);
+      this._bindKerbFields(el, o);
       bindTextures((fl, key, v) => {
         const x = fl.outdoor.find((y) => y.id === o.id);
-        if (v) x.texture = v;
-        else delete x.texture;
+        if (v) x[key] = v;
+        else delete x[key];
       });
       el.querySelectorAll("[data-h]").forEach((inp) =>
         inp.addEventListener("change", () => {
@@ -2015,4 +2034,4 @@ export class FloorEditor {
 }
 
 // Tablet: Schalter, Zeichen-Leiste, Langdruck, Entwurf sichern (editor-touch.js)
-Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, StairMethods, LineMethods, PlanMethods, PipeMethods, NodeMethods, AtticMethods, CatalogMethods, ItemMethods, SetupMethods, Editor3dMethods, WallMethods, RoofUnitMethods, RoofPartMethods);
+Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, StairMethods, LineMethods, PlanMethods, PipeMethods, NodeMethods, AtticMethods, CatalogMethods, ItemMethods, MoreFieldMethods, SetupMethods, Editor3dMethods, WallMethods, RoofUnitMethods, RoofPartMethods);

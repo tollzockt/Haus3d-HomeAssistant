@@ -151,6 +151,29 @@ def test_pipe_nodes_validated() -> None:
     raise AssertionError("unbekannte Verteiler-Art angenommen")
 
 
+def test_pipe_ends_soft() -> None:
+    """Leitungsenden an Geräten: gültige Bezüge bleiben, ungültige fallen einzeln weg, der Stand bleibt gültig."""
+    line = {"type": "strom", "points": [[0, 0], [1, 0]]}
+    raw = _building()
+    raw["floors"] = [{"id": "eg", "name": "EG", "elevation": 0, "height": 2.5, "rooms": [], "pipes": [
+        {**line, "id": "p1", "ends": {"a": {"furniture": "m1"}, "b": {"entity": "switch.geraet"}}},
+        {**line, "id": "p2", "ends": {"a": {"furniture": "m1", "entity": "switch.x"}, "b": "kaputt"}},
+        {**line, "id": "p3", "ends": "kaputt"},
+        {**line, "id": "p4"},
+        {**line, "id": "p5", "ends": {"a": {"entity": "ohne_punkt"}, "b": {"furniture": ""}, "port": 2}},
+        {**line, "id": "p6", "ends": {"a": {"furniture": "x" * 65}, "b": {"entity": 5}}},
+        {**line, "id": "p7", "ends": None},
+    ]}]
+    pipes = {p["id"]: p for p in validate_building(raw)["floors"][0]["pipes"]}
+    assert pipes["p1"]["ends"] == {"a": {"furniture": "m1"}, "b": {"entity": "switch.geraet"}}
+    assert pipes["p2"]["ends"] == {"a": None, "b": None}
+    assert pipes["p3"]["ends"] is None
+    assert "ends" not in pipes["p4"]  # ältere Stände bleiben unverändert
+    assert pipes["p5"]["ends"] == {"a": None, "b": None, "port": 2}
+    assert pipes["p6"]["ends"] == {"a": None, "b": None}
+    assert pipes["p7"]["ends"] is None
+
+
 def test_title_attic_and_frame_color_soft() -> None:
     raw = _building(title="Villa am See")
     raw["floors"] = [{"id": "dg", "name": "DG", "elevation": 2.75, "height": 2.4, "attic": True, "knee": 1.2,
@@ -245,6 +268,52 @@ def test_furniture_orient_soft() -> None:
     assert z["orient"] == "portrait" and z["cols"] == 4 and z["rows"] == 2
     assert z2["orient"] is None  # ungültig → weich ersetzt, Stand bleibt gültig
     assert "orient" not in z3 and "cols" not in z3
+
+
+def test_furniture_tilt_roll_soft() -> None:
+    """Neigen und Kippen: −180 … 180 (modulo), ungültig → verworfen (None), fehlt = bleibt weg; nie abgelehnt."""
+    furniture = [
+        {"id": "a", "type": "shelf", "x": 1, "z": 1, "tilt": 15, "roll": -90},
+        {"id": "b", "type": "bed", "x": 2, "z": 1, "tilt": 270, "roll": 540},
+        {"id": "c", "type": "chair", "x": 3, "z": 1, "tilt": "schief", "roll": True},
+        {"id": "d", "type": "desk", "x": 4, "z": 1, "tilt": None, "roll": float("nan")},
+        {"id": "e", "type": "sofa", "x": 5, "z": 1},
+        {"id": "f", "type": "lamp_ceiling", "x": 6, "z": 1, "tilt": -180, "roll": "22.5"},
+    ]
+    floor = {"id": "eg", "name": "EG", "elevation": 0, "height": 2.5, "rooms": [], "furniture": furniture}
+    a, b, c, d, e, f = validate_building({"version": 1, "floors": [floor], "settings": {}})["floors"][0]["furniture"]
+    assert (a["tilt"], a["roll"]) == (15.0, -90.0)
+    assert (b["tilt"], b["roll"]) == (-90.0, 180.0)
+    assert c["tilt"] is None and c["roll"] is None
+    assert d["tilt"] is None and d["roll"] is None
+    assert "tilt" not in e and "roll" not in e
+    assert (f["tilt"], f["roll"]) == (180.0, 22.5)
+
+
+def test_texture_rotation_soft() -> None:
+    """Drehung der Bodentextur (Raum), der Textur einer Gartenfläche und des Belags der Dachterrasse: 0 … 360."""
+    pts = [[0, 0], [4, 0], [4, 3], [0, 3]]
+    rooms = [
+        {"id": "r1", "name": "A", "points": pts, "floor_texture_rotation": 450},
+        {"id": "r2", "name": "B", "points": pts, "floor_texture_rotation": -45},
+        {"id": "r3", "name": "C", "points": pts, "floor_texture_rotation": "quer"},
+        {"id": "r4", "name": "D", "points": pts, "roof": {"type": "terrace", "texture_rotation": 720.5}},
+        {"id": "r5", "name": "E", "points": pts},
+    ]
+    outdoor = [
+        {"id": "g1", "type": "terrace", "points": pts, "texture_rotation": 90},
+        {"id": "g2", "type": "lawn", "points": pts, "texture_rotation": [1]},
+        {"id": "g3", "type": "path", "points": pts},
+    ]
+    parts = [{"id": "t", "type": "terrace", "points": pts, "texture_rotation": 359.9999}]
+    floor = {"id": "eg", "name": "EG", "elevation": 0, "height": 2.5, "rooms": rooms, "outdoor": outdoor, "roofs": parts}
+    f = validate_building({"version": 1, "floors": [floor], "settings": {}})["floors"][0]
+    r1, r2, r3, r4, r5 = f["rooms"]
+    assert (r1["floor_texture_rotation"], r2["floor_texture_rotation"], r3["floor_texture_rotation"]) == (90.0, 315.0, None)
+    assert r4["roof"]["texture_rotation"] == 0.5 and "floor_texture_rotation" not in r5
+    g1, g2, g3 = f["outdoor"]
+    assert g1["texture_rotation"] == 90.0 and g2["texture_rotation"] is None and "texture_rotation" not in g3
+    assert f["roofs"][0]["texture_rotation"] == 0.0
 
 
 def test_node_rotation_soft() -> None:
@@ -359,3 +428,43 @@ def test_roof_types_match_frontend() -> None:
     assert set(lists["ROOF_TYPES"]) <= set(schema.ROOF_TYPES)
     assert set(lists["ROOF_PART_TYPES"]) <= set(schema.ROOF_PART_TYPES)
     assert set(lists["ROOM_ROOF_TYPES"]) <= set(schema.ROOM_ROOF_TYPES) and "none" in lists["ROOM_ROOF_TYPES"]
+
+
+def test_garden_edge_and_tub_cover_soft() -> None:
+    """Randstein/Kante der Gartenflächen, Randstein-Linie und Whirlpool-Abdeckung: weich geprüft, fehlen sie, bleiben sie weg."""
+    pts = [[0, 0], [3, 0], [3, 3]]
+    floor = {
+        "id": "eg", "name": "EG", "elevation": 0, "height": 2.5, "rooms": [],
+        "outdoor": [
+            {"id": "a", "type": "lawn", "points": pts, "edge": "granite", "edge_h": 0.07},
+            {"id": "b", "type": "terrace", "points": pts, "edge": "kaputt", "edge_h": "hoch"},
+            {"id": "c", "type": "path", "points": pts},
+            {"id": "d", "type": "kerb", "points": pts, "line": {"points": [[0, 0], [2, 0]], "width": 0.08}, "edge": "concrete", "edge_h": 0},
+            {"id": "e", "type": "bed", "points": pts, "edge": "palisade", "edge_h": 9},
+        ],
+        "furniture": [
+            {"id": "w1", "type": "hot_tub", "x": 0, "z": 0, "open": True},
+            {"id": "w2", "type": "garden_hot_tub_acryl", "x": 3, "z": 0, "open": "kaputt"},
+            {"id": "w3", "type": "hot_tub", "x": 6, "z": 0},
+            {"id": "w4", "type": "hot_tub", "x": 9, "z": 0, "open": 0.4},
+        ],
+    }
+    f = validate_building({"version": 1, "floors": [floor], "settings": {}})["floors"][0]
+    a, b, c, d, e = f["outdoor"]
+    assert a["edge"] == "granite" and a["edge_h"] == 0.07
+    assert b["edge"] == "none" and b["edge_h"] is None  # ungültig → weich ersetzt, Stand bleibt gültig
+    assert "edge" not in c and "edge_h" not in c
+    assert d["type"] == "kerb" and d["edge"] == "concrete" and d["edge_h"] is None and d["line"]["width"] == 0.08
+    assert e["edge"] == "palisade" and e["edge_h"] == 0.6  # zu hoch → auf den Rand gesetzt
+    w1, w2, w3, w4 = f["furniture"]
+    assert w1["open"] is True and w2["open"] is False and "open" not in w3
+    assert w4["open"] == 0.4  # Zahlen bleiben unverändert
+
+
+def test_kerb_kinds_match_frontend() -> None:
+    from custom_components.haus3d import schema
+
+    text = (PKG / "frontend/kerb.js").read_text(encoding="utf-8")
+    kinds = re.findall(r"^  (\w+): \{ name:", text, re.M)
+    assert len(kinds) >= 5
+    assert set(kinds) == set(schema.KERB_EDGES) - {"none"}

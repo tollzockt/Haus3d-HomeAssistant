@@ -2,13 +2,18 @@
 // Nutzung in shot-<etappe>.mjs: const t = await start(process.argv[2]); … await t.done();
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { extname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 
 // Playwright ist global installiert: NODE_PATH="$(npm root -g)"
 const { chromium } = createRequire(import.meta.url)("playwright");
 
-export const root = resolve(new URL("../..", import.meta.url).pathname);
+export const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+
+/** Chromium: PW_CHROMIUM, sonst das vorinstallierte der Cloud-Umgebung, sonst das von Playwright (npx playwright install chromium). */
+export const chromiumPath = process.env.PW_CHROMIUM ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json" };
 
 export async function start(out = ".") {
@@ -24,7 +29,7 @@ export async function start(out = ".") {
   }).listen(0);
   const port = server.address().port;
   const browser = await chromium.launch({
-    executablePath: process.env.PW_CHROMIUM ?? "/opt/pw-browsers/chromium",
+    executablePath: chromiumPath,
     // ohne Drosselung: sonst liefert headless Chromium teils nur ~1 Bild/s (requestAnimationFrame)
     args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"],
   });
@@ -39,12 +44,16 @@ export async function start(out = ".") {
     const pg = await ctx.newPage();
     pg.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     pg.on("console", (m) => {
+      // Leistungshinweise des Grafiktreibers (z. B. „GPU stall due to ReadPixels“ mit echter GPU) sind keine Fehler
+      if (/GL Driver Message \([^)]*Performance/.test(m.text())) return;
       if (m.type() === "error" || m.type() === "warning") errors.push(`${name} [${m.type()}]: ${m.text()}`);
     });
     if (!/quality=/.test(query)) query = `${query}${query ? "&" : "?"}quality=schoen`; // SwiftShader: Stufe festlegen
     if (!/schatten=/.test(query)) query += "&schatten=aus"; // Schattenkarten sind in SwiftShader sehr langsam
     const data = process.env.HARNESS_DATA ? `&data=${process.env.HARNESS_DATA}` : "";
     await pg.goto(`http://localhost:${port}/tests/browser/harness.html${query}${data}`);
+    // erst warten, bis das Panel da ist (bei vielen Jobs gleichzeitig dauert das Laden der Module länger)
+    await pg.waitForFunction(() => window.panel, null, { timeout: 60000 }).catch(() => {});
     await pg.waitForTimeout(wait);
     return pg;
   }

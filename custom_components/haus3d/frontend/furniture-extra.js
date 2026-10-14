@@ -3,7 +3,7 @@
 // bulbs (folgen einer verknüpften Licht-Entität in Farbe und Helligkeit).
 
 import * as THREE from "./vendor/three.module.min.js";
-import { cubeGrid, pvGrid, pvModules } from "./catalog-extra.js";
+import { PACK_STACK, cubeGrid, packCount, packHeight, pvGrid, pvModules } from "./catalog-extra.js";
 
 function box(g, mat, w, h, d, x = 0, y = 0, z = 0) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(Math.max(w, 0.004), Math.max(h, 0.004), Math.max(d, 0.004)), mat);
@@ -611,7 +611,7 @@ function wallbox(type, w, d, h, M, g, bulbs) {
 }
 
 /** Wechselrichter, Speicher, Mikrowechselrichter. */
-function energy(type, w, d, h, M, g, bulbs) {
+function energy(type, w, d, h, M, g, bulbs, item = {}) {
   const x = X(M);
   if (type.startsWith("inv_")) {
     // neutral für alle Hersteller: weißes Gehäuse, graue Blende
@@ -623,6 +623,24 @@ function energy(type, w, d, h, M, g, bulbs) {
     return true;
   }
   if (type.startsWith("bat_")) {
+    // Speicher mit Erweiterungsakkus darunter (item.packs): Akkus unten, das Hauptgerät oben, gleiche Farben wie sonst
+    const packs = packCount({ type, packs: item?.packs });
+    if (packs > 0) {
+      const s = h / packHeight(packs);
+      const bank = PACK_STACK.base * s;
+      const pack = PACK_STACK.pack * s;
+      const pd = d * (0.233 / 0.249); // Akkus sind etwas flacher als das Hauptgerät, bündig an der Rückseite
+      const gap = 0.004;
+      for (let i = 0; i < packs; i++) {
+        const y = i * pack;
+        box(g, M.white, w, pack - gap, pd, 0, y, -d / 2 + pd / 2);
+        box(g, x.grey, w * 0.6, 0.012, 0.004, 0, y + pack * 0.5, -d / 2 + pd + 0.002);
+      }
+      box(g, M.white, w, bank - gap, d, 0, packs * pack, 0);
+      box(g, x.grey, w * 0.6, 0.012, 0.004, 0, h - 0.06, d / 2 + 0.002);
+      for (let i = 0; i < 4; i++) bulbs.push(box(g, M.bulb, w * 0.06, 0.012, 0.004, -w * 0.12 + i * w * 0.08, packs * pack + bank * 0.5, d / 2 + 0.003));
+      return true;
+    }
     // neutral für alle Hersteller; die Zahl der Module ergibt sich nur aus der Höhe
     const n = Math.max(1, Math.round(h / 0.45));
     const mat = M.white;
@@ -796,5 +814,5 @@ function tech(type, w, d, h, M, g, bulbs) {
 
 /** Baut einen Typ aus dem erweiterten Katalog; false, wenn der Typ nicht dazugehört. */
 export function buildExtra(type, w, d, h, M, g, bulbs, item = {}) {
-  return series(type, w, d, h, M, g, item) || tech(type, w, d, h, M, g, bulbs) || lamps(type, w, d, h, M, g, bulbs) || leds(type, w, d, h, M, g, bulbs) || gaming(type, w, d, h, M, g, bulbs) || wallbox(type, w, d, h, M, g, bulbs) || energy(type, w, d, h, M, g, bulbs) || solar(type, w, d, h, M, g, item);
+  return series(type, w, d, h, M, g, item) || tech(type, w, d, h, M, g, bulbs) || lamps(type, w, d, h, M, g, bulbs) || leds(type, w, d, h, M, g, bulbs) || gaming(type, w, d, h, M, g, bulbs) || wallbox(type, w, d, h, M, g, bulbs) || energy(type, w, d, h, M, g, bulbs, item) || solar(type, w, d, h, M, g, item);
 }

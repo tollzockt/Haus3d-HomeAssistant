@@ -4,7 +4,7 @@
 // Editor bzw. Ruhemodus (dort werden die Raumfenster ohnehin geschlossen).
 
 import * as THREE from "./vendor/three.module.min.js";
-import { FURNITURE, furnitureBaseY } from "./furniture.js";
+import { furnitureTopY } from "./furniture.js";
 import { holoItems, holoRows, holoTitle } from "./holo.js";
 import { placesOf } from "./devices.js";
 import { esc, setText } from "./panel-util.js";
@@ -40,9 +40,8 @@ export const HoloMethods = {
       const old = this._overlays.get(key);
       if (old?.el.isConnected) continue; // steht schon (sonst begänne das Einblenden von vorn)
       old?.el.remove();
-      const def = FURNITURE[m.type] ?? [];
       const fh = floor.height ?? 2.5;
-      const top = floor.elevation + furnitureBaseY(m, fh) + (m.h || def[3] || fh); // Oberkante des Modells
+      const top = floor.elevation + furnitureTopY(m, fh); // Oberkante des Modells (geneigt: höchste Ecke)
       const el = document.createElement("div");
       el.className = "holo";
       el.innerHTML = `<div class="holocard" role="group" aria-label="${esc(holoTitle(m))}"><div class="holohead">${esc(holoTitle(m))}</div>${holoRows(m, this._hass)

@@ -7,6 +7,11 @@ import * as THREE from "./vendor/three.module.min.js";
 import { buildStairs, buildStairwell } from "./stairs3d.js";
 import { EXTRA, EXTRA_CATEGORIES, EXTRA_LAMPS, EXTRA_MOUNT } from "./catalog-extra.js";
 import { buildExtra } from "./furniture-extra.js";
+import { MORE, MORE_CATEGORIES, MORE_MOUNT, MORE_OUTDOOR } from "./catalog-more.js";
+import { buildMore } from "./furniture-more.js";
+import { buildCustomModel } from "./models.js";
+import { furniturePose, hasPose, planSize } from "./pose.js";
+import { buildCabinet } from "./cabinet-model.js";
 
 /** Deutsche Namen und Standardmaße (w, d, h in m) für den Editor. */
 export const FURNITURE = {
@@ -100,7 +105,9 @@ export const FURNITURE = {
   // eigene Körper (Maße und Farbe frei)
   custom_box: ["Quader (eigener)", 1.0, 1.0, 1.0],
   custom_cylinder: ["Zylinder (eigener)", 0.6, 0.6, 1.0],
+  custom_model: ["Eigenes 3D-Modell", 1.0, 1.0, 1.0],
   ...EXTRA,
+  ...MORE,
 };
 
 /** Kategorien für die Möbelauswahl im Editor (jeder Typ genau einmal). */
@@ -116,11 +123,12 @@ export const FURNITURE_CATEGORIES = [
   ["Garten", ["tree", "tree_conifer", "tree_fruit", "bush", "flowers", "grass", "planter", "hot_tub", "composter", "rock", "rock_group", "stepping_stone", "lounger", "parasol", "garden_table", "bbq"]],
   ["Bau", ["stairs", "stairwell", "column", "pillar", "beam", "parking"]],
   ...EXTRA_CATEGORIES,
-  ["Eigene Körper", ["custom_box", "custom_cylinder"]],
+  ...MORE_CATEGORIES,
+  ["Eigene Körper", ["custom_box", "custom_cylinder", "custom_model"]],
 ];
 
 /** Oberste Ebene im Katalog „Einrichten“: Drinnen und Draußen mit ihren Kategorien. */
-const OUTDOOR_CATEGORIES = new Set(["Garten", "Solar-Aufständerung", "Wallbox & E-Auto"]);
+const OUTDOOR_CATEGORIES = new Set(["Garten", "Solar-Aufständerung", "Wallbox & E-Auto", ...MORE_OUTDOOR]);
 export const FURNITURE_GROUPS = [
   ["Drinnen", FURNITURE_CATEGORIES.filter(([c]) => !OUTDOOR_CATEGORIES.has(c)).map(([c]) => c)],
   ["Draußen", FURNITURE_CATEGORIES.filter(([c]) => OUTDOOR_CATEGORIES.has(c)).map(([c]) => c)],
@@ -180,7 +188,11 @@ const legs = (g, mat, w, d, h, t = 0.04) => {
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(g, mat, t, h, t, sx * (w / 2 - t), 0, sz * (d / 2 - t));
 };
 
-/** Baut das Modell im Einheitsrahmen. Lampen bekommen userData.bulbs (Meshes, die leuchten). */
+/**
+ * Baut das Modell im Einheitsrahmen. Lampen bekommen userData.bulbs (Meshes, die leuchten). Modelle, die dem
+ * Zustand ihrer verknüpften Entität folgen (Vorhang offen/zu, Kamin an/aus …), setzen g.userData.onState =
+ * (stateObj | null) => void; die Szene ruft das bei jeder Zustandsänderung auf.
+ */
 function buildModel(type, w, d, h, M, item = {}) {
   const g = new THREE.Group();
   const bulbs = [];
@@ -484,21 +496,10 @@ function buildModel(type, w, d, h, M, item = {}) {
       box(g, M.metal, w * 0.2, 0.03, d * 0.6, -w * 0.4, h * 0.75, 0);
       box(g, M.metal, w * 0.2, 0.03, d * 0.6, w * 0.4, h * 0.75, 0);
       break;
-    case "hot_tub": {
-      // runder, aufblasbarer Pool mit Abdeckung
-      const r = Math.min(w, d) / 2;
-      const ring = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.97, h * 0.92, 40), M.tub);
-      ring.position.y = (h * 0.92) / 2;
-      g.add(ring);
-      const lid = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.98, r * 0.98, h * 0.08, 40), M.cover);
-      lid.position.y = h * 0.96;
-      g.add(lid);
-      const band = new THREE.Mesh(new THREE.TorusGeometry(r * 0.99, 0.02, 6, 40), M.cover);
-      band.rotation.x = Math.PI / 2;
-      band.position.y = h * 0.5;
-      g.add(band);
+    case "hot_tub":
+      // runder, aufblasbarer Pool, abgedeckt oder offen (item.open), folgt einer verknüpften Entität: furniture-tub.js
+      buildMore(type, w, d, h, M, g, bulbs, item);
       break;
-    }
     case "composter":
       box(g, M.plasticDark, w, h * 0.85, d);
       box(g, M.plasticDark, w * 1.04, h * 0.15, d * 1.04, 0, h * 0.85, 0);
@@ -528,18 +529,10 @@ function buildModel(type, w, d, h, M, item = {}) {
       break;
     }
     case "network_cabinet":
-    case "server_rack": {
-      box(g, M.dark, w, h, d);
-      // Glastür vorne, Patchfelder und blinkende LEDs dahinter
-      const units = Math.max(2, Math.floor((h - 0.2) / 0.18));
-      for (let i = 0; i < units; i++) {
-        const y = 0.1 + i * ((h - 0.2) / units);
-        box(g, M.metal, w * 0.8, 0.04, 0.02, 0, y + 0.03, d / 2 - 0.04);
-        for (let k = 0; k < 4; k++) box(g, M.led, 0.015, 0.015, 0.01, -w * 0.3 + k * 0.05, y + 0.045, d / 2 - 0.025);
-      }
-      box(g, M.glass, w * 0.92, h * 0.94, 0.01, 0, h * 0.03, d / 2 + 0.005);
+    case "server_rack":
+      // Rahmen, Schienen, getönte Glastür; Platzhalter-Einschübe nur ohne eingebaute Geräte (cabinet-model.js)
+      buildCabinet(type, w, d, h, M, g, item);
       break;
-    }
     case "boiler":
       box(g, M.white, w, h, d);
       box(g, M.dark, w * 0.5, h * 0.08, 0.01, 0, h * 0.72, d / 2 + 0.005);
@@ -585,8 +578,11 @@ function buildModel(type, w, d, h, M, item = {}) {
       g.add(c);
       break;
     }
+    case "custom_model":
+      buildCustomModel(g, w, d, h, M, item); // hochgeladenes Modell (models.js): Platzhalter, bis es geladen ist
+      break;
     default:
-      if (!buildExtra(type, w, d, h, M, g, bulbs, item)) box(g, M.light, w, h, d);
+      if (!buildExtra(type, w, d, h, M, g, bulbs, item) && !buildMore(type, w, d, h, M, g, bulbs, item)) box(g, M.light, w, h, d);
   }
   g.userData.bulbs = bulbs;
   return g;
@@ -606,37 +602,72 @@ function colored(M, color) {
 }
 
 /**
- * Ein Möbelstück aus furniture[] als Objekt in Weltkoordinaten der Etage.
- * @param {object} item {type, x, z, rotation, w, d, h, mount_y}
- * @param {number} elev Höhe des Etagenbodens
- * @param {number} floorHeight Raumhöhe (Deckenleuchten hängen unter der Decke)
+ * Unterkante eines Möbelstücks über dem Etagenboden (Montagehöhe; Decken- und Wandtypen eigene Standards).
+ * Geneigt/gekippt zählt die tiefste Ecke; Deckenteile hängen dann mit der höchsten Ecke unter der Decke.
  */
-/** Unterkante eines Möbelstücks über dem Etagenboden (Montagehöhe; Decken- und Wandtypen eigene Standards). */
 export function furnitureBaseY(item, floorHeight, h = null) {
   const def = FURNITURE[item.type] ?? ["Möbel", 0.6, 0.6, 0.8];
   h ??= item.h || def[3] || floorHeight;
+  if (hasPose(item)) h = furniturePose(item, item.w || def[1], item.d || def[2], h, item.h || def[3] ? null : floorHeight).h;
   const ceiling = ["lamp_ceiling", "lamp_panel", "lamp_downlight", "lamp_pendant", "kitchen_wall", "beam"].includes(item.type);
   const wall = ["lamp_wall", "lamp_spot", "tv_wall", "radiator", "fuse_box"].includes(item.type);
-  const em = EXTRA_MOUNT[item.type];
+  const em = EXTRA_MOUNT[item.type] ?? MORE_MOUNT[item.type];
   let y = item.mount_y ?? (ceiling || em === "ceiling" ? floorHeight - h - 0.01 : typeof em === "number" ? em : wall ? (item.type === "radiator" ? 0.1 : item.type === "fuse_box" ? 1.2 : 1.6) : 0);
   if (item.type === "kitchen_wall" && item.mount_y == null) y = 1.45;
   if (item.type === "radiator" && item.mount_y == null) y = 0;
   return y;
 }
 
+/** Oberkante eines Möbelstücks über dem Etagenboden (geneigt/gekippt: höchste Ecke des Rahmens). */
+export function furnitureTopY(item, floorHeight) {
+  const def = FURNITURE[item.type] ?? ["Möbel", 0.6, 0.6, 0.8];
+  const h = item.h || def[3] || floorHeight;
+  const top = hasPose(item) ? furniturePose(item, item.w || def[1], item.d || def[2], h, item.h || def[3] ? null : floorHeight).h : h;
+  return furnitureBaseY(item, floorHeight, h) + top;
+}
+
+/** Grundfläche im Plan [Breite, Tiefe] im eigenen Rahmen: Maße bzw. Standardmaße, geneigt/gekippt die Hülle. */
+export function furniturePlanSize(item, floorHeight = 2.5) {
+  const def = FURNITURE[item.type] ?? ["Möbel", 0.6, 0.6, 0.8];
+  const w = item.w || def[1] || 0.6;
+  const d = item.d || def[2] || 0.6;
+  if (!hasPose(item)) return [w, d];
+  return planSize(item, w, d, item.h || def[3] || floorHeight, item.h || def[3] ? null : floorHeight);
+}
+
+/**
+ * Ein Möbelstück aus furniture[] als Objekt in Weltkoordinaten der Etage.
+ * @param {object} item {type, x, z, rotation, w, d, h, mount_y, tilt, roll}
+ * @param {number} elev Höhe des Etagenbodens
+ * @param {number} floorHeight Raumhöhe (Deckenleuchten hängen unter der Decke)
+ */
 export function buildFurniture(item, M, elev, floorHeight) {
   const def = FURNITURE[item.type] ?? ["Möbel", 0.6, 0.6, 0.8];
   const w = item.w || def[1];
   const d = item.d || def[2];
-  // Höhe 0 (Säule, Stütze): bis zur Decke
-  const h = item.h || def[3] || floorHeight;
+  // Höhe 0 (Säule, Stütze): bis zur Decke (geneigt so gekürzt, dass der Rahmen darunter passt)
+  const pose = furniturePose(item, w, d, item.h || def[3] || floorHeight, item.h || def[3] ? null : floorHeight);
+  const h = pose.h0;
   const g = buildModel(item.type, w, d, h, colored(M, item.color), item);
   const y = furnitureBaseY(item, floorHeight, h);
-  g.position.set(item.x, elev + y, item.z);
-  g.rotation.y = -THREE.MathUtils.degToRad(item.rotation || 0);
+  const ry = -THREE.MathUtils.degToRad(item.rotation || 0);
+  if (pose.tilt || pose.roll) {
+    // Neigen/Kippen auf der äußeren Gruppe (wirkt auch auf später geladene Teile); der Versatz im eigenen
+    // Rahmen, mit der Hochachse gedreht, legt die tiefste Ecke auf die Montagehöhe und lässt die Mitte der
+    // Grundfläche bei x/z (moveLive nutzt userData.poseOff)
+    const [ox, oy, oz] = pose.off;
+    const c = Math.cos(ry);
+    const s = Math.sin(ry);
+    g.rotation.set(-THREE.MathUtils.degToRad(pose.tilt), ry, -THREE.MathUtils.degToRad(pose.roll), "YXZ");
+    g.position.set(item.x + ox * c + oz * s, elev + y + oy, item.z - ox * s + oz * c);
+    g.userData.poseOff = pose.off;
+  } else {
+    g.position.set(item.x, elev + y, item.z);
+    g.rotation.y = ry;
+  }
   if (M.edge) {
     g.traverse((o) => {
-      if (o.isMesh && o.material !== M.glass) o.add(new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 30), M.edge));
+      if (o.isMesh && o.material !== M.glass && !o.userData.noEdges) o.add(new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 30), M.edge));
     });
   }
   // alle Teile kennen ihr Möbelstück (Anklicken im 3D-Editor)

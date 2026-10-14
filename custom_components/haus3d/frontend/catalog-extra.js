@@ -123,6 +123,8 @@ export const EXTRA = {
   bat_growatt_noah: ["Growatt NOAH 2000", 0.406, 0.235, 0.27],
   bat_senec_v3: ["SENEC.Home V3 hybrid", 0.535, 0.535, 1.135],
   bat_anker_solarbank: ["Anker SOLIX Solarbank 2 E1600 Pro", 0.46, 0.249, 0.254],
+  bat_anker_bp1600: ["Erweiterungsakku 1,6 kWh (Maße wie Anker SOLIX BP1600)", 0.46, 0.233, 0.2175],
+  bat_anker_bp2700: ["Erweiterungsakku 2,7 kWh (Maße wie Anker SOLIX BP2700)", 0.46, 0.233, 0.2175],
   // Mikrowechselrichter (Balkonkraftwerk)
   micro_hoymiles: ["Hoymiles HMS-800W-2T", 0.261, 0.035, 0.18],
   micro_deye: ["Deye SUN-M80G4", 0.281, 0.04, 0.19],
@@ -174,6 +176,21 @@ export const EXTRA_FREE = [
   "gaming_chair", "monitor_27", "monitor_34", "monitor_49", "monitor_dual", "keyboard_mouse", "pc_speakers", "headset_stand", "streaming_mic", "console_ps5", "console_ps5_pro", "console_xbox_x", "console_xbox_s", "console_switch", "steam_deck", "gamepad", "vr_headset", "racing_cockpit",
   "ev_car", "pv_flat_south", "pv_flat_ew", "pv_ground", "pv_balcony_tilt", "pv_carport", "pv_pergola", "pv_fence_vertical", "pv_fence_mesh", "pv_fence_privacy",
 ];
+
+/**
+ * Balkonspeicher mit Erweiterungsakkus darunter (item.packs, 0 bis max): Höhe des Hauptgeräts und eines Akkus in m. Die Höhe des
+ * Möbelstücks folgt der Anzahl: h = base + packs × pack.
+ */
+export const PACK_STACK = { type: "bat_anker_solarbank", base: 0.254, pack: 0.2175, max: 5 };
+
+/** Zahl der Erweiterungsakkus eines Möbelstücks (0 bis max; nur beim Speicher mit Akku-Stapel). */
+export function packCount(item) {
+  if (item?.type !== PACK_STACK.type) return 0;
+  return Math.min(PACK_STACK.max, Math.max(0, Math.round(Number(item.packs)) || 0));
+}
+
+/** Höhe des Speichers mit n Erweiterungsakkus (m, auf 0,1 mm gerundet). */
+export const packHeight = (n) => Math.round((PACK_STACK.base + n * PACK_STACK.pack) * 10000) / 10000;
 
 /** Raster eines Typs; hochkant (item.orient = "portrait"), wo der Typ das anbietet. */
 export function pvGrid(type, item = null) {

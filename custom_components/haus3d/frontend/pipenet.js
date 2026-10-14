@@ -1,7 +1,10 @@
 // Leitungsnetz (ohne DOM, mit node testbar): Leitungen und Verteiler je Medium zu einem Netz verbinden und
 // für jedes Stück die Menge berechnen, die hindurchfließt – von der Wurzel (Hauptverteilung, Hausanschluss,
 // Router) zu den Verbrauchern an den Leitungsenden. Abzweige entstehen, wo ein Leitungsende oder ein
-// Verteiler auf einer anderen Leitung liegt; Durchführungen verbinden Etagen.
+// Verteiler auf einer anderen Leitung liegt; Durchführungen verbinden Etagen. Leitungsenden an Geräten
+// (pipe.ends, pipeends.js) sind Blätter: Verbraucher, keine Wurzel, nicht mit anderen Leitungen verbunden.
+
+import { endDevice, loadEnd, pipeEnds } from "./pipeends.js";
 
 const TOL = 0.05; // m: so nah = verbunden
 
@@ -78,7 +81,8 @@ class DSU {
  * Netz eines Hauses berechnen.
  * @param {object} building {floors: [{id, pipes, nodes}]}
  * @param {object} o
- * @param {(pipe) => number|null} o.load Verbrauch am Ende einer Leitung (W, l/min, Mbit/s) oder null
+ * @param {(pipe) => number|null} o.load Verbrauch am Ende einer Leitung (W, l/min, Mbit/s) oder null; pipe mit
+ *   floorId und endTargets ({a, b}: angeschlossene Geräte, pipeends.pipeEnds)
  * @param {(node) => number|null} o.nodeValue Zählerwert eines Verteilers (bei Einspeisung: Erzeugung)
  * @returns {{edges: object[], nodes: Map, details: (edgeId) => object|null}}
  */
@@ -90,7 +94,7 @@ export function computeNet(building, { load = () => null, nodeValue = () => null
     const pipes = [];
     const nodes = [];
     for (const f of building?.floors ?? []) {
-      for (const p of f.pipes ?? []) if (p.type === medium && (p.points?.length ?? 0) >= 2) pipes.push({ ...p, floorId: f.id });
+      for (const p of f.pipes ?? []) if (p.type === medium && (p.points?.length ?? 0) >= 2) pipes.push({ ...p, floorId: f.id, endTargets: pipeEnds(p, f) });
       for (const n of f.nodes ?? []) if (cfg.kinds.includes(n.kind) && Number.isFinite(n.x) && Number.isFinite(n.z)) nodes.push({ ...n, floorId: f.id });
     }
     if (!pipes.length) continue;
@@ -117,11 +121,11 @@ export function computeNet(building, { load = () => null, nodeValue = () => null
       addCut(p, p.points.length - 1);
       for (const j of jointsOf(p)) addCut(p, j);
     }
-    // Punkte, die andere Leitungen berühren können: Enden aller Leitungen und alle Verteiler
+    // Punkte, die andere Leitungen berühren können: Enden aller Leitungen (außer an Geräten) und alle Verteiler
     const probes = [
       ...pipes.flatMap((p) => [
-        { k: key(p, 0), floorId: p.floorId, xz: p.points[0], own: p.id },
-        { k: key(p, p.points.length - 1), floorId: p.floorId, xz: p.points.at(-1), own: p.id },
+        ...(p.endTargets.a ? [] : [{ k: key(p, 0), floorId: p.floorId, xz: p.points[0], own: p.id }]),
+        ...(p.endTargets.b ? [] : [{ k: key(p, p.points.length - 1), floorId: p.floorId, xz: p.points.at(-1), own: p.id }]),
         // Zwischenpunkte, die als Abzweig auf einer anderen Leitung liegen
         ...jointsOf(p).map((j) => ({ k: key(p, j), floorId: p.floorId, xz: p.points[j], own: p.id })),
       ]),
@@ -184,7 +188,9 @@ export function computeNet(building, { load = () => null, nodeValue = () => null
     };
     for (const p of pipes) {
       const v = load(p);
-      if (Number.isFinite(v)) addLoad(key(p, p.points.length - 1), v, { name: p.name || p.room || p.device || p.entity || "Leitung", pipeId: p.id });
+      // an einem Gerät hängt die Last dort (auch am Anfang, wenn nur dort eins ist), sonst am Ende
+      const at = loadEnd(p.endTargets) === "a" ? 0 : p.points.length - 1;
+      if (Number.isFinite(v)) addLoad(key(p, at), v, { name: p.name || p.room || p.device || p.entity || endDevice(p.endTargets) || "Leitung", pipeId: p.id });
     }
     const meters = new Map(); // Knoten → gemessener Wert (Unterverteilung, Wurzel)
     for (const n of nodes) {
@@ -218,7 +224,9 @@ export function computeNet(building, { load = () => null, nodeValue = () => null
       }
     };
     for (const r of rootKeys) visit(r);
-    // nicht verbundene Teile: jeweils ab dem Anfang ihrer ersten Leitung
+    // nicht verbundene Teile: jeweils ab dem Anfang ihrer ersten Leitung – ein Gerät ist keine Quelle
+    for (const p of pipes) if (!p.endTargets.a) visit(dsu.find(key(p, 0)));
+    for (const p of pipes) if (!p.endTargets.b) visit(dsu.find(key(p, p.points.length - 1)));
     for (const p of pipes) visit(dsu.find(key(p, 0)));
     // 5) Summen von den Blättern zur Wurzel
     const sum = new Map();

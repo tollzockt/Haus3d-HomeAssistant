@@ -3,10 +3,11 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 // Playwright ist global installiert: NODE_PATH="$(npm root -g)" node tests/browser/shot.mjs <ordner>
 const { chromium } = createRequire(import.meta.url)("playwright");
-const { unlock } = await import("./lib.mjs");
+const { unlock, chromiumPath } = await import("./lib.mjs");
 // Editor-Werkzeug wählen (am Tablet steckt es im Menü „Werkzeug ▾“)
 const edTool = async (pg, tool) => {
   if (await pg.locator("haus3d-panel .ed-bar.compact").count()) await pg.locator('haus3d-panel .ed-bar [data-menu="tools"]').click();
@@ -14,7 +15,7 @@ const edTool = async (pg, tool) => {
 };
 
 
-const root = resolve(new URL("../..", import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const out = process.argv[2] ?? ".";
 const types = { ".html": "text/html", ".js": "text/javascript", ".json": "application/json" };
 const server = createServer(async (req, res) => {
@@ -28,7 +29,7 @@ const server = createServer(async (req, res) => {
   }
 }).listen(0);
 const port = server.address().port;
-const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM ?? "/opt/pw-browsers/chromium", args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const browser = await chromium.launch({ executablePath: chromiumPath, args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const errors = [];
 async function shot(name, query, viewport, deviceScaleFactor = 1) {
   const page = await browser.newPage({ viewport, deviceScaleFactor });

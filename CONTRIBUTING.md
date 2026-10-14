@@ -51,7 +51,37 @@ Meldet sich ein Rechteinhaber, wird die betroffene Stelle umgehend geändert.
 ```bash
 node --test tests/js/*.test.mjs
 python -m pytest -q tests/python
-NODE_PATH="$(npm root -g)" node tests/browser/run.mjs <ausgabeordner> [filter]
+NODE_PATH="$(npm root -g)" node tests/browser/run.mjs <ausgabeordner> [filter] [--jobs N]
 ```
 
 `tests/js/brands.test.mjs` und `tests/python/test_schema.py` prüfen die Marken- und Datenschutzregeln mit.
+`--jobs N` lässt N Browser-Testdateien gleichzeitig laufen (sinnvoll: etwa Kerne ÷ 2).
+
+### Auf dem eigenen Rechner einrichten
+
+Unter macOS und Linux direkt, unter Windows in WSL 2 (Ubuntu) oder ohne WSL (siehe unten):
+
+```bash
+git clone <repo-url> haus3d && cd haus3d
+# Node.js 22 oder neuer, dazu Playwright mit Chromium für die Browser-Tests
+npm install -g playwright && npx playwright install --with-deps chromium
+# Python 3.12 (wie die Test-Umgebung von Home Assistant 2024.7)
+python3.12 -m venv .venv && . .venv/bin/activate && pip install -r requirements_test.txt
+node --test tests/js/*.test.mjs && python -m pytest -q tests/python
+NODE_PATH="$(npm root -g)" node tests/browser/run.mjs /tmp/haus3d-shots o2
+```
+
+Ohne `PW_CHROMIUM` nehmen die Browser-Tests das Chromium von Playwright.
+
+**Windows ohne WSL** – Einrichtung in PowerShell, Python 3.12 über `uv`:
+
+```powershell
+winget install OpenJS.NodeJS.LTS        # Node.js 22 oder neuer
+npm install -g playwright; npx playwright install chromium
+uv venv --python 3.12 .venv
+uv pip install --python .venv\Scripts\python.exe -r requirements_test.txt
+```
+
+Die JS- und Browser-Tests laufen dann in Git Bash mit denselben Befehlen wie oben (`/tmp` liegt dort im
+Temp-Ordner). Die Python-Tests gehen unter Windows nicht: `pytest-socket` sperrt die Socket-Verbindung, die die
+asyncio-Ereignisschleife unter Windows beim Start anlegt. Dafür WSL 2 (Ubuntu) nehmen.

@@ -9,7 +9,7 @@ import { angleBetween, sunLook, sunVector } from "./sun.js";
 import { presetPose, roundPose } from "./camera.js";
 import { mergeHoles, roomHole, slabOpenings } from "./stairs.js";
 import { colorKey } from "./light.js";
-import { floorColor, textureFor } from "./model.js";
+import { floorColor, textureFor, textureRotation } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
 import { ambientInterval, lodState, resolveQuality, shouldRender } from "./perf.js";
 import { atticKnee, findPvShed, freeEdges, roofModel, scatter, seeded } from "./exterior.js";
@@ -22,6 +22,8 @@ import { ScenePipes } from "./scene-pipes.js";
 import { PanelBatch, flatOrExtruded } from "./scene-geo.js";
 import { SceneRoof } from "./scene-roof.js";
 import { SceneRoofParts } from "./scene-roofparts.js";
+import { onModelsChange } from "./models.js";
+import { addAreaKerb, buildKerbArea } from "./scene-kerb.js";
 
 const OUTDOOR = {
   lawn: { color: 0x6aa84f, y: -0.035, h: 0 },
@@ -168,6 +170,9 @@ export class HouseScene {
     this.layers = {};
     this.lampBulbs = new Map(); // entity_id -> Leuchtmittel (Möbel-Lampen und 3D-Geräte)
     this.heatParts = []; // Heizkörper-Rippen (glühen beim Heizen)
+    this.stateParts = []; // Möbel mit userData.onState: folgen dem Zustand ihrer Entität (offen/zu, an/aus …)
+    // eigene 3D-Modelle laden nach dem Aufbau: danach Schatten setzen und neu zeichnen
+    this._offModels = onModelsChange((kind) => kind === "loaded" && this._applyShadows());
     this.devicesGroup = new THREE.Group();
     this.selected = null;
     this._makeMats();
@@ -352,12 +357,14 @@ export class HouseScene {
 
   /**
    * Material mit Textur (Kopie von base, je Art, Textur und Farbe einmal). Ohne Textur base selbst;
-   * own = base ist eine Wegwerf-Kopie (eigene Farbe): sie wird entsorgt, die geteilte Kopie bleibt.
+   * own = base ist eine Wegwerf-Kopie (eigene Farbe): sie wird entsorgt, die geteilte Kopie bleibt. rot = Drehung
+   * der Textur (Grad, eigene Kopie je Drehung).
    */
-  _texMat(base, key, tag, own = false) {
+  _texMat(base, key, tag, own = false, rot = 0) {
     if (this.style === "cyber") key = null;
     if (!key && !own) return base;
-    const k = `${tag}:${key ?? ""}:${base.color.getHexString()}`;
+    rot = key ? textureRotation(rot) : 0;
+    const k = `${tag}:${key ?? ""}:${base.color.getHexString()}${rot ? `:${rot}` : ""}`;
     let m = this.texMats.get(k);
     if (!m) {
       m = base.clone();
@@ -367,7 +374,7 @@ export class HouseScene {
         if (base.userData[f]?.isColor) m.userData[f] = base.userData[f].clone();
         else delete m.userData[f];
       }
-      m.map = key ? getTexture(key, this.renderer) : null;
+      m.map = key ? getTexture(key, this.renderer, rot) : null;
       m.needsUpdate = true;
       this.texMats.set(k, m);
     }
@@ -419,6 +426,7 @@ export class HouseScene {
     this.warnings = [];
     this.lampBulbs.clear();
     this.heatParts = [];
+    this.stateParts = [];
     this.pvFields = new Map(); // PV-Feld-ID → {mesh, solar, …} (Dach-Ebene)
     // Deckenöffnungen (Treppen von unten, Treppenlöcher) einmal je Etage
     this._slabHoles = new Map((building.floors ?? []).map((f) => [f.id, slabOpenings(building, f.id)]));
@@ -744,7 +752,7 @@ export class HouseScene {
       // Cyberpunk: Bodenbelag dunkel getönt, aber deckend und klar vom Hintergrund abgesetzt
       const base = new THREE.Color(floorColor(room));
       if (this.style === "cyber") base.lerp(new THREE.Color(0x3a2470), 0.45);
-      const ftex = this.style === "cyber" ? null : getTexture(textureFor("floor", room.floor_texture, room.floor_material), this.renderer);
+      const ftex = this.style === "cyber" ? null : getTexture(textureFor("floor", room.floor_texture, room.floor_material), this.renderer, room.floor_texture_rotation);
       const mat = new THREE.MeshStandardMaterial({ color: base.clone(), roughness: 0.85, emissive: 0x000000, map: ftex });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.userData.layer = "floors";
@@ -883,6 +891,7 @@ export class HouseScene {
         obj.traverse((o) => (o.userData.entity = entity));
         if (!this.lampBulbs.has(entity)) this.lampBulbs.set(entity, []);
         this.lampBulbs.get(entity).push(...obj.userData.bulbs);
+        if (typeof obj.userData.onState === "function") this.stateParts.push({ entity, fn: obj.userData.onState });
       }
       (inside([item.x, item.z]) ? furn : gardenFurn).add(obj);
     }
@@ -1081,13 +1090,14 @@ export class HouseScene {
   }
 
   _buildOutdoor(area, elev, floor = null) {
+    if (area.type === "kerb") return buildKerbArea(this, area, elev); // Linie „Randstein“ (scene-kerb.js)
     const look = OUTDOOR[area.type] ?? OUTDOOR.lawn;
     const group = new THREE.Group();
     const heights = Array.isArray(area.heights) && area.heights.length === area.points.length ? area.heights.map((h) => Number(h) || 0) : null;
     let geo;
     if (area.type === "balcony") {
       // Platte unter Fußbodenhöhe der Etage, Oberkante = Boden
-      const slab = new THREE.Mesh(flatOrExtruded(area.points, 0.2), this._texMat(this.outdoorMats.balcony, textureFor("ground", area.texture, "balcony"), "ground:balcony"));
+      const slab = new THREE.Mesh(flatOrExtruded(area.points, 0.2), this._texMat(this.outdoorMats.balcony, textureFor("ground", area.texture, "balcony"), "ground:balcony", false, area.texture_rotation));
       slab.position.y = elev - 0.2;
       group.add(slab);
       if (this.mats.gardenLine) group.add(outline(area.points, elev + 0.01, this.mats.gardenLine));
@@ -1112,7 +1122,7 @@ export class HouseScene {
     }
     geo.translate(0, elev + look.y, 0);
     const gmat = this.outdoorMats[area.type] ?? this.outdoorMats.lawn;
-    const mesh = new THREE.Mesh(geo, this._texMat(gmat, textureFor("ground", area.texture, area.type), `ground:${area.type}`));
+    const mesh = new THREE.Mesh(geo, this._texMat(gmat, textureFor("ground", area.texture, area.type), `ground:${area.type}`, false, area.texture_rotation));
     group.add(mesh);
     if (this.mats.gardenLine) {
       const hs = Array.isArray(area.heights) && area.heights.length === area.points.length ? area.heights : null;
@@ -1135,6 +1145,7 @@ export class HouseScene {
     if (area.type === "bed") this._buildFlowers(group, area, elev + look.y + look.h);
     if (area.type === "gravel" || area.type === "rockery") this._buildStones(group, area, elev + look.y + look.h);
     if (!heights) this._buildRailing(group, area, elev + look.y + look.h, floor);
+    addAreaKerb(this, group, area, look, elev, heights, floor); // Randstein/Kante (area.edge)
     return group;
   }
 
@@ -1441,9 +1452,9 @@ export class HouseScene {
 
   _dispose(obj) {
     obj.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
+      if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); // keep: Geometrie eines geladenen Modells (models.js)
       const shared = [...Object.values(this.mats).flat(), ...Object.values(this.outdoorMats), ...Object.values(this.furnMats ?? {}).flat()];
-      for (const m of [].concat(o.material ?? [])) if (!shared.includes(m)) m.dispose();
+      for (const m of [].concat(o.material ?? [])) if (!shared.includes(m) && !m.userData.keep) m.dispose();
     });
   }
 
@@ -1537,6 +1548,8 @@ export class HouseScene {
       const mat = on ? this.furnMats.heatOn : h.base;
       for (const m of h.meshes) if (m.material !== mat) m.material = mat;
     }
+    // Möbel, die ihrer Entität folgen (Zustandsobjekt oder null, wenn es die Entität nicht gibt)
+    for (const p of this.stateParts ?? []) p.fn(s.states?.[p.entity] ?? null);
     for (const [floorId, entry] of this.floors) {
       for (const [roomId, r] of entry.rooms) {
         const key = `${floorId}:${roomId}`;
@@ -1946,6 +1959,7 @@ export class HouseScene {
 
   dispose() {
     this.stop();
+    this._offModels?.();
     if (this.weather) this.weather.obj.geometry.dispose();
     this._resize.disconnect();
     this.controls.dispose();

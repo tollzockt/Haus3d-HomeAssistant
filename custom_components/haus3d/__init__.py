@@ -22,6 +22,7 @@ from .const import (
 )
 from .access import Access
 from .daily import Daily
+from .models import Models, async_register as async_register_models
 from .storage import Haus3DData
 from .services import async_register_services, async_remove_services
 from .websocket import async_register_commands
@@ -35,6 +36,7 @@ PANEL_FILE = "haus3d-panel.js"
 # lassen sich in HA nicht wieder abmelden und dürfen daher nur einmal registriert werden.
 _STATIC_REGISTERED = f"{DOMAIN}_static_versions"
 _WS_REGISTERED = f"{DOMAIN}_ws_registered"
+_MODELS_REGISTERED = f"{DOMAIN}_models_registered"
 
 
 def _frontend_hash() -> str:
@@ -53,11 +55,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await data.access.async_load()
     data.daily = Daily(hass, data)
     await data.daily.async_start()
+    data.models = Models(hass)
+    await data.models.async_load()
     hass.data[DOMAIN] = data
 
     if not hass.data.get(_WS_REGISTERED):
         async_register_commands(hass)
         hass.data[_WS_REGISTERED] = True
+    if not hass.data.get(_MODELS_REGISTERED):
+        async_register_models(hass)  # HTTP-Zugänge und Befehle für eigene 3D-Modelle
+        hass.data[_MODELS_REGISTERED] = True
     async_register_services(hass)
 
     # Versionierter Pfad: auch die per relativem import geladenen Module (scene.js, walls.js …)
