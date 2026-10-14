@@ -3,6 +3,8 @@
 // platziertes Gerät (floor.placements). Anschlusspunkt und Fang beim Zeichnen, Lage relativ zum Gerät (Mitziehen),
 // Anschlusshöhe in 3D und das Gerät am Leitungsende (Last, Datenrate). Ein Bezug, dessen Ziel fehlt, zählt nicht.
 
+import { furniturePose, hasPose, planSize } from "./pose.js";
+
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const fin = (...v) => v.every((x) => Number.isFinite(x));
@@ -59,8 +61,17 @@ export function unplugEnd(pipe, k) {
   if (!pipe.ends.a && !pipe.ends.b) delete pipe.ends;
 }
 
-/** Breite und Tiefe eines Möbelstücks (wie edit-ops.furnitureAt: ohne Maß 0,6 m). */
-const dims = (m) => ({ w: Number(m.w) > 0 ? Number(m.w) : 0.6, d: Number(m.d) > 0 ? Number(m.d) : 0.6 });
+/** Breite und Tiefe des Rahmens eines Möbelstücks (wie edit-ops.furnitureAt: ohne Maß 0,6 m). */
+const frame = (m) => ({ w: Number(m.w) > 0 ? Number(m.w) : 0.6, d: Number(m.d) > 0 ? Number(m.d) : 0.6 });
+
+/** Grundfläche im Plan: der Rahmen, geneigt/gekippt seine Hülle (pose.js; ohne Höhe zählt die Raumhöhe wie in edit-ops.footprintSize). */
+function dims(m, ceil = 2.5) {
+  const { w, d } = frame(m);
+  if (!hasPose(m)) return { w, d };
+  const h = Number(m.h) > 0 ? Number(m.h) : null;
+  const [pw, pd] = planSize(m, w, d, h ?? ceil, h ? null : ceil);
+  return { w: pw, d: pd };
+}
 
 /** Lage eines Ziels: Mitte und Drehung (Grad; platzierte Geräte drehen ihren Anschluss nicht). */
 const poseOf = (t) => ({ x: Number(t.item.x), z: Number(t.item.z), rot: t.kind === "furniture" ? Number(t.item.rotation) || 0 : 0 });
@@ -150,7 +161,9 @@ export function targetMoved(before, after) {
   const b = before.item;
   const a = after.item;
   const same = (k) => Math.abs((Number(a[k]) || 0) - (Number(b[k]) || 0)) < 1e-9;
-  return !(same("x") && same("z") && (before.kind !== "furniture" || (same("rotation") && same("w") && same("d"))));
+  // geneigt/gekippt ändert die Hülle (und bei Neigung auch die Höhe) – dann wandert das Ende mit
+  const pose = same("tilt") && same("roll") && (same("h") || !(hasPose(a) || hasPose(b)));
+  return !(same("x") && same("z") && (before.kind !== "furniture" || (same("rotation") && same("w") && same("d") && pose)));
 }
 
 /** Verknüpfte Entität eines Ziels: Entität des Möbelstücks bzw. das platzierte Gerät; sonst null. */
@@ -195,14 +208,19 @@ export function targetSpan(target, floorHeight = 2.5, furnSpan = null) {
   if (furnSpan) return furnSpan(m, floorHeight);
   const h = Number(m.h) > 0 ? Number(m.h) : 0.6;
   const y = Number.isFinite(Number(m.mount_y)) && m.mount_y != null ? Number(m.mount_y) : 0;
-  return [y, y + h];
+  const { w, d } = frame(m);
+  return [y, y + (hasPose(m) ? furniturePose(m, w, d, h).h : h)]; // geneigt/gekippt: Höhe der Hülle
 }
 
-/** Höhenbereich eines Möbelstücks mit der Montagehöhe baseY(item, floorHeight, h) und Standardmaßen defs (Typ → [Name, w, d, h]). */
-export const furnitureSpan = (baseY, defs = {}) => (item, floorHeight) => {
+/**
+ * Höhenbereich eines Möbelstücks mit der Montagehöhe baseY(item, floorHeight, h) und Standardmaßen defs (Typ → [Name, w,
+ * d, h]). topY(item, floorHeight) ist die Oberkante (furniture.js:furnitureTopY, geneigt/gekippt: höchste Ecke); ohne
+ * sie gilt Unterkante plus Höhe.
+ */
+export const furnitureSpan = (baseY, defs = {}, topY = null) => (item, floorHeight) => {
   const h = Number(item.h) > 0 ? Number(item.h) : defs[item.type]?.[3] || floorHeight;
   const y = baseY(item, floorHeight, h);
-  return [y, y + h];
+  return [y, topY ? topY(item, floorHeight) : y + h];
 };
 
 /**

@@ -267,8 +267,8 @@ im Etagen-Feld. Norden lässt sich nur mit der Admin-PIN ändern.
   die Kapazität für die Energie stellt man in den Energie-Einstellungen ein.
 - **Eigene 3D-Modelle**: „Modell hochladen …“ im Katalog nimmt .glb und .gltf (mit Farben und Texturen; .gltf
   nur mit eingebetteten Daten) sowie .obj und .stl (einfarbig, Farbe wählbar) bis 25 MB je Datei. Der Dialog
-  misst die Datei, schlägt die Einheit vor (m, cm, mm), fragt bei OBJ und STL, welche Achse oben ist, und zeigt
-  die entstehende Größe. Kachel wählen und in den Plan tippen setzt das Modell in Originalgröße; in den
+  misst die Datei, schlägt die Einheit vor (m, cm, mm), fragt bei OBJ und STL, welche Achse oben ist, zeigt die
+  entstehende Größe und speichert ein Vorschaubild für den Katalog. Kachel wählen und in den Plan tippen setzt das Modell in Originalgröße; in den
   Eigenschaften „Einpassen“ (Seitenverhältnis behalten oder auf Maße strecken), „Originalgröße“, Modellwechsel,
   „Umbenennen“ und „Modell löschen …“. Hochladen, Umbenennen und Löschen brauchen die Bearbeiten-PIN. Die Dateien
   liegen im HA-Konfigurationsordner (`haus3d/models/`, in HA-Backups enthalten) und gelten für alle Häuser; der

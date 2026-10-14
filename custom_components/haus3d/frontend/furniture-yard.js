@@ -136,8 +136,8 @@ export function buildYard(type, w, d, h, M, g, bulbs, item = {}) {
     // Namensschild, Entnahmetür mit Schloss hinten
     case "garden_mailbox": {
       const P = palette(M);
-      const bw = w - 0.02;
-      const bd = d - 0.02;
+      const bw = Math.max(0.02, w - 0.02);
+      const bd = Math.max(0.02, d - 0.02);
       const rh = Math.min(0.1, h * 0.07); // Haube
       const hb = Math.min(0.27, h * 0.19); // Kasten
       const yb = h - rh - hb;

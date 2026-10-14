@@ -447,6 +447,11 @@ def test_garden_edge_and_tub_cover_soft() -> None:
             {"id": "w2", "type": "garden_hot_tub_acryl", "x": 3, "z": 0, "open": "kaputt"},
             {"id": "w3", "type": "hot_tub", "x": 6, "z": 0},
             {"id": "w4", "type": "hot_tub", "x": 9, "z": 0, "open": 0.4},
+            {"id": "w5", "type": "home_curtain", "x": 12, "z": 0, "open": "50"},
+            {"id": "w6", "type": "home_curtain", "x": 15, "z": 0, "open": " 0.4 "},
+            {"id": "w7", "type": "home_curtain", "x": 18, "z": 0, "open": "nan"},
+            {"id": "w8", "type": "hot_tub", "x": 21, "z": 0, "open": "yes"},
+            {"id": "w9", "type": "hot_tub", "x": 24, "z": 0, "open": "0"},
         ],
     }
     f = validate_building({"version": 1, "floors": [floor], "settings": {}})["floors"][0]
@@ -456,9 +461,37 @@ def test_garden_edge_and_tub_cover_soft() -> None:
     assert "edge" not in c and "edge_h" not in c
     assert d["type"] == "kerb" and d["edge"] == "concrete" and d["edge_h"] is None and d["line"]["width"] == 0.08
     assert e["edge"] == "palisade" and e["edge_h"] == 0.6  # zu hoch → auf den Rand gesetzt
-    w1, w2, w3, w4 = f["furniture"]
+    w1, w2, w3, w4, w5, w6, w7, w8, w9 = f["furniture"]
     assert w1["open"] is True and w2["open"] is False and "open" not in w3
     assert w4["open"] == 0.4  # Zahlen bleiben unverändert
+    # Zahlen als Text („50“) sind Zahlen (sonst würde der Vorhang ganz zugehen und ein Whirlpool mit „0“ offen sein)
+    assert w5["open"] == 50 and isinstance(w5["open"], int) and w6["open"] == 0.4
+    assert w7["open"] is False and w8["open"] is True and w9["open"] == 0 and w9["open"] is not False
+
+
+def test_outdoor_unknown_type_only_drops_that_entry() -> None:
+    """Eine Art, die erst eine neuere Version kennt, kostet nur ihre Fläche – nicht den ganzen gespeicherten Stand."""
+    pts = [[0, 0], [4, 0], [4, 3]]
+    floor = {
+        "id": "eg",
+        "name": "EG",
+        "elevation": 0,
+        "height": 2.5,
+        "rooms": [],
+        "outdoor": [
+            {"id": "a", "type": "lawn", "points": pts},
+            {"id": "b", "type": "kuenftige_art", "points": pts},
+            {"id": "c", "type": "kerb", "points": pts, "line": {"points": [[0, 0], [4, 0]], "width": 0.08}},
+            {"id": "d", "type": "lawn", "points": [[0, 0]]},  # zu wenige Punkte
+            "kaputt",
+            {"id": "e", "type": "terrace", "points": pts, "edge": "granite", "neues_feld": 5},
+        ],
+    }
+    out = validate_building({"version": 1, "floors": [floor], "settings": {}})["floors"][0]["outdoor"]
+    assert [o["id"] for o in out] == ["a", "c", "e"]
+    assert out[2]["edge"] == "granite" and out[2]["neues_feld"] == 5 and out[1]["line"]["width"] == 0.08
+    floor["outdoor"] = "keine Liste"
+    assert validate_building({"version": 1, "floors": [floor], "settings": {}})["floors"][0]["outdoor"] == []
 
 
 def test_kerb_kinds_match_frontend() -> None:

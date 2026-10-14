@@ -268,7 +268,7 @@ export function buildBeds2(type, w, d, h, M, g, bulbs, item = {}) {
       const wh = Math.min(0.62, he * 0.36);
       // Deckleisten (nicht über Tür und Fenster)
       const bat = [];
-      const nb = Math.round(bw / 0.2);
+      const nb = Math.max(1, Math.round(bw / 0.2)); // mindestens 1: sonst 0/0 bei sehr schmalen Maßen
       for (let i = 0; i <= nb; i++) {
         const x = -bx + 0.02 + ((bw - 0.04) * i) / nb;
         if (Math.abs(x - dx) > dwid / 2 + 0.06 && Math.abs(x - wx) > ww / 2 + 0.06) bat.push(boxG(0.04, roofY(x) - y0 - 0.03, 0.015, x, y0, zf + 0.0075));
@@ -276,7 +276,7 @@ export function buildBeds2(type, w, d, h, M, g, bulbs, item = {}) {
         else bat.push(boxG(0.04, roofY(x) - y0 - dh - 0.12, 0.015, x, y0 + dh + 0.08, zf + 0.0075));
         bat.push(boxG(0.04, roofY(x) - y0 - 0.03, 0.015, x, y0, zb - 0.0075));
       }
-      const ns = Math.round(bd / 0.2);
+      const ns = Math.max(1, Math.round(bd / 0.2));
       for (let i = 0; i <= ns; i++) for (const s of [-1, 1]) bat.push(boxG(0.015, he - y0 - 0.02, 0.04, s * (bx + 0.0075), y0, zb + 0.02 + ((bd - 0.04) * i) / ns));
       merged(g, P.woodD, bat);
       // Tür: Bretter, Z-Strebe, Zarge, Griff

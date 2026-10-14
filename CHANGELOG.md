@@ -1,5 +1,27 @@
 # Änderungen
 
+## 0.23.0b4 (Vorabversion)
+
+- **Eigene 3D-Modelle schneller im Katalog**: Das Vorschaubild entsteht beim Hochladen und wird mitgespeichert;
+  der Katalog lädt keine Modelldateien mehr (vorher bis zu 40 ganze Dateien beim Öffnen von „Einrichten“).
+  Modelle aus 0.23.0b3 zeigen ein Symbol. Binäre STL-Dateien mit Füllbytes am Ende werden angenommen.
+- **Randstein-, Zaun- und Weg-Linien verschieben**: Ziehen, Pfeiltasten und Mehrfachauswahl nehmen die Linie mit –
+  vorher blieb sie in 3D an der alten Stelle. Bei Randstein-Linien gibt es keine Hang-Felder mehr (sie liegen auf
+  der Etagenhöhe); „Höhen automatisch“ lässt sie aus.
+- **Server- und Netzwerkschrank**: Schränke mit eingebauten Geräten und eingebaute Geräte lassen sich nicht
+  neigen oder kippen (Felder ausgeblendet); wird ein Schrank schmaler oder flacher, werden Geräte, die nicht mehr
+  passen, ausgebaut.
+- **Typ wechseln** entfernt Einstellungen, die nur zum alten Typ gehören (z. B. Whirlpool-Abdeckung, Feuer,
+  Erweiterungsakkus, 3D-Modell) – ein Whirlpool, der zum Vorhang wird, ist danach ganz offen statt fast zu.
+- **Leitungen an geneigten Geräten** enden auf der richtigen Höhe und an der Rückseite der Hülle; Neigen und
+  Kippen ziehen das Leitungsende mit. Platzierte Geräte ziehen: 3D-Vorschau und Entwurf folgen sofort.
+- **Robuster**: Sehr kleine Maße (wenige Millimeter) bei Vorhängen, Hängematte, Gartenhaus, Briefkasten,
+  Vogelkäfig und Kleintiergehege erzeugen keine ungültige Geometrie mehr, die die Schatten der ganzen Szene
+  störte. Gartenflächen werden einzeln geprüft – eine fehlerhafte oder unbekannte Fläche (etwa aus einer neueren
+  Version) fällt allein weg, statt den ganzen Stand ungültig zu machen.
+- **Dienst `haus3d.away`**: Das Feld „on“ steht in `services.yaml` jetzt als Text (die Home-Assistant-Prüfung
+  hassfest lehnte die Datei ab).
+
 ## 0.23.0b3 (Vorabversion)
 
 - **Mehr Wohnlichkeit drinnen**: „Wohnen & Deko“ (Bilderrahmen, Leinwandbild,

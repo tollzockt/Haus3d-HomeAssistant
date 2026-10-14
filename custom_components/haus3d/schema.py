@@ -48,9 +48,17 @@ def _north(value: Any) -> float:
 
 
 def _open_flag(value: Any) -> Any:
-    """Abdeckung offen: Wahrheitswert; Zahlen (etwa eine Stellung) bleiben unverändert, alles andere ungültig."""
+    """Offen: Wahrheitswert (Whirlpool) oder Zahl (Vorhang, Stellung in %). Zahlen und Zahlen als Text („50“) werden
+    als Zahl übernommen, Ja/Nein-Wörter als Wahrheitswert, alles andere ist ungültig."""
     if isinstance(value, bool) or (isinstance(value, (int, float)) and math.isfinite(value)):
         return value
+    if isinstance(value, str):
+        try:
+            number = float(value.strip())
+        except ValueError:
+            number = math.nan
+        if math.isfinite(number):
+            return int(number) if number.is_integer() else number
     return vol.Boolean()(value)
 
 
@@ -386,7 +394,8 @@ FLOOR_SCHEMA = vol.Schema(
         vol.Optional("furniture", default=list): vol.All([FURNITURE_SCHEMA], vol.Length(max=MAX_ITEMS)),
         vol.Optional("placements", default=list): vol.All([PLACEMENT_SCHEMA], vol.Length(max=MAX_ITEMS)),
         vol.Optional("background", default=None): vol.Any(None, dict),
-        vol.Optional("outdoor", default=list): vol.All([OUTDOOR_SCHEMA], vol.Length(max=MAX_ITEMS)),
+        # weich: eine Art, die diese Version nicht kennt (neuere Version), kostet nur diese Fläche, nicht den ganzen Stand
+        vol.Optional("outdoor", default=list): _soft_items(OUTDOOR_SCHEMA),
         vol.Optional("pipes", default=list): vol.All([PIPE_SCHEMA], vol.Length(max=MAX_ITEMS)),
         vol.Optional("nodes", default=list): vol.All([NODE_SCHEMA], vol.Length(max=MAX_ITEMS)),
         # 0.20: Dachgeschoss (Räume unter den Dachschrägen) mit Kniestock in m

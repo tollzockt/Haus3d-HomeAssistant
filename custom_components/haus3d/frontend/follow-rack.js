@@ -5,7 +5,8 @@
 //  - eingebautes Gerät aus der Schrankfläche gezogen → ausgebaut (landet es über einem anderen Schrank, zieht es dort ein);
 //  - Schrank verschoben, gedreht, höher gesetzt → Geräte folgen (Lage, Drehung, mount_y);
 //  - rack_u geändert → neue Lage; ist sie belegt, rückt das Gerät in die nächste freie Lücke;
-//  - Schrank gelöscht oder kein Schrank mehr → ausgebaut, die Geräte bleiben stehen.
+//  - Schrank gelöscht oder kein Schrank mehr → ausgebaut, die Geräte bleiben stehen;
+//  - eingebaute Geräte und Schränke mit Geräten stehen gerade: tilt/roll fallen weg.
 // Der Schrank führt rack_used (belegte HE); es fehlt, wenn nichts eingebaut ist.
 
 import { cabinetLayout, findSlot, fitsCabinet, heOf, inFootprint, isCabinet, isRackable, markSlot, newOccupancy, rackPose, slotFree } from "./rack.js";
@@ -94,6 +95,10 @@ export function followRack(before, after) {
       seekers.push({ d, want: null });
       continue;
     }
+    if (fitsCabinet(cab, d) !== "") {
+      release(d); // Schrank schmaler/flacher gemacht oder Gerät vergrößert: passt nicht mehr hinein
+      continue;
+    }
     const want = toU(d.rack_u);
     claim(inId, d, want, toU(p.rack_u) === want && heOf(p) === heOf(d));
   }
@@ -147,9 +152,14 @@ export function followRack(before, after) {
     for (const d of list) {
       if (d.in_rack !== cab.id || !isRackable(d)) continue;
       Object.assign(d, rackPose(cab, d, d.rack_u));
+      delete d.tilt; // eingebaut steht das Gerät gerade im Schrank (pose.js: noPose) – ein alter Winkel käme beim Ausbauen sonst zurück
+      delete d.roll;
       used += heOf(d);
     }
-    if (used > 0) cab.rack_used = used;
-    else delete cab.rack_used;
+    if (used > 0) {
+      cab.rack_used = used;
+      delete cab.tilt; // Schrank mit Geräten bleibt aufrecht
+      delete cab.roll;
+    } else delete cab.rack_used;
   }
 }

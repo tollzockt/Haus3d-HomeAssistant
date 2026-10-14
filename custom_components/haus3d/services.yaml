@@ -62,7 +62,7 @@ reload:
         text:
 away:
   fields:
-    on:
+    "on":
       required: true
       example: true
       selector:

@@ -167,8 +167,8 @@ export const PETS = {
     box(g, metal, cw + 0.02, 0.02, cd + 0.02, 0, cb - 0.02, 0);
     // Gitterstäbe
     const bars = [];
-    const nx = Math.round(cw / 0.04);
-    const nz = Math.round(cd / 0.04);
+    const nx = Math.max(1, Math.round(cw / 0.04)); // mindestens 1: sonst 0/0 bei sehr schmalen Maßen
+    const nz = Math.max(1, Math.round(cd / 0.04));
     for (let i = 0; i <= nx; i++) for (const sz of [-1, 1]) bars.push([-cw / 2 + (i * cw) / nx, sz * cd / 2]);
     for (let i = 1; i < nz; i++) for (const sx of [-1, 1]) bars.push([sx * cw / 2, -cd / 2 + (i * cd) / nz]);
     for (const [x, z] of bars) cyl(g, metal, 0.0035, chh, x, cb, z, 5);
@@ -224,8 +224,8 @@ export const PETS = {
     const gy = th;
     const gh = h - th;
     const bar = T(0x6a6e73, { metalness: 0.5, roughness: 0.4 });
-    const nx = Math.round(w / 0.07);
-    const nz = Math.round(d / 0.07);
+    const nx = Math.max(1, Math.round(w / 0.07));
+    const nz = Math.max(1, Math.round(d / 0.07));
     for (let i = 0; i <= nx; i++) for (const sz of [-1, 1]) cyl(g, bar, 0.003, gh, -w / 2 + 0.005 + (i * (w - 0.01)) / nx, gy, sz * (d / 2 - 0.005), 5);
     for (let i = 1; i < nz; i++) for (const sx of [-1, 1]) cyl(g, bar, 0.003, gh, sx * (w / 2 - 0.005), gy, -d / 2 + (i * d) / nz, 5);
     box(g, bar, w, 0.012, 0.012, 0, h - 0.012, d / 2 - 0.006);

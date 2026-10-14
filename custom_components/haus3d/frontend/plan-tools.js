@@ -1,7 +1,7 @@
 // Reine Helfer für den Editor (ohne DOM): Fang-Hilfen (Fluchtlinien), Länge/Winkel eintippen,
 // Kopieren/Einfügen/Vorlagen mehrerer Teile und das Bauplan-Foto unter dem Grundriss.
 
-import { newId, shiftRoomRoof } from "./edit-ops.js";
+import { moveOutdoor, newId, shiftRoomRoof } from "./edit-ops.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const ENTITY = /^[a-z_]+\.[a-z0-9_]+$/;
@@ -94,8 +94,8 @@ const shiftItem = (kind, x, dx, dz) => {
   const m = ([px, pz]) => [r3(px + dx), r3(pz + dz)];
   if (kind === "furniture") return { ...x, x: r3(x.x + dx), z: r3(x.z + dz) };
   if (kind === "wall") return { ...x, a: m(x.a), b: m(x.b) };
+  if (kind === "outdoor") return moveOutdoor(x, dx, dz);
   const out = { ...x, points: x.points.map(m) };
-  if (x.line) out.line = { ...x.line, points: x.line.points.map(m) };
   // Dinge auf dem eigenen Dach eines Raums gehen mit
   if (kind === "room" && x.roof?.items?.length) out.roof = shiftRoomRoof(x.roof, dx, dz);
   return out;

@@ -12,6 +12,8 @@ erlaubten Endungen – nie aus Eingaben des Nutzers.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import os
@@ -36,6 +38,7 @@ from .const import (
     MODEL_EXTENSIONS,
     MODEL_MAX_BYTES,
     MODEL_NAME_MAX,
+    MODEL_THUMB_MAX,
     MODEL_UNITS,
     MODELS_DIR,
     MODELS_MAX_COUNT,
@@ -48,8 +51,8 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 MODEL_ID_RE = re.compile(r"[0-9a-f]{16}")
-# Spielraum für die Formularfelder neben der Datei (Content-Length-Vorprüfung)
-FORM_OVERHEAD = 64 * 1024
+# Spielraum für die Formularfelder neben der Datei (Content-Length-Vorprüfung), das Vorschaubild eingerechnet
+FORM_OVERHEAD = 64 * 1024 + MODEL_THUMB_MAX
 CHUNK = 256 * 1024
 MAX_PARTS = 12
 FIELD_MAX = 2048
@@ -139,10 +142,10 @@ def _check_gltf(data: bytes) -> None:
 
 
 def _check_stl(data: bytes) -> None:
-    # binär: 80 Byte Kopf, Anzahl der Dreiecke, je 50 Byte
+    # binär: 80 Byte Kopf, Anzahl der Dreiecke, je 50 Byte (Füllbytes am Ende, wie manche Exporte sie anhängen, sind ok)
     if len(data) >= 84:
         (count,) = struct.unpack_from("<I", data, 80)
-        if count > 0 and 84 + 50 * count == len(data):
+        if count > 0 and 84 + 50 * count <= len(data):
             return
     if data[:512].lstrip().lower().startswith(b"solid") and b"facet" in data and b"vertex" in data:
         return
@@ -170,6 +173,35 @@ def parse_size(value: Any) -> list[float] | None:
     if len(parts) != 3 or any(not (0 <= p <= 1000) for p in parts) or not any(parts):
         return None
     return parts
+
+
+# Vorschaubild: Daten-URL eines kleinen Bildes, im Browser beim Hochladen gerendert (kein Laden der Modelle mehr
+# für den Katalog). Erlaubt sind nur diese drei Bildarten; Aufbau und Kennung der Bytes werden geprüft.
+_THUMB_TYPES = {
+    "data:image/png;base64,": lambda raw: raw.startswith(b"\x89PNG\r\n\x1a\n"),
+    "data:image/jpeg;base64,": lambda raw: raw.startswith(b"\xff\xd8\xff"),
+    "data:image/webp;base64,": lambda raw: raw[:4] == b"RIFF" and raw[8:12] == b"WEBP",
+}
+_BASE64_RE = re.compile(r"[A-Za-z0-9+/]+={0,2}")
+
+
+def parse_thumb(value: Any) -> str | None:
+    """Vorschaubild (Daten-URL) oder None, wenn es nicht passt: Art, Größe (höchstens MODEL_THUMB_MAX Zeichen), Base64."""
+    if not isinstance(value, str) or len(value) > MODEL_THUMB_MAX:
+        return None
+    for prefix, looks_right in _THUMB_TYPES.items():
+        if value.startswith(prefix):
+            payload = value[len(prefix) :]
+            break
+    else:
+        return None
+    if not _BASE64_RE.fullmatch(payload):
+        return None
+    try:
+        raw = base64.b64decode(payload, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    return value if looks_right(raw) else None
 
 
 # ---------------------------------------------------------------------------------------- Ablage
@@ -219,6 +251,9 @@ class Models:
     async def async_load(self) -> None:
         stored = await self._store.async_load() or {}
         self._items = {i: dict(m) for i, m in (stored.get("models") or {}).items() if _sane(i, m)}
+        for meta in self._items.values():
+            if "thumb" in meta and parse_thumb(meta["thumb"]) is None:
+                del meta["thumb"]  # unbrauchbares Vorschaubild (von Hand geändert?): Kachel zeigt das Symbol
         present = await self.hass.async_add_executor_job(_existing, self.directory, self._items)
         self._missing = set(self._items) - present
         if self._missing:
@@ -239,6 +274,8 @@ class Models:
         out["up"] = meta.get("up") or ("z" if meta["ext"] == "stl" else "y")
         if meta.get("size_m"):
             out["size_m"] = meta["size_m"]
+        if meta.get("thumb"):
+            out["thumb"] = meta["thumb"]
         if model_id in self._missing:
             out["missing"] = True
         return out
@@ -258,7 +295,9 @@ class Models:
             if model_id not in self._items:
                 return model_id
 
-    async def async_add(self, *, name: str, ext: str, unit: str, up: str | None, size_m: list[float] | None, data: bytes) -> dict[str, Any]:
+    async def async_add(
+        self, *, name: str, ext: str, unit: str, up: str | None, size_m: list[float] | None, data: bytes, thumb: str | None = None
+    ) -> dict[str, Any]:
         """Speichert ein geprüftes Modell und gibt seine Angaben zurück."""
         async with self._lock:
             if len(self._items) >= MODELS_MAX_COUNT:
@@ -273,6 +312,8 @@ class Models:
                 meta["up"] = up
             if size_m:
                 meta["size_m"] = size_m
+            if thumb:
+                meta["thumb"] = thumb
             self._items[model_id] = meta
             try:
                 await self._async_save()
@@ -347,7 +388,7 @@ async def _read_limited(part: aiohttp.BodyPartReader, limit: int, error: ModelEr
 
 
 class ModelUploadView(HomeAssistantView):
-    """POST /api/haus3d/models: multipart mit token, name, unit[, up, size_m, house] und zuletzt file."""
+    """POST /api/haus3d/models: multipart mit token, name, unit[, up, size_m, thumb] und zuletzt file."""
 
     url = MODELS_URL
     name = "api:haus3d:models"
@@ -387,6 +428,12 @@ class ModelUploadView(HomeAssistantView):
                     break
                 if not isinstance(part, aiohttp.BodyPartReader) or not part.name:
                     raise ModelError("invalid_format", "Das Formular ist ungültig.")
+                if part.name == "thumb":
+                    try:
+                        fields["thumb"] = (await _read_limited(part, MODEL_THUMB_MAX)).decode("ascii", errors="ignore")
+                    except ModelError:
+                        pass  # zu groß: ohne Vorschaubild speichern (der Rest des Felds wird beim nächsten Teil verworfen)
+                    continue
                 if part.name != "file":
                     fields[part.name] = (await _read_limited(part, FIELD_MAX)).decode("utf-8", errors="ignore")
                     if part.name == "token":
@@ -424,6 +471,7 @@ class ModelUploadView(HomeAssistantView):
                 up=up if up in ("y", "z") else None,
                 size_m=parse_size(fields.get("size_m")),
                 data=content,
+                thumb=parse_thumb(fields.get("thumb")),
             )
         }
 

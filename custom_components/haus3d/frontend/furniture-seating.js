@@ -270,7 +270,7 @@ export function buildSeating(type, w, d, h, M, g, bulbs, item = {}) {
     // Hängematte mit Gestell: zwei parallele Bogenholme längs z, zwei Querfüße mit Klötzen, Haken oben,
     // Spreizstäbe mit aufgefächerten Schnüren, durchhängendes Tuch mit Streifen, Kissen
     case "garden_hammock": {
-      const zE = d / 2 - 0.075;
+      const zE = Math.max(0.01, d / 2 - 0.075); // > 0: sonst Wurzel/Potenz aus negativ (NaN) bei sehr geringer Tiefe
       const yTop = h - 0.07;
       const y0 = 0.17;
       const arcY = (z) => y0 + (yTop - y0) * Math.pow(Math.abs(z) / zE, 2.7);

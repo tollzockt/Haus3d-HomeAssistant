@@ -5,6 +5,7 @@ import { alignAxes, computeWalls, pointInPolygon, signedArea } from "./walls.js"
 import { EXTRA_FREE } from "./catalog-extra.js";
 import { MORE_FREE } from "./catalog-more.js";
 import { hasPose, planSize } from "./pose.js";
+import { isCabinet, isRackable } from "./rack.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
@@ -75,6 +76,35 @@ export function validPolygon(points) {
 export function moveRoom(room, dx, dz) {
   const out = { ...room, points: room.points.map(([x, z]) => [r3(x + dx), r3(z + dz)]) };
   if (room.roof?.items?.length) out.roof = shiftRoomRoof(room.roof, dx, dz);
+  return out;
+}
+
+// Felder, die nur zu einer Art von Möbeln gehören (Raster von Regalen, Ausrichtung, Abdeckung bzw. Öffnung in Prozent –
+// beim Whirlpool ein Wahrheitswert, beim Vorhang eine Zahl –, Feuer, Erweiterungsakkus, eigenes 3D-Modell)
+const TYPE_FIELDS = ["cols", "rows", "orient", "open", "fire", "packs", "model", "fit"];
+
+/**
+ * Typ eines Möbels wechseln: neue Standardmaße und alle Felder weg, die der neue Typ anders oder gar nicht kennt. Der
+ * Einbau in Schränke bleibt, wenn der neue Typ ein einbaubares Gerät (in_rack, rack_u) bzw. ein Schrank (rack_used) ist;
+ * followRack passt dann HE und Lage an.
+ */
+export function retypeFurniture(item, type, def) {
+  Object.assign(item, { type, w: def[1], d: def[2], h: def[3] });
+  for (const k of TYPE_FIELDS) delete item[k];
+  if (!isRackable(item)) {
+    if (item.in_rack != null) delete item.mount_y;
+    delete item.in_rack;
+    delete item.rack_u;
+  }
+  if (!isCabinet(item)) delete item.rack_used;
+  return item;
+}
+
+/** Gartenfläche verschieben; bei Linien (Zaun, Randstein, Weg) auch die Mittellinie, aus der die Fläche berechnet wird. */
+export function moveOutdoor(o, dx, dz) {
+  const m = ([x, z]) => [r3(x + dx), r3(z + dz)];
+  const out = { ...o, points: o.points.map(m) };
+  if (Array.isArray(o.line?.points)) out.line = { ...o.line, points: o.line.points.map(m) };
   return out;
 }
 

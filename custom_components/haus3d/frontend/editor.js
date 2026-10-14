@@ -10,6 +10,7 @@ import {
   cleanFloor,
   floorVertices,
   insertVertex,
+  moveOutdoor,
   moveRoom,
   nearestEdge,
   nearestWall,
@@ -22,6 +23,7 @@ import {
   removeRoom,
   removeVertex,
   removeWall,
+  retypeFurniture,
   snapPoint,
   snapWallEnd,
   snapToWall,
@@ -29,7 +31,7 @@ import {
   wallFaces,
 } from "./edit-ops.js";
 import { FURNITURE, FURNITURE_CATEGORIES, furniturePlanSize } from "./furniture.js";
-import { NO_POSE, setPoseKey } from "./pose.js";
+import { noPose, setPoseKey } from "./pose.js";
 import { COLOR_SWATCHES, FLOOR_MATERIALS, floorColor } from "./model.js";
 import { autoHeights, isPvShed, roofFloor, roofSettings } from "./exterior.js";
 import { newFloor } from "./setup.js";
@@ -444,7 +446,7 @@ export class FloorEditor {
       } else if (sel.kind === "room") {
         fl.rooms = fl.rooms.map((r) => (r.id === sel.id ? moveRoom(r, dx, dz) : r));
       } else if (sel.kind === "outdoor") {
-        fl.outdoor = fl.outdoor.map((o) => (o.id === sel.id ? { ...o, points: o.points.map(([x, z]) => [r3(x + dx), r3(z + dz)]) } : o));
+        fl.outdoor = fl.outdoor.map((o) => (o.id === sel.id ? moveOutdoor(o, dx, dz) : o));
       } else if (sel.kind === "wall") {
         const w = fl.walls.find((x) => x.id === sel.id);
         w.a = [r3(w.a[0] + dx), r3(w.a[1] + dz)];
@@ -1292,7 +1294,7 @@ export class FloorEditor {
         const dz = r3(p[1] - drag.start[1]);
         drag.start = p;
         this._dragChange(drag, (fl) => {
-          fl.outdoor = fl.outdoor.map((o) => (o.id === drag.id ? { ...o, points: o.points.map(([x, z]) => [r3(x + dx), r3(z + dz)]) } : o));
+          fl.outdoor = fl.outdoor.map((o) => (o.id === drag.id ? moveOutdoor(o, dx, dz) : o));
         });
         break;
       }
@@ -1446,6 +1448,8 @@ export class FloorEditor {
     this.dirty = true;
     this.render();
     this.renderBar();
+    this._sync3d(); // wie change(): beide gebündelt (Zeitgeber), also auch beim Ziehen billig
+    this._queueDraft();
   }
 
   deleteSelection() {
@@ -1836,7 +1840,7 @@ export class FloorEditor {
         <label>Name ${custom ? "" : "(optional)"}</label><input data-m="name" value="${esc(m.name ?? "")}" placeholder="${esc(FURNITURE[m.type]?.[0] ?? "")}">
         <div class="row3">${num("w", custom && m.type === "custom_cylinder" ? "Ø Breite" : "Breite", m.w)}${num("d", custom && m.type === "custom_cylinder" ? "Ø Tiefe" : "Tiefe", m.d)}${num("h", ["column", "pillar"].includes(m.type) ? "Höhe (0 = Decke)" : "Höhe", m.h)}</div>
         <div class="row2">${num("rotation", "Drehung (°)", m.rotation, 15)}${num("mount_y", "Höhe über Boden", m.mount_y ?? "", 0.05)}</div>
-        ${NO_POSE.has(m.type) ? "" : `<div class="row2" title="Neigung + = Oberseite nach hinten, Kippen + = nach rechts (von vorn gesehen); die tiefste Ecke bleibt auf der Höhe über Boden">${num("tilt", "Neigung (°)", m.tilt ?? 0, 15)}${num("roll", "Kippen (°)", m.roll ?? 0, 15)}</div>`}
+        ${noPose(m) ? "" : `<div class="row2" title="Neigung + = Oberseite nach hinten, Kippen + = nach rechts (von vorn gesehen); die tiefste Ecke bleibt auf der Höhe über Boden">${num("tilt", "Neigung (°)", m.tilt ?? 0, 15)}${num("roll", "Kippen (°)", m.roll ?? 0, 15)}</div>`}
         ${this._stairFields(m)}
         ${this._itemFields(m)}
         ${this._moreFields(m)}
@@ -1848,11 +1852,7 @@ export class FloorEditor {
       el.querySelector("[data-m=type]").addEventListener("change", (ev) => {
         this.change((fl) => {
           const x = fl.furniture.find((y) => y.id === m.id);
-          const def = FURNITURE[ev.target.value];
-          Object.assign(x, { type: ev.target.value, w: def[1], d: def[2], h: def[3] });
-          delete x.cols;
-          delete x.rows;
-          delete x.orient;
+          retypeFurniture(x, ev.target.value, FURNITURE[ev.target.value]); // edit-ops.js: typfremde Felder fallen weg
         });
         this.renderProps(); // erst nach change(): vorher zeigt this.floor noch den alten Typ
       });
@@ -1969,9 +1969,9 @@ export class FloorEditor {
         <label>Geländer / Zaun am Rand (nicht an Hauswänden)</label><select data-g="railing">${RAILINGS.map(([k, n]) => `<option value="${k}"${k === (o.railing ?? "") ? " selected" : ""}>${n}</option>`).join("")}</select>
         <label>Geländerhöhe (m)</label><input data-g="railing_height" type="number" step="0.05" min="0.3" max="2.5" value="${o.railing_height ?? ""}" placeholder="1,0">
         ${this._kerbFields(o)}
-        <label>Hang: Höhe je Ecke (m über der Etage ${esc(f.name)})</label>
+        ${o.type === "kerb" ? "" : `<label>Hang: Höhe je Ecke (m über der Etage ${esc(f.name)})</label>
         ${Array.isArray(o.heights) ? `<div class="row3">${o.points.map((_, i) => `<div><label>Ecke ${i + 1}</label><input type="number" step="0.05" data-h="${i}" value="${Number(o.heights[i]) || 0}"></div>`).join("")}</div>` : `<p class="muted">Eben. „Höhen automatisch“ verbindet die Fläche mit den Gartenflächen anderer Etagen (z. B. Böschung von unten nach oben).</p>`}
-        <div class="btns"><button data-act="autoh">Höhen automatisch</button>${Array.isArray(o.heights) ? `<button data-act="flat">Eben machen</button>` : `<button data-act="hmanual">Höhen von Hand</button>`}</div>
+        <div class="btns"><button data-act="autoh">Höhen automatisch</button>${Array.isArray(o.heights) ? `<button data-act="flat">Eben machen</button>` : `<button data-act="hmanual">Höhen von Hand</button>`}</div>`}
         ${pad()}
         <div class="btns"><button data-act="del" class="danger">Löschen</button></div>`;
       bindPad();
@@ -1992,7 +1992,7 @@ export class FloorEditor {
           });
         }),
       );
-      el.querySelector("[data-act=autoh]").addEventListener("click", () => {
+      el.querySelector("[data-act=autoh]")?.addEventListener("click", () => {
         const hs = autoHeights(this.b, this.floorId, o.id);
         if (!hs) return this._toast("Keine Gartenfläche einer anderen Etage in der Nähe (bis 50 cm). Ecken an die obere Fläche ziehen oder Höhen von Hand eintragen.");
         this.change((fl) => {

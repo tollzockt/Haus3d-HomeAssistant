@@ -3,12 +3,11 @@
 // (Name, Einheit mit Vorschlag, Oben-Achse) und die Maße, die ein neu gesetztes Modell mitbringt.
 // Attribute im HTML tragen das Präfix data-model-….
 
-import { MODEL_ACCEPT, UNITS, defaultUp, formatBytes, formatSize, longestEdge, nameFromFile, placementSize, sizeFromRaw, suggestUnit } from "./model-fit.js";
+import { MODEL_ACCEPT, UNITS, defaultUp, formatBytes, formatSize, longestEdge, nameFromFile, placementSize, sizeFromRaw, suggestUnit, thumbSrc } from "./model-fit.js";
 import { hasModelHass, inspectFile, loadedSize, modelLimits, modelList, modelMeta, modelsLoaded, modelsUsedBytes, onModelsChange, refreshModels, setModelHass, uploadModel } from "./models.js";
-import { modelThumb, renderModelThumbs } from "./thumbs.js";
+import { modelFileThumb } from "./thumbs.js";
 
 export const MODEL_GROUP = "Eigene 3D-Modelle";
-const THUMB_LIMIT = 40; // so viele Vorschaubilder je Durchgang (jedes Modell wird dafür geladen)
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const UP_CHOICES = [
   ["y", "Y-Achse (üblich bei OBJ und glTF)"],
@@ -51,9 +50,9 @@ export const ModelCatalogMethods = {
   },
 
   _modelTile(m, style) {
-    const img = modelThumb(m.id, style);
+    const img = thumbSrc(m); // vom Server, beim Hochladen im Browser gerendert; ältere Modelle zeigen das Symbol
     const sel = this.furnType === "custom_model" && this.furnModel === m.id;
-    return `<button class="tile${sel ? " sel" : ""}${m.missing ? " gone" : ""}" data-model-tile="${esc(m.id)}" title="${esc(m.name)}${m.missing ? " (Datei fehlt)" : ""}">${img ? `<img alt="" src="${img}">` : `<span class="ph" data-model-thumb="${esc(m.id)}"><ha-icon icon="mdi:cube-outline"></ha-icon></span>`}<span>${esc(m.name)}</span></button>`;
+    return `<button class="tile${sel ? " sel" : ""}${m.missing ? " gone" : ""}" data-model-tile="${esc(m.id)}" title="${esc(m.name)}${m.missing ? " (Datei fehlt)" : ""}">${img ? `<img alt="" src="${esc(img)}">` : `<span class="ph"><ha-icon icon="mdi:cube-outline"></ha-icon></span>`}<span>${esc(m.name)}</span></button>`;
   },
 
   /** Treffer der Suche unter den eigenen Modellen (nach Namen). */
@@ -74,23 +73,6 @@ export const ModelCatalogMethods = {
     this.furnModel = t.dataset.modelTile;
     box.querySelectorAll(".tile").forEach((x) => x.classList.toggle("sel", x === t));
     return true;
-  },
-
-  /** Fehlende Vorschaubilder der angezeigten Modelle nach und nach einsetzen. */
-  _modelThumbs(box, style) {
-    const ids = modelList()
-      .filter((m) => !m.missing && !modelThumb(m.id, style) && box.querySelector(`[data-model-thumb="${m.id}"]`))
-      .map((m) => m.id)
-      .slice(0, THUMB_LIMIT);
-    if (!ids.length) return;
-    renderModelThumbs(
-      ids,
-      (id, url) => {
-        const ph = box.querySelector(`[data-model-thumb="${id}"]`);
-        if (ph) ph.outerHTML = `<img alt="" src="${url}">`;
-      },
-      style,
-    );
   },
 
   /** Maße und Verweis für ein gerade gesetztes Möbel (editor.js): gewähltes Modell mit seiner natürlichen Größe. */
@@ -202,7 +184,9 @@ export const ModelCatalogMethods = {
       msg.hidden = false;
       msg.innerHTML = `<progress></progress> Wird hochgeladen (${formatBytes(file.size)}) …`;
       try {
-        const meta = await uploadModel(file, { name: state.name, unit: state.unit, up: axis ? state.up : null, size: size() });
+        const up = axis ? state.up : null;
+        const thumb = await modelFileThumb(file, { unit: state.unit, up }); // Vorschaubild für den Katalog, einmal hier gerendert
+        const meta = await uploadModel(file, { name: state.name, unit: state.unit, up, size: size(), thumb });
         if (this._modelDlg !== el) return;
         this._closeModelDialog();
         this.furnType = "custom_model";

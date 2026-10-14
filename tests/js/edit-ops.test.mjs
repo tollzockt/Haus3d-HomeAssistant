@@ -253,3 +253,46 @@ test("IDs auch von Dachteilen und Dingen auf allen Dächern; Raum verschieben ni
   assert.equal(moveRoom(plain, 1, 0).roof, plain.roof);
   assert.equal(shiftRoomRoof(null, 1, 1), null);
 });
+
+test("Gartenfläche verschieben nimmt die Mittellinie von Linien mit (Randstein, Zaun)", async () => {
+  const { moveOutdoor, offsetPolyline } = await import("../../custom_components/haus3d/frontend/edit-ops.js");
+  const { moveRefs } = await import("../../custom_components/haus3d/frontend/plan-tools.js");
+  const line = { points: [[0, 0], [4, 0], [4, 3]], width: 0.2 };
+  const kerb = { id: "rs_1", type: "kerb", points: offsetPolyline(line.points, line.width), line };
+  const m = moveOutdoor(kerb, 1, -0.5);
+  assert.deepEqual(m.line.points, [[1, -0.5], [5, -0.5], [5, 2.5]]);
+  assert.equal(m.line.width, 0.2);
+  // die Fläche stimmt mit der aus der verschobenen Mittellinie berechneten überein (kein Zurückspringen)
+  assert.deepEqual(m.points, offsetPolyline(m.line.points, m.line.width));
+  assert.deepEqual(kerb.line.points[0], [0, 0]); // Original unverändert
+  const lawn = { id: "rasen_1", type: "lawn", points: [[0, 0], [2, 0], [2, 2]] };
+  assert.deepEqual(moveOutdoor(lawn, 1, 1).points, [[1, 1], [3, 1], [3, 3]]);
+  assert.equal("line" in moveOutdoor(lawn, 1, 1), false);
+  // Mehrfachauswahl und Einzelverschiebung nutzen dieselbe Verschiebung
+  const fl = moveRefs({ outdoor: [kerb] }, [{ kind: "outdoor", id: "rs_1" }], 1, -0.5);
+  assert.deepEqual(fl.outdoor[0], m);
+});
+
+test("Typwechsel: neue Maße, typfremde Felder fallen weg (open ist beim Whirlpool ein Schalter, beim Vorhang Prozent)", async () => {
+  const { retypeFurniture } = await import("../../custom_components/haus3d/frontend/edit-ops.js");
+  const { FURNITURE } = await import("../../custom_components/haus3d/frontend/furniture.js");
+  const all = { cols: 2, rows: 3, orient: "landscape", open: 50, fire: true, packs: 2, model: "0123456789abcdef", fit: "stretch" };
+  const curtain = { id: "m", type: "home_curtain", x: 1, z: 2, rotation: 90, color: "#fff", entity: "cover.x", name: "Vorhang", mount_y: 0.3, ...all };
+  retypeFurniture(curtain, "hot_tub", FURNITURE.hot_tub);
+  assert.equal(curtain.type, "hot_tub");
+  assert.deepEqual([curtain.w, curtain.d, curtain.h], FURNITURE.hot_tub.slice(1, 4));
+  for (const k of Object.keys(all)) assert.equal(k in curtain, false, k);
+  // Eigenes, Lage und Verknüpfung bleiben
+  assert.deepEqual({ x: curtain.x, z: curtain.z, rotation: curtain.rotation, color: curtain.color, entity: curtain.entity, name: curtain.name, mount_y: curtain.mount_y }, { x: 1, z: 2, rotation: 90, color: "#fff", entity: "cover.x", name: "Vorhang", mount_y: 0.3 });
+  // Schrank mit Geräten bzw. eingebautes Gerät: Einbau bleibt nur, wenn der neue Typ dazu passt
+  const cab = { id: "c", type: "network_cabinet", rack_used: 3 };
+  retypeFurniture(cab, "server_rack", FURNITURE.server_rack);
+  assert.equal(cab.rack_used, 3, "wieder ein Schrank: followRack rechnet nach");
+  retypeFurniture(cab, "sofa", FURNITURE.sofa);
+  assert.equal("rack_used" in cab, false);
+  const sw = { id: "d", type: "tech_switch_24", in_rack: "c", rack_u: 4, mount_y: 0.3 };
+  retypeFurniture(sw, "tech_ups_2u", FURNITURE.tech_ups_2u);
+  assert.deepEqual([sw.in_rack, sw.rack_u, sw.mount_y], ["c", 4, 0.3], "bleibt eingebaut");
+  retypeFurniture(sw, "sofa", FURNITURE.sofa);
+  assert.deepEqual(sw, { id: "d", type: "sofa", w: FURNITURE.sofa[1], d: FURNITURE.sofa[2], h: FURNITURE.sofa[3] });
+});

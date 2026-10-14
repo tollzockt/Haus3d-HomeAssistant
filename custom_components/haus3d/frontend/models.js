@@ -292,7 +292,7 @@ export const modelError = (id) => entries.get(id)?.error?.message ?? null;
 /** Gemessene Größe [b, t, h] in m, wenn geladen. */
 export const loadedSize = (id) => peekModel(id)?.size ?? null;
 
-function disposeTemplate(tpl) {
+export function disposeTemplate(tpl) {
   tpl.object.traverse((o) => {
     if (o.geometry) {
       edgeCache.get(o.geometry)?.dispose();
@@ -327,10 +327,11 @@ export function resetModels() {
 // ------------------------------------------------------------------------------------ Hochladen
 
 /**
- * Modell zum Server schicken. info: {name, unit, up, size} (size = [b, t, h] in m, gemessen). Das Token steht vor
- * der Datei im Formular (der Server liest die Datei erst nach gültiger Freigabe). Gibt die Angaben des Modells zurück.
+ * Modell zum Server schicken. info: {name, unit, up, size, thumb} (size = [b, t, h] in m, gemessen; thumb = kleines
+ * Vorschaubild als data:-URL, im Browser gerendert, siehe thumbs.js). Das Token steht vor der Datei im Formular (der
+ * Server liest die Datei erst nach gültiger Freigabe). Gibt die Angaben des Modells zurück.
  */
-export async function uploadModel(file, { name, unit = "m", up = null, size = null } = {}) {
+export async function uploadModel(file, { name, unit = "m", up = null, size = null, thumb = null } = {}) {
   if (!source?.fetchWithAuth) throw new Error("Keine Verbindung zu Home Assistant");
   const form = new FormData();
   const token = currentToken();
@@ -342,6 +343,7 @@ export async function uploadModel(file, { name, unit = "m", up = null, size = nu
   form.append("unit", unit);
   if (up) form.append("up", up);
   if (size) form.append("size_m", size.join(","));
+  if (thumb) form.append("thumb", thumb);
   form.append("file", file, file.name);
   let res;
   try {

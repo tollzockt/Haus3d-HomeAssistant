@@ -13,6 +13,7 @@ import {
   furnitureSpan,
   loadEnd,
   pipeEnds,
+  targetMoved,
   unplugEnd,
 } from "../../custom_components/haus3d/frontend/pipeends.js";
 import { followPipes } from "../../custom_components/haus3d/frontend/follow-pipes.js";
@@ -21,7 +22,7 @@ import { pipeRoute } from "../../custom_components/haus3d/frontend/pipes.js";
 import { computeNet } from "../../custom_components/haus3d/frontend/pipenet.js";
 import { pipeEndLoad } from "../../custom_components/haus3d/frontend/panel-pipes.js";
 import { watchedEntities } from "../../custom_components/haus3d/frontend/devices.js";
-import { FURNITURE, furnitureBaseY } from "../../custom_components/haus3d/frontend/furniture.js";
+import { FURNITURE, furnitureBaseY, furnitureTopY } from "../../custom_components/haus3d/frontend/furniture.js";
 import { FloorEditor } from "../../custom_components/haus3d/frontend/editor.js";
 
 const rect = (x0, z0, x1, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
@@ -303,6 +304,35 @@ test("3D: Endstück auf die Anschlusshöhe – Boden (Strom 0,3, Wasser 0,5), Wa
   const r = pipeRoute(strom, pipeEndDrops(strom, floor([washer()], [strom]), { furnSpan: SPAN }));
   assert.deepEqual(r.path.at(-1), [8, 0.3, 0.06]);
   assert.equal(Math.round(r.lenAt(1) * 1000), Math.round(r.len * 1000));
+});
+
+test("Geneigt/gekippt: Anschlusshöhe, Anschlusspunkt und Mitziehen folgen der Hülle (liegendes Regal)", () => {
+  const span = furnitureSpan(furnitureBaseY, FURNITURE, furnitureTopY);
+  const floor = (furniture, pipes) => ({ height: 2.6, furniture, pipes, placements: [], nodes: [] });
+  const water = { id: "w", type: "wasser_kalt", points: [[7.06, 2], [8, 1]], heights: [0.03, 0.03], ends: { b: { furniture: "rg" } } };
+  const shelf = (o = {}) => ({ id: "rg", type: "shelf", x: 8, z: 1.5, rotation: 0, w: 0.8, d: 0.3, h: 1.8, ...o });
+  const tail = (m, mountY) => pipeEndDrops(water, floor([{ ...m, ...(mountY ? { mount_y: mountY } : {}) }], [water]), { furnSpan: span }).tail;
+  // stehend: Wasser 0,5 m; liegend (Neigung 90°) ist das Regal nur 0,3 m hoch → höchstens die Oberkante
+  assert.equal(tail(shelf()), 0.5);
+  assert.equal(tail(shelf({ tilt: 90 })), 0.3);
+  assert.equal(tail(shelf({ roll: 90, w: 0.2 })), 0.2, "gekippt: die Breite wird zur Höhe");
+  // erhöht (1 m über dem Boden): Mitte der Hülle statt der Mitte des aufrechten Rahmens
+  assert.equal(tail(shelf({ tilt: 90 }), 1), 1.15);
+  // ohne furnSpan (Rückfall): ebenfalls die Hülle
+  assert.equal(pipeEndDrops(water, floor([shelf({ tilt: 90, mount_y: 1 })], [water])).tail, 1.15);
+  // Anschlusspunkt: Rückseite der Hülle (liegend 1,8 m tief statt 0,3 m), 6 cm nach innen
+  const t = (m) => ({ kind: "furniture", item: m, ref: { furniture: m.id } });
+  assert.deepEqual(endAnchor(t(shelf())), [8, 1.41]);
+  assert.deepEqual(endAnchor(t(shelf({ tilt: 90 }))), [8, 0.66]);
+  assert.deepEqual(endAnchor(t(shelf({ tilt: 90, rotation: 90 }))), [8.84, 1.5]);
+  // Neigen/Kippen ändert die Hülle: das Leitungsende wandert mit; Höhe zählt nur, solange geneigt
+  assert.equal(targetMoved(t(shelf()), t(shelf({ tilt: 90 }))), true);
+  assert.equal(targetMoved(t(shelf()), t(shelf({ roll: 15 }))), true);
+  assert.equal(targetMoved(t(shelf()), t(shelf({ h: 2.1 }))), false);
+  assert.equal(targetMoved(t(shelf({ tilt: 30 })), t(shelf({ tilt: 30, h: 2.1 }))), true);
+  const before = t(shelf());
+  const after = t(shelf({ tilt: 90 }));
+  assert.deepEqual(followPoint([8, 1.41], before, after), [8, 0.66]);
 });
 
 test("Netz: Geräte sind Blätter – kein Verbinden über den Anschluss, Last am Gerät, keine Quelle", () => {

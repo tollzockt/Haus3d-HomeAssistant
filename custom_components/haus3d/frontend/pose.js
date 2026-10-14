@@ -26,9 +26,15 @@ export function normAngle(v) {
   return Math.round(a * 1000) / 1000 + 0;
 }
 
-/** Neigung und Kippen eines Gegenstands in Grad (0 bei Treppe, Treppenloch, Stellplatz und ohne Angabe). */
+/**
+ * Ohne Neigen/Kippen: Treppe, Treppenloch, Stellplatz sowie Schränke mit eingebauten Geräten (rack_used) und die
+ * eingebauten Geräte selbst (in_rack) – deren Lage kommt aus dem Schrank (rack.js) und kennt keine Schräge.
+ */
+export const noPose = (item) => !item || NO_POSE.has(item.type) || item.in_rack != null || Number(item.rack_used) > 0;
+
+/** Neigung und Kippen eines Gegenstands in Grad (0 bei Treppe, Treppenloch, Stellplatz, Einbau und ohne Angabe). */
 export function poseAngles(item) {
-  if (!item || NO_POSE.has(item.type)) return { tilt: 0, roll: 0 };
+  if (noPose(item)) return { tilt: 0, roll: 0 };
   return { tilt: normAngle(item.tilt), roll: normAngle(item.roll) };
 }
 

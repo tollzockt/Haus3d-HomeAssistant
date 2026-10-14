@@ -58,7 +58,7 @@ await E(() => {
       const file = f.get("file");
       const id = (++n).toString(16).padStart(16, "0");
       const bytes = await file.arrayBuffer();
-      const meta = { id, name: f.get("name"), ext: file.name.split(".").pop().toLowerCase(), size: bytes.byteLength, created: "2026-01-01T00:00:00+00:00", unit: f.get("unit"), up: f.get("up") || "y", size_m: f.get("size_m")?.split(",").map(Number) };
+      const meta = { id, name: f.get("name"), ext: file.name.split(".").pop().toLowerCase(), size: bytes.byteLength, created: "2026-01-01T00:00:00+00:00", unit: f.get("unit"), up: f.get("up") || "y", size_m: f.get("size_m")?.split(",").map(Number), thumb: f.get("thumb") || undefined };
       store.set(id, { meta, bytes });
       return new Response(JSON.stringify({ model: meta }), { status: 201 });
     }
@@ -136,9 +136,11 @@ await pg.locator("haus3d-panel .ed-mdl [data-model-go]").click();
 await pg.waitForFunction(() => /Gesperrt/.test(window.panel._editor._modelDlg?.textContent ?? ""), null, { timeout: 5000 });
 t.check((await E(() => window.__models.size)) === 0, "ohne Freigabe hochgeladen");
 await E(() => (window.tokens = window.__tokens));
+// ein älteres Modell ohne Vorschaubild liegt schon auf dem Server (kommt mit der Liste nach dem Hochladen)
+await E(() => window.__models.set("00000000000000ff", { meta: { id: "00000000000000ff", name: "Altes Modell", ext: "stl", size: 3, created: "2025-01-01T00:00:00+00:00", unit: "m", up: "z" }, bytes: new Uint8Array(3) }));
 await pg.locator("haus3d-panel .ed-mdl [data-model-go]").click();
 await pg.waitForFunction(() => !window.panel._editor._modelDlg, null, { timeout: 8000 });
-const up = await E(() => ({ forms: window.fetches.filter((f) => f.startsWith("POST")).length, models: [...window.__models.values()].map((e) => e.meta) }));
+const up = await E(() => ({ forms: window.fetches.filter((f) => f.startsWith("POST")).length, models: [...window.__models.values()].map((e) => e.meta).filter((m) => m.id !== "00000000000000ff") }));
 t.results.upload = up;
 t.check(up.models.length === 1 && up.models[0].unit === "mm" && up.models[0].up === "z" && up.models[0].name === "Hocker rund" && up.models[0].size_m.join() === "0.4,0.4,0.45", `Upload: ${JSON.stringify(up)}`);
 const id = up.models[0].id;
@@ -146,10 +148,14 @@ const id = up.models[0].id;
 // --- Kachel im Katalog, gewählt
 await pg.waitForSelector(`haus3d-panel [data-model-tile="${id}"]`);
 t.check(await E((i) => window.panel._editor.furnType === "custom_model" && window.panel._editor.furnModel === i && window.panel._editor.props.querySelector(`[data-model-tile="${i}"]`).classList.contains("sel"), id), "Kachel nicht gewählt");
-// Vorschaubild folgt (Modell wird geladen und aufgenommen)
-await pg.waitForFunction((i) => !!window.panel._editor.props.querySelector(`[data-model-tile="${i}"] img`), id, { timeout: 15000 }).catch(() => {});
+// Vorschaubild kommt vom Server (beim Hochladen im Browser gerendert), die Modelldatei wird dafür nicht geladen
 const thumb = await E((i) => !!window.panel._editor.props.querySelector(`[data-model-tile="${i}"] img`), id);
 t.check(thumb, "kein Vorschaubild der Kachel");
+const shown = await E((i) => ({ src: window.__models.get(i).meta.thumb ?? "", old: !!window.panel._editor.props.querySelector(`[data-model-tile="00000000000000ff"] img`), oldIcon: !!window.panel._editor.props.querySelector(`[data-model-tile="00000000000000ff"] .ph ha-icon`), gets: (window.fetches ?? []).filter((f) => f.startsWith("GET")).length }), id);
+t.results.thumb = { length: shown.src.length, old: shown.old, oldIcon: shown.oldIcon, gets: shown.gets };
+t.check(/^data:image\/png;base64,/.test(shown.src) && shown.src.length > 200 && shown.src.length < 150 * 1024, `Vorschaubild im Upload: ${shown.src.slice(0, 40)}… (${shown.src.length})`);
+t.check(!shown.old && shown.oldIcon, "Altes Modell ohne Bild zeigt nicht das Symbol");
+t.check(shown.gets === 0, `Katalog hat ${shown.gets} Modelldatei(en) geladen`);
 await t.shot(pg, "modelle-katalog.png");
 
 // --- Suche findet das Modell

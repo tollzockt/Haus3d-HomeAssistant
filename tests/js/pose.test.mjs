@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "../../custom_components/haus3d/frontend/vendor/three.module.min.js";
-import { NO_POSE, fitHeight, furniturePose, hasPose, normAngle, planSize, poseAngles, poseBox, poseRotate, setPoseKey } from "../../custom_components/haus3d/frontend/pose.js";
+import { NO_POSE, fitHeight, furniturePose, hasPose, noPose, normAngle, planSize, poseAngles, poseBox, poseRotate, setPoseKey } from "../../custom_components/haus3d/frontend/pose.js";
 import { FURNITURE, buildFurniture, furnitureBaseY, furnitureMaterials, furniturePlanSize, furnitureTopY } from "../../custom_components/haus3d/frontend/furniture.js";
 import { footprintSize, furnitureAt, pushOutOfWalls, snapToWall } from "../../custom_components/haus3d/frontend/edit-ops.js";
 import { arrowAnchor } from "../../custom_components/haus3d/frontend/arrows3d.js";
@@ -258,4 +258,28 @@ test("Live-Vorschau: Drehen um die Mitte der Grundfläche, Neigen/Kippen bleiben
   // zurück auf den Start
   moveLive(sc, live, [0, 0, 0]);
   assert.ok(live.obj.position.distanceTo(live.p0) < 1e-9);
+});
+
+test("Schränke mit Geräten und eingebaute Geräte ignorieren Neigen/Kippen (Lage kommt aus dem Schrank)", () => {
+  const cabinet = { id: "c", type: "network_cabinet", x: 2, z: 2, tilt: 30, roll: 10 };
+  assert.deepEqual(poseAngles(cabinet), { tilt: 30, roll: 10 }, "leerer Schrank darf wie jedes Möbel geneigt sein");
+  assert.equal(noPose(cabinet), false);
+  const full = { ...cabinet, rack_used: 3 };
+  const device = { id: "d", type: "tech_switch_24", x: 2, z: 2, in_rack: "c", rack_u: 1, tilt: 20, roll: 5 };
+  for (const m of [full, device]) {
+    assert.equal(noPose(m), true);
+    assert.deepEqual(poseAngles(m), { tilt: 0, roll: 0 });
+    assert.equal(hasPose(m), false);
+    const plain = { ...m, tilt: undefined, roll: undefined };
+    assert.deepEqual(furniturePlanSize(m, 2.5), furniturePlanSize(plain, 2.5));
+    assert.equal(furnitureTopY(m, 2.5), furnitureTopY(plain, 2.5));
+    const g = buildFurniture(m, M, 0, 2.5);
+    assert.ok(g.rotation.x === 0 && g.rotation.z === 0 && !g.userData.poseOff, "aufrecht gebaut");
+  }
+  // ausgebautes Gerät (ohne in_rack) neigt wieder
+  const { in_rack: _a, rack_u: _b, ...out } = device;
+  assert.deepEqual(poseAngles(out), { tilt: 20, roll: 5 });
+  assert.notEqual(buildFurniture(out, M, 0, 2.5).rotation.x, 0);
+  assert.equal(noPose({ type: "stairs" }), true);
+  assert.equal(noPose(null), true);
 });

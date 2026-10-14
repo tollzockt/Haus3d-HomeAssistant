@@ -9,13 +9,13 @@ import { PIPE_TYPES, pipeRoute } from "./pipes.js";
 import { flowLook } from "./pipenet.js";
 import { NODE_BODY, nodePose, nodeSpan, pipeEndDrops } from "./pipenodes.js";
 import { furnitureSpan, pipeEnds } from "./pipeends.js";
-import { FURNITURE, furnitureBaseY } from "./furniture.js";
+import { FURNITURE, furnitureBaseY, furnitureTopY } from "./furniture.js";
 import { wallFaces } from "./edit-ops.js";
 
 const RADIUS = 0.035;
 const MAX_DOTS = 60;
 /** Höhenbereich eines Möbelstücks (Montagehöhe wie beim Bauen des Modells) für die Anschlusshöhe an Geräten. */
-const FURN_SPAN = furnitureSpan(furnitureBaseY, FURNITURE);
+const FURN_SPAN = furnitureSpan(furnitureBaseY, FURNITURE, furnitureTopY);
 
 /** 3D-Weg einer Leitung (pipes.js:pipeRoute, Höhen angehoben, Anschlussstücke ends) und Länge bis zu jeder Stelle. */
 function pipeGeometry(pipe, elev, ends = {}) {

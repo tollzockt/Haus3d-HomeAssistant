@@ -47,3 +47,15 @@ async def test_background_roundtrip(hass: HomeAssistant, setup_integration, hass
     assert (await ws.receive_json())["success"]
     await ws.send_json({"id": 7, "type": "haus3d/background/get", "floor_id": "eg"})
     assert (await ws.receive_json())["result"] == {"image": None}
+
+
+def test_services_yaml_field_names_are_text() -> None:
+    """YAML liest on/off/yes/no ohne Anführungszeichen als Wahrheitswert – hassfest verlangt Feldnamen als Text."""
+    from pathlib import Path
+
+    import yaml
+
+    data = yaml.safe_load((Path(__file__).parents[2] / "custom_components/haus3d/services.yaml").read_text(encoding="utf-8"))
+    for name, service in data.items():
+        for field in (service or {}).get("fields", {}):
+            assert isinstance(field, str), f"{name}: Feldname {field!r} ist kein Text"

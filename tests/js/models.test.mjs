@@ -8,7 +8,8 @@ import { ModelCatalogMethods, MODEL_GROUP } from "../../custom_components/haus3d
 import { MODEL_FIELDS } from "../../custom_components/haus3d/frontend/fields-model.js";
 import { clearAccess, setAccess } from "../../custom_components/haus3d/frontend/access.js";
 import { FURNITURE, FURNITURE_CATEGORIES, buildFurniture, furnitureMaterials } from "../../custom_components/haus3d/frontend/furniture.js";
-import { MODEL_FORMATS, cleanName, fitScale, fittedSize, formatBytes, formatSize, glbJson, gltfProblem, longestEdge, modelExt, nameFromFile, placementSize, sizeFromRaw, suggestUnit, unitFactor, uploadMessage, usageText } from "../../custom_components/haus3d/frontend/model-fit.js";
+import { MODEL_FORMATS, MODEL_THUMB_MAX, cleanName, fitScale, fittedSize, formatBytes, formatSize, glbJson, gltfProblem, longestEdge, modelExt, nameFromFile, placementSize, sizeFromRaw, suggestUnit, thumbSrc, unitFactor, uploadMessage, usageText } from "../../custom_components/haus3d/frontend/model-fit.js";
+import { modelFileThumb } from "../../custom_components/haus3d/frontend/thumbs.js";
 import {
   EDGE_TRIANGLES,
   deleteModel,
@@ -129,7 +130,7 @@ function mockHass() {
         forms.push([...body.keys()]);
         const file = body.get("file");
         const bytes = new Uint8Array(await file.arrayBuffer());
-        const id = put(file.name.split(".").pop(), bytes, { name: body.get("name"), unit: body.get("unit"), ...(body.get("up") ? { up: body.get("up") } : {}), ...(body.get("size_m") ? { size_m: body.get("size_m").split(",").map(Number) } : {}) });
+        const id = put(file.name.split(".").pop(), bytes, { name: body.get("name"), unit: body.get("unit"), ...(body.get("up") ? { up: body.get("up") } : {}), ...(body.get("size_m") ? { size_m: body.get("size_m").split(",").map(Number) } : {}), ...(body.get("thumb") ? { thumb: body.get("thumb") } : {}) });
         return new Response(JSON.stringify({ model: store.get(id).meta }), { status: 201 });
       }
       const e = store.get(path.split("/").pop());
@@ -363,6 +364,32 @@ test("Upload: Token zuerst, Datei zuletzt; danach steht das Modell in der Liste"
   clearAccess();
 });
 
+test("Upload: Vorschaubild geht als Feld thumb vor der Datei mit und kommt mit der Liste zurück", async () => {
+  const hass = fresh();
+  setAccess("tok-test", "edit");
+  const thumb = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  const meta = await uploadModel(new File([boxStl(200, 100, 50)], "Regal.stl"), { name: "Regal", unit: "mm", up: "z", thumb });
+  assert.deepEqual(hass.forms[0], ["token", "name", "unit", "up", "thumb", "file"]);
+  assert.equal(modelMeta(meta.id).thumb, thumb);
+  await uploadModel(new File([boxStl(1, 1, 1)], "b.stl"), { name: "B" });
+  assert.ok(!hass.forms[1].includes("thumb"), "ohne Bild kein Feld");
+  clearAccess();
+});
+
+test("Vorschaubild: nur kleine Daten-URLs von Bildern, sonst Symbol; ohne WebGL kein Bild und kein Fehler", async () => {
+  const ok = "data:image/png;base64,iVBORw0KGgo=";
+  assert.equal(thumbSrc({ thumb: ok }), ok);
+  assert.equal(thumbSrc({ thumb: ok.replace("png", "webp") }), ok.replace("png", "webp"));
+  for (const bad of [null, 5, "", "https://example.invalid/a.png", "data:image/svg+xml;base64,PHN2Zz4=", "data:text/html;base64,PGI+", 'data:image/png;base64,AAAA"onerror="x', `${ok}\n`, "data:image/png;base64," + "A".repeat(MODEL_THUMB_MAX)]) {
+    assert.equal(thumbSrc({ thumb: bad }), null, String(bad).slice(0, 40));
+  }
+  assert.equal(thumbSrc(null), null);
+  // hier gibt es kein WebGL: kein Bild, aber auch keine Ausnahme; falsche Endung ebenso
+  assert.equal(await modelFileThumb(new File([boxStl(200, 100, 50)], "regal.stl"), { unit: "mm", up: "z" }), null);
+  assert.equal(await modelFileThumb(new File([new Uint8Array(8)], "a.exe")), null);
+  assert.equal(await modelFileThumb(new File([new Uint8Array(8)], "kaputt.glb")), null);
+});
+
 test("Upload: Fehlermeldungen des Servers kommen auf Deutsch an", async () => {
   const hass = fresh();
   hass.fetchWithAuth = async () => new Response(JSON.stringify({ code: "locked", message: "Gesperrt – erst mit der PIN freischalten" }), { status: 403 });
@@ -556,6 +583,28 @@ test("Editor: ein gesetztes Modell bringt Verweis, Name und natürliche Größe 
   ed._modelPlacement(m2);
   assert.deepEqual([m2.w, m2.d, m2.h], [0.5, 0.4, 0.3]);
   assert.equal(MODEL_GROUP, "Eigene 3D-Modelle");
+});
+
+test("Katalog: kleine Bilder kommen mit der Liste, es wird keine Modelldatei geladen", async () => {
+  const hass = fresh();
+  const thumb = "data:image/png;base64,iVBORw0KGgo=";
+  const withImg = hass.put("glb", glbSample(), { name: "Mit Bild", thumb });
+  const without = hass.put("stl", boxStl(1, 1, 1), { name: "Alt" });
+  const evil = hass.put("stl", boxStl(1, 1, 1), { name: "Böse", thumb: 'data:image/png;base64,AAAA"><script>' });
+  await refreshModels();
+  const ed = Object.create(ModelCatalogMethods);
+  Object.assign(ed, { sim: false, furnType: "sofa", furnModel: null });
+  const head = (cls, key, name, n) => `<button class="${cls}">${name} ${n}</button>`;
+  const html = ed._modelSection(true, head, "standard");
+  const tile = (id) => new RegExp(`<button class="tile[^"]*" data-model-tile="${id}"[^>]*>(.*?)</button>`).exec(html)[1];
+  assert.match(tile(withImg), /<img alt="" src="data:image\/png;base64,iVBORw0KGgo=">/);
+  assert.match(tile(without), /mdi:cube-outline/);
+  assert.match(tile(evil), /mdi:cube-outline/);
+  assert.ok(!html.includes("<script>"));
+  assert.equal(hass.calls.filter((c) => c.type !== "haus3d/models/list").length, 0);
+  assert.equal(peekModel(withImg), null);
+  assert.equal(modelState(withImg), "idle", "kein Modell wurde geladen");
+  assert.equal(typeof ed._modelThumbs, "undefined", "kein automatisches Laden der Vorschaubilder mehr");
 });
 
 test("Eigenschaften: Felder nur für custom_model, mit Auswahl, Einpassen, Umbenennen und Löschen", async () => {

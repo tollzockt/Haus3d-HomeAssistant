@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import re
@@ -15,7 +16,7 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.haus3d import models as models_mod
 from custom_components.haus3d.const import DOMAIN, MODEL_EXTENSIONS
-from custom_components.haus3d.models import ModelError, clean_name, model_ext, parse_size, validate_model
+from custom_components.haus3d.models import ModelError, clean_name, model_ext, parse_size, parse_thumb, validate_model
 from custom_components.haus3d.schema import validate_building
 
 URL = "/api/haus3d/models"
@@ -233,7 +234,7 @@ async def test_upload_too_large_is_cut_off(hass: HomeAssistant, cfg_dir, edit_to
     resp, body = await upload(client, edit_token, ("big.obj", big))
     assert resp.status == 413 and body["code"] == "too_large" and "MB" in body["message"]
     # weit über der Grenze: schon an der angekündigten Länge abgewiesen, ohne zu lesen
-    resp, body = await upload(client, edit_token, ("huge.obj", b"v 1 2 3\n" * 9000))
+    resp, body = await upload(client, edit_token, ("huge.obj", b"v 1 2 3\n" * 40000))
     assert resp.status == 413 and body["code"] == "too_large"
     # auch wenn der Absender die Größe nicht vorab nennt (Stückelung): beim Einlesen abgebrochen
     async def chunks():
@@ -381,6 +382,8 @@ def test_validate_model_and_helpers() -> None:
     for ext, content in SAMPLES.items():
         validate_model(ext, content)
     validate_model("stl", STL_ASCII)
+    validate_model("stl", make_stl(3) + b"\0" * 7)  # binär mit Füllbytes am Ende (manche Exporte hängen welche an)
+    validate_model("stl", make_stl(3) + b"\n")
     validate_model("gltf", b"\xef\xbb\xbf" + make_gltf())  # Byte-Order-Mark
     validate_model("obj", b"  v -1.5 2 3\n")
     for ext in MODEL_EXTENSIONS:
@@ -391,6 +394,72 @@ def test_validate_model_and_helpers() -> None:
     assert model_ext("A.GLB") == "glb" and model_ext("x.tar.gz") is None and model_ext(None) is None and model_ext(".stl") is None
     assert clean_name("  a \n b  ") == "a b" and clean_name("", "Modell") == "Modell" and clean_name(5) == "Modell"
     assert parse_size("1,2,3") == [1.0, 2.0, 3.0] and parse_size("1,2") is None and parse_size("0,0,0") is None and parse_size("1,2,5000") is None and parse_size("1,-2,3") is None
+
+
+def _data_url(kind: str, raw: bytes) -> str:
+    return f"data:image/{kind};base64," + base64.b64encode(raw).decode()
+
+
+PNG = _data_url("png", b"\x89PNG\r\n\x1a\n" + b"\0" * 40)
+JPEG = _data_url("jpeg", b"\xff\xd8\xff\xe0" + b"\0" * 40)
+WEBP = _data_url("webp", b"RIFF\0\0\0\0WEBPVP8 " + b"\0" * 20)
+
+
+def test_parse_thumb_accepts_only_small_real_images() -> None:
+    for url in (PNG, JPEG, WEBP):
+        assert parse_thumb(url) == url
+    bad = [
+        None,
+        5,
+        "",
+        "data:image/gif;base64,R0lGODlhAQABAAAAACw=",  # andere Bildart
+        "data:image/svg+xml;base64," + base64.b64encode(b"<svg onload=alert(1)>").decode(),
+        "data:text/html;base64," + base64.b64encode(b"<b>x</b>").decode(),
+        "https://example.invalid/a.png",
+        'data:image/png;base64,iVBORw0KGgo="onerror="x',  # Anführungszeichen im Wert
+        PNG + "\n",
+        PNG + "!!",
+        "data:image/png;base64,",  # leer
+        "data:image/png;base64,%%%%",
+        _data_url("png", b"kein Bild, nur Text"),  # Kennung passt nicht zur Art
+        _data_url("jpeg", b"\x89PNG\r\n\x1a\n" + b"\0" * 8),
+        _data_url("webp", b"RIFF\0\0\0\0WAVEfmt "),
+        _data_url("png", b"\x89PNG\r\n\x1a\n" + b"\0" * 120_000),  # größer als 150 KB als Text
+    ]
+    for value in bad:
+        assert parse_thumb(value) is None, value if not isinstance(value, str) else value[:60]
+
+
+async def test_upload_thumb_is_stored_listed_and_survives_reload(hass: HomeAssistant, cfg_dir, edit_token, hass_client, hass_ws_client, hass_storage, setup_integration) -> None:
+    client = await hass_client()
+    meta = (await upload(client, edit_token, ("a.stl", make_stl()), name="Mit Bild", thumb=PNG))[1]["model"]
+    plain = (await upload(client, edit_token, ("b.stl", make_stl()), name="Ohne Bild"))[1]["model"]
+    assert meta["thumb"] == PNG and "thumb" not in plain
+    assert hass_storage["haus3d.models"]["data"]["models"][meta["id"]]["thumb"] == PNG
+    call = await ws_call(hass, hass_ws_client)
+    by_id = {m["id"]: m for m in (await call(type="haus3d/models/list"))["result"]["models"]}
+    assert by_id[meta["id"]]["thumb"] == PNG and "thumb" not in by_id[plain["id"]]
+    assert (await client.get(f"{URL}/{meta['id']}")).status == 200  # das Bild ersetzt nicht die Datei
+    # nach dem Neuladen noch da; ein von Hand verdorbenes Vorschaubild fällt weg (Kachel zeigt das Symbol)
+    hass_storage["haus3d.models"]["data"]["models"][meta["id"]]["thumb"] = 'data:image/png;base64,AAAA"><script>'
+    hass_storage["haus3d.models"]["data"]["models"][plain["id"]]["thumb"] = JPEG
+    assert await hass.config_entries.async_reload(setup_integration.entry_id)
+    await hass.async_block_till_done()
+    call = await ws_call(hass, hass_ws_client)
+    by_id = {m["id"]: m for m in (await call(type="haus3d/models/list"))["result"]["models"]}
+    assert "thumb" not in by_id[meta["id"]] and by_id[plain["id"]]["thumb"] == JPEG
+
+
+async def test_upload_ignores_unusable_thumb_but_keeps_the_model(hass: HomeAssistant, cfg_dir, edit_token, hass_client) -> None:
+    client = await hass_client()
+    too_big = "data:image/png;base64," + "A" * (models_mod.MODEL_THUMB_MAX + 10)
+    for bad in ("data:image/gif;base64,R0lGODlhAQABAAAAACw=", "irgendein Text", _data_url("png", b"nicht png"), too_big, ""):
+        resp, body = await upload(client, edit_token, ("a.stl", make_stl()), name="X", thumb=bad)
+        assert resp.status == 201 and "thumb" not in body["model"], bad[:40]
+    assert len(files(cfg_dir)) == 5
+    # ein Vorschaubild darf die Obergrenze für die Datei nicht verringern: Formularfelder zählen nicht zur Datei
+    resp, body = await upload(client, edit_token, ("b.stl", make_stl()), name="Y", thumb=PNG, unit="cm", up="z")
+    assert resp.status == 201 and body["model"]["thumb"] == PNG and body["model"]["unit"] == "cm"
 
 
 def test_furniture_model_fields_are_soft() -> None:

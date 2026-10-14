@@ -346,12 +346,14 @@ function distToPolygon(p, poly) {
  * Hang automatisch: Höhe je Eckpunkt einer Gartenfläche (relativ zu ihrer Etage). Ecken, die an
  * Gartenflächen einer anderen Etage stoßen, bekommen deren Höhenunterschied, Ecken an Flächen der
  * eigenen Etage 0, die übrigen werden entlang des Umrisses zwischen den bekannten interpoliert.
+ * Randsteine (Linie „Randstein“, type "kerb") kennen keinen Hang – sie liegen auf der Etage – und zählen auch nicht als
+ * Gelände der Nachbarn.
  * @returns {number[]|null} heights, oder null, wenn die Fläche eben bleibt
  */
 export function autoHeights(building, floorId, areaId, tol = 0.5) {
   const floor = building.floors.find((f) => f.id === floorId);
   const area = floor?.outdoor?.find((o) => o.id === areaId);
-  if (!area) return null;
+  if (!area || area.type === "kerb") return null;
   const elev = floor.elevation ?? 0;
   const pts = area.points;
   const known = pts.map((p) => {
@@ -360,13 +362,13 @@ export function autoHeights(building, floorId, areaId, tol = 0.5) {
       if (f.id === floorId) continue;
       const dh = (f.elevation ?? 0) - elev;
       if (Math.abs(dh) < 0.05) continue;
-      if ((f.outdoor ?? []).some((o) => o.type !== "balcony" && distToPolygon(p, o.points) <= tol)) {
+      if ((f.outdoor ?? []).some((o) => o.type !== "balcony" && o.type !== "kerb" && distToPolygon(p, o.points) <= tol)) {
         // mehrere Etagen: die mit dem kleinsten Höhenunterschied (nächste Geländestufe)
         if (other === null || Math.abs(dh) < Math.abs(other)) other = dh;
       }
     }
     if (other !== null) return Math.round(other * 1000) / 1000;
-    if ((floor.outdoor ?? []).some((o) => o.id !== areaId && distToPolygon(p, o.points) <= tol)) return 0;
+    if ((floor.outdoor ?? []).some((o) => o.id !== areaId && o.type !== "kerb" && distToPolygon(p, o.points) <= tol)) return 0;
     return null;
   });
   if (!known.some((h) => h !== null && h !== 0)) return null;

@@ -192,6 +192,7 @@ const fields = await ed.evaluate(() => {
 });
 t.results.felder = fields;
 t.check(fields.sel === "none" && fields.opts.length === 6 && fields.opts[0] === "keine" && fields.h === true, `Randstein-Feld am Rasen: ${JSON.stringify(fields)}`);
+t.check(await ed.evaluate(() => !!window.panel._editor.props.querySelector("[data-act=autoh]")), "Hang-Felder fehlen an der Gartenfläche");
 await ed.locator("haus3d-panel .ed-props [data-kerb=edge]").selectOption("granite");
 let r = await area("rasen");
 t.check(r.edge === "granite" && r.edge_h === undefined, `Granit gewählt: ${JSON.stringify([r.edge, r.edge_h])}`);
@@ -209,10 +210,34 @@ t.check((await ed.evaluate(() => window.panel._editor.props.querySelector("[data
 await select("outdoor", "k_linie");
 const line = await ed.evaluate(() => {
   const el = window.panel._editor.props;
-  return { edge: el.querySelector("[data-la=edge]")?.value, w: el.querySelector("[data-la=width]")?.value, h: el.querySelector("[data-la=edge_h]")?.value, kerbField: !!el.querySelector("[data-kerb]") };
+  return { edge: el.querySelector("[data-la=edge]")?.value, w: el.querySelector("[data-la=width]")?.value, h: el.querySelector("[data-la=edge_h]")?.value, kerbField: !!el.querySelector("[data-kerb]"), hang: !!el.querySelector("[data-act=autoh], [data-h]") || /Hang:/.test(el.textContent) };
 });
 t.results.linie = line;
 t.check(line.edge === "concrete" && line.w === "0.08" && line.h === "0.1" && !line.kerbField, `Randstein-Linie: ${JSON.stringify(line)}`);
+t.check(!line.hang, "Randstein-Linie bietet Hang-Felder an (der Randstein liegt immer auf der Etage)");
+// Randstein-Linie mit den Pfeiltasten verschieben: Mittellinie, Fläche und der 3D-Randstein wandern zusammen
+const kerbX = () =>
+  ed.evaluate(async () => {
+    const THREE = await import("../../custom_components/haus3d/frontend/vendor/three.module.min.js");
+    let best = null;
+    window.panel._editor.scene3d.root.traverse((o) => {
+      if (o.name !== "kerb") return;
+      const b = new THREE.Box3().setFromObject(o);
+      if (b.getSize(new THREE.Vector3()).x > 5 && b.min.z > 9.8 && b.max.z < 12.7) best = [b.min.x, b.max.x];
+    });
+    return best;
+  });
+await ed.waitForTimeout(400);
+const k0 = await kerbX();
+const a0 = await area("k_linie");
+await ed.evaluate(() => window.panel._editor.nudge(0.5, 0));
+await ed.waitForTimeout(500);
+const a1 = await area("k_linie");
+const k1 = await kerbX();
+t.results.kerbVerschoben = { k0, k1, line: a1.line.points[0], pts: a1.points[0] };
+t.check(Math.abs(a1.line.points[0][0] - a0.line.points[0][0] - 0.5) < 1e-6 && Math.abs(a1.points[0][0] - a0.points[0][0] - 0.5) < 1e-6, `Linie verschoben: ${JSON.stringify([a0.line.points[0], a1.line.points[0], a1.points[0]])}`);
+t.check(k0 && k1 && Math.abs(k1[0] - k0[0] - 0.5) < 0.01 && Math.abs(k1[1] - k0[1] - 0.5) < 0.01, `3D-Randstein verschoben: ${JSON.stringify([k0, k1])}`);
+await ed.evaluate(() => window.panel._editor.nudge(-0.5, 0));
 await ed.locator("haus3d-panel .ed-props [data-la=edge]").selectOption("palisade");
 r = await area("k_linie");
 t.check(r.edge === "palisade" && r.type === "kerb" && r.line.points.length === 3, `Art der Linie: ${JSON.stringify([r.edge, r.type])}`);

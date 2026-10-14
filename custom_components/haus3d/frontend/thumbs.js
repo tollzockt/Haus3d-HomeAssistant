@@ -1,25 +1,21 @@
 // Kleine 3D-Vorschaubilder der Möbel für die Auswahlliste im Editor.
 // Ein einziger, kurzlebiger WebGL-Renderer zeichnet alle Typen nacheinander (in Häppchen, damit die
 // Oberfläche nicht hängt); die Bilder bleiben als data:-URLs im Speicher. Eigene 3D-Modelle bekommen ihr
-// Bild, sobald sie geladen sind (renderModelThumbs).
+// Bild einmal beim Hochladen (modelFileThumb); der Server speichert es bei den Angaben des Modells, der Katalog
+// lädt dafür keine Modelldatei.
 
 import * as THREE from "./vendor/three.module.min.js";
 import { FURNITURE, buildFurniture, furnitureMaterials } from "./furniture.js";
-import { loadModel } from "./models.js";
+import { MODEL_THUMB_MAX, defaultUp, modelExt } from "./model-fit.js";
+import { disposeTemplate, instantiate, normalizeModel, parseModel } from "./models.js";
 
 const SIZE = 96;
-const cache = new Map(); // "stil:typ" bzw. "stil:model:kennung" -> data-URL
+const cache = new Map(); // "stil:typ" -> data-URL
 let job = null;
-let chain = Promise.resolve();
 
 /** Vorschaubild eines Typs (oder null, solange es noch nicht gerendert ist). */
 export function furnitureThumb(type, style = "standard") {
   return cache.get(`${style}:${type}`) ?? null;
-}
-
-/** Vorschaubild eines eigenen 3D-Modells (oder null). */
-export function modelThumb(id, style = "standard") {
-  return cache.get(`${style}:model:${id}`) ?? null;
 }
 
 /** Aufnahmeraum mit Licht und Kamera; null ohne WebGL. shot(obj) gibt eine data-URL zurück, close() räumt auf. */
@@ -103,36 +99,30 @@ export function renderThumbs(onThumb = () => {}, style = "standard") {
 }
 
 /**
- * Vorschaubilder für eigene 3D-Modelle (Kennungen): jedes Modell wird geladen, in seiner natürlichen Größe
- * gebaut und aufgenommen. onThumb(id, url) je fertigem Bild; Modelle, die sich nicht laden lassen, bleiben ohne Bild.
+ * Vorschaubild (kleines PNG als data:-URL) für eine Modelldatei, die gleich hochgeladen wird: Datei lesen, mit der
+ * gewählten Einheit und Oben-Achse in natürlicher Größe bauen und aufnehmen; danach ist alles wieder freigegeben.
+ * Ohne WebGL oder bei einem Fehler null (das Modell wird dann ohne Bild hochgeladen, die Kachel zeigt ein Symbol).
  */
-export function renderModelThumbs(ids, onThumb = () => {}, style = "standard") {
-  chain = chain
-    .then(async () => {
-      const todo = ids.filter((id) => !cache.has(`${style}:model:${id}`));
-      if (!todo.length) return;
-      await job?.done; // ein WebGL-Kontext zur Zeit
-      let st = null;
-      try {
-        for (const id of todo) {
-          let tpl;
-          try {
-            tpl = await loadModel(id);
-          } catch {
-            continue;
-          }
-          st ??= studio(style);
-          if (!st) return;
-          const [w, d, h] = tpl.size;
-          const url = st.shot(buildFurniture({ id, type: "custom_model", model: id, x: 0, z: 0, rotation: 0, w, d, h, mount_y: 0 }, st.M, 0, Math.max(h + 0.1, 0.5)));
-          cache.set(`${style}:model:${id}`, url);
-          onThumb(id, url);
-          await new Promise((r) => setTimeout(r, 0));
-        }
-      } finally {
-        st?.close();
-      }
-    })
-    .catch(() => {});
-  return chain;
+export async function modelFileThumb(file, { unit = "m", up = null } = {}) {
+  const ext = modelExt(file?.name);
+  if (!ext) return null;
+  await job?.done; // ein WebGL-Kontext zur Zeit
+  let tpl = null;
+  let st = null;
+  try {
+    const parsed = await parseModel(await file.arrayBuffer(), ext);
+    tpl = normalizeModel(parsed, { unit, up: up || defaultUp(ext) });
+    st = studio("standard");
+    if (!st) return null;
+    const [w, d, h] = tpl.size;
+    const g = new THREE.Group();
+    g.add(instantiate(tpl, w, d, h, "keep", st.M));
+    const url = st.shot(g);
+    return url.length <= MODEL_THUMB_MAX ? url : null;
+  } catch {
+    return null;
+  } finally {
+    st?.close();
+    if (tpl) disposeTemplate(tpl);
+  }
 }

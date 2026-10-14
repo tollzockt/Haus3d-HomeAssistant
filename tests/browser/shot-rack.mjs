@@ -131,10 +131,13 @@ await ed.locator("haus3d-panel .ed-props [data-tech-in]").selectOption(cab.id);
 await ed.waitForTimeout(150);
 const back = await item(sw.id);
 t.check(back.in_rack === cab.id && back.rack_u === 2, `Einbauen über die Auswahl: ${JSON.stringify(back)}`);
+// eingebaute Geräte stehen gerade: keine Felder Neigung/Kippen
+t.check(await E(() => !window.panel._editor.props.querySelector("[data-num=tilt]") && !window.panel._editor.props.querySelector("[data-num=roll]")), "Eingebautes Gerät bietet Neigung/Kippen an");
 
 // ---------------------------------------------------------------- C Schrank bewegen und drehen: Geräte folgen
 await click(8.25, 5.25); // Schrank wählen (Mitte liegt unter den ausgeblendeten Geräten)
 await E((id) => { const e = window.panel._editor; e.sel = { kind: "furniture", id }; e.render(); e.renderProps(); }, cab.id);
+t.check(await E(() => !window.panel._editor.props.querySelector("[data-num=tilt]") && !!window.panel._editor.props.querySelector("[data-num=rotation]")), "Schrank mit Geräten bietet Neigung/Kippen an");
 await dragPlan([8, 5.5], [9.2, 5.2], 12);
 const cab2 = await item(cab.id);
 const devs = async () => E((id) => structuredClone(window.panel._editor.floor.furniture.filter((m) => m.in_rack === id)), cab.id);

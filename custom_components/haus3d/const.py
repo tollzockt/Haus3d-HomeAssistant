@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "haus3d"
-VERSION = "0.23.0b3"
+VERSION = "0.23.0b4"
 
 STORAGE_VERSION = 1
 STORAGE_KEY_BUILDING = f"{DOMAIN}.building"
@@ -26,6 +26,7 @@ MODEL_MAX_BYTES = 25 * 1024 * 1024  # je Datei
 MODELS_MAX_TOTAL = 300 * 1024 * 1024  # alle Modelle zusammen
 MODELS_MAX_COUNT = 200
 MODEL_NAME_MAX = 60
+MODEL_THUMB_MAX = 150 * 1024  # Vorschaubild (Daten-URL, im Browser erzeugt), Zeichen
 MODELS_URL = "/api/haus3d/models"
 
 # Signal an offene Panels (Dienste haus3d.show/notify/highlight/reload)

@@ -265,8 +265,11 @@ export function openFromState(s) {
   return null;
 }
 
+const MIN_SPAN = 0.01;
+
 /** Fertige Zickzack-Geometrie: Anzahl Segmente n, Segmentlänge ell, Gesamtlänge L, flachster und engster Zustand (für foldsX/foldsY). */
 function foldPlan(span, fullness, n, amp, tight, minSpan) {
+  span = Math.max(span, MIN_SPAN); // nie ≤ 0 (sehr schmale oder niedrige Maße): sonst Wurzel aus negativ und 0/0 = NaN
   let f = fullness;
   // so voll wie gewünscht, aber die Falten bleiben flacher als die verfügbare Tiefe
   for (let k = 0; k < 3; k++) {

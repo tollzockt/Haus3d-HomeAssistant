@@ -7,6 +7,9 @@ export const MODEL_ACCEPT = ".glb,.gltf,.obj,.stl";
 /** Grenzen wie im Backend (const.py). */
 export const MODEL_MAX_BYTES = 25 * 1024 * 1024;
 export const MODEL_NAME_MAX = 60;
+/** Vorschaubild eines Modells: Daten-URL eines kleinen Bildes, höchstens so viele Zeichen (wie const.py). */
+export const MODEL_THUMB_MAX = 150 * 1024;
+const THUMB_URL = /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 export const MODEL_ID = /^[0-9a-f]{16}$/;
 export const MODEL_URL = "/api/haus3d/models";
 
@@ -30,6 +33,9 @@ export function modelExt(filename) {
   const ext = m?.[1].toLowerCase();
   return MODEL_FORMATS.includes(ext) ? ext : null;
 }
+
+/** Vorschaubild aus den Angaben des Servers; nur eine Daten-URL eines Bildes in zulässiger Größe, sonst null (Symbol). */
+export const thumbSrc = (meta) => (typeof meta?.thumb === "string" && meta.thumb.length <= MODEL_THUMB_MAX && THUMB_URL.test(meta.thumb) ? meta.thumb : null);
 
 /** Welche Achse zeigt nach oben? glTF und OBJ meist Y, STL (CAD, 3D-Druck) meist Z. */
 export const defaultUp = (ext) => (ext === "stl" ? "z" : "y");

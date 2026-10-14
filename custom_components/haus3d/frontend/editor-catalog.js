@@ -56,7 +56,6 @@ export const CatalogMethods = {
           const list = types.filter((t) => FURNITURE[t][0].toLowerCase().includes(q) || cat.toLowerCase().includes(q));
           return list.length ? `<div class="cat found">${esc(cat)}</div><div class="tiles">${list.map(tile).join("")}</div>` : "";
         }).join("") || `<p class="muted">Nichts gefunden.</p>`;
-        this._modelThumbs(cats, style);
         return;
       }
       cats.innerHTML = this._modelSection(isOpenG(MODEL_GROUP), head, style) + FURNITURE_GROUPS.map(([g, cs]) => {
@@ -68,7 +67,6 @@ export const CatalogMethods = {
           return `${head("cat", c, c, types.length, co)}${co ? `<div class="tiles">${types.map(tile).join("")}</div>` : ""}`;
         }).join("")}</div>` : ""}`;
       }).join("");
-      this._modelThumbs(cats, style);
     };
     draw();
     this._modelsWatch(cats, draw);

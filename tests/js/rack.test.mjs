@@ -452,3 +452,54 @@ test("Mehrere Schränke: das Gerät zieht in den Schrank unter seiner Mitte, bei
   assert.equal(get(f, d3.id).in_rack, b.id);
   assert.equal(cabinetInfo(f, get(f, a.id)).free, 0);
 });
+
+test("Einbau: eingebaute Geräte und Schränke mit Geräten stehen gerade (Neigen/Kippen fällt weg, kommt beim Ausbauen nicht zurück)", () => {
+  const c = cab({ tilt: 20, roll: 5 });
+  const a = dev("tech_switch_24", { tilt: 30, roll: 10 });
+  let f = edit(floorOf(c), (fl) => fl.furniture.push(a));
+  assert.equal(get(f, a.id).in_rack, c.id);
+  for (const id of [c.id, a.id]) assert.ok(get(f, id).tilt === undefined && get(f, id).roll === undefined, id);
+  // ausgebaut: gerade, wie sie standen
+  f = edit(f, (fl) => {
+    for (const k of ["in_rack", "rack_u", "mount_y"]) delete get(fl, a.id)[k]; // wie der Knopf „Ausbauen“ (fields-tech.js)
+  });
+  assert.ok(free(get(f, a.id)) && get(f, a.id).tilt === undefined);
+  // leerer Schrank darf geneigt bleiben
+  const lone = cab({ tilt: 20 });
+  assert.equal(get(edit(floorOf(lone), (fl) => (get(fl, lone.id).x = 6)), lone.id).tilt, 20);
+});
+
+test("Schrank schmaler/flacher gemacht oder Gerät vergrößert: nicht mehr passende Geräte werden ausgebaut", () => {
+  const c = cab();
+  const a = dev("tech_switch_24"); // 19 Zoll: 0,482 m breit
+  const b = dev("tech_ups_2u");
+  const f = edit(floorOf(c), (fl) => fl.furniture.push(a, b));
+  assert.equal(get(f, a.id).in_rack, c.id);
+  assert.equal(get(f, b.id).in_rack, c.id);
+  assert.equal(fitsCabinet(get(f, c.id), get(f, a.id)), "");
+  // Schrank auf 0,5 m verschmälert: 0,482 > 0,5 − 2·0,035 → ausgebaut
+  const narrow = edit(f, (fl) => {
+    get(fl, c.id).w = 0.5;
+  });
+  assert.equal(fitsCabinet(get(narrow, c.id), get(narrow, a.id)), "zu breit");
+  assert.ok(free(get(narrow, a.id)), JSON.stringify(get(narrow, a.id)));
+  assert.equal(get(narrow, c.id).rack_used, undefined);
+  // flacher gemacht: zu tief
+  const shallow = edit(f, (fl) => {
+    get(fl, c.id).d = 0.3;
+  });
+  assert.ok(free(get(shallow, a.id)) && free(get(shallow, b.id)));
+  // ein Gerät wird zu breit: nur dieses wird ausgebaut, das andere bleibt eingebaut
+  const grown = edit(f, (fl) => {
+    get(fl, a.id).w = 0.7;
+  });
+  assert.ok(free(get(grown, a.id)));
+  assert.equal(get(grown, b.id).in_rack, c.id);
+  assert.equal(get(grown, c.id).rack_used, heOf(get(grown, b.id)));
+  // schmaler, aber es passt noch: alles bleibt, wo es war
+  const ok = edit(f, (fl) => {
+    get(fl, c.id).w = 0.56;
+  });
+  assert.equal(get(ok, a.id).in_rack, c.id);
+  assert.equal(get(ok, a.id).rack_u, get(f, a.id).rack_u);
+});
