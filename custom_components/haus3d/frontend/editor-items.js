@@ -4,6 +4,7 @@
 import { cubeGrid, cubeSize, isCubeShelf, pvGrid, pvModules, pvSize } from "./catalog-extra.js";
 import { DEFAULT_WP } from "./exterior.js";
 import { FURNITURE } from "./furniture.js";
+import { RACK_STYLE } from "./rack-strip.js";
 
 export const MAX_INFO = 6;
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -172,4 +173,4 @@ export const ITEMS_STYLE = `
 .ed-props .holorow { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 6px; align-items: center; }
 .ed-props .holorow input { min-width: 0; }
 .ed-props .btns.left { justify-content: flex-start; }
-`;
+${RACK_STYLE}`;

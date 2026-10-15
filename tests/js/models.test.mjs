@@ -21,6 +21,7 @@ import {
   modelState,
   onModelsChange,
   peekModel,
+  readOnlyModelHass,
   refreshModels,
   renameModel,
   resetModels,
@@ -640,4 +641,41 @@ test("Eigenschaften: Felder nur für custom_model, mit Auswahl, Einpassen, Umben
   assert.match(gone, /\(nicht mehr vorhanden\)/);
   // noch kein Modell gewählt
   assert.match(MODEL_FIELDS.html({ type: "custom_model" }, ed), /Platzhalter im Plan/);
+});
+
+test("Demo-Haus: Modelle nur lesen – Hochladen (POST), Umbenennen und Löschen erreichen den Server nicht", async () => {
+  resetModels();
+  clearAccess();
+  const real = mockHass();
+  const id = real.put("stl", boxStl(1, 1, 1), { name: "Würfel" });
+  setModelHass(readOnlyModelHass(real));
+  // lesen geht: Liste und Datei
+  await refreshModels();
+  assert.deepEqual(modelList().map((m) => m.name), ["Würfel"]);
+  await loadModel(id);
+  assert.equal(modelState(id), "ready");
+  const gets = real.calls.length;
+  // hochladen, umbenennen, löschen werden vor dem Server abgelehnt
+  const file = new File([boxStl(1, 1, 1)], "neu.stl");
+  await assert.rejects(() => uploadModel(file, { name: "Neu", unit: "m" }), /Demo: eigene 3D-Modelle werden hier nicht geändert/);
+  await assert.rejects(() => renameModel(id, "Anders"), /Demo/);
+  await assert.rejects(() => deleteModel(id), /Demo/);
+  assert.deepEqual(real.forms, [], "kein POST an den Server");
+  assert.equal(real.calls.length, gets, "kein weiterer Befehl an den Server");
+  assert.equal(real.store.size, 1);
+  // die Hülle ändert das echte hass nicht und ist ohne fetchWithAuth harmlos
+  assert.equal(typeof real.fetchWithAuth, "function");
+  assert.equal(readOnlyModelHass(null), null);
+  const bare = readOnlyModelHass({ callWS: async () => ({}) });
+  assert.equal(bare.fetchWithAuth, undefined);
+  // Editor: im Demo-Haus kein Hochladen-Knopf, sondern der Hinweis
+  const ed = Object.create(ModelCatalogMethods);
+  Object.assign(ed, { sim: false, demo: true });
+  const html = ed._modelBody([], "standard");
+  assert.ok(!html.includes("data-model-upload") && /Demo: eigene 3D-Modelle werden hier nicht geändert/.test(html));
+  const toasts = [];
+  Object.assign(ed, { _toast: (t) => toasts.push(t) });
+  ed._modelPick();
+  assert.deepEqual(toasts, ["Demo: eigene 3D-Modelle werden hier nicht geändert."]);
+  assert.match(Object.assign(Object.create(ModelCatalogMethods), { sim: false, demo: false })._modelBody([], "standard"), /data-model-upload/);
 });

@@ -49,7 +49,7 @@ export const NetworkMethods = {
       el.querySelector(".restart")?.addEventListener("click", async () => {
         const ok = await this._confirm(`${n.name} neu starten?`, "Neu starten", { danger: true, sub: "Das Gerät ist dann kurz nicht erreichbar." });
         if (!ok) return;
-        this._hass.callService("button", "press", { entity_id: n.restart }).then(() => this._toast(`${n.name}: Neustart ausgelöst`)).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+        this._hass.callService("button", "press", { entity_id: n.restart }).then(() => this._toast(`${n.name}: Neustart ausgelöst`)).catch((err) => this._toast(`Neustart fehlgeschlagen: ${err.message ?? err}`));
       });
     };
     draw();
@@ -73,7 +73,7 @@ export const NetworkMethods = {
     const body = el.querySelector(".dialog-body");
     const list = networkDevices(this._hass);
     if (!list.length) {
-      body.innerHTML = `<p class="hint">Keine Netzwerkgeräte gefunden. In Home Assistant eine Netzwerk-Integration einrichten, die Geräte-Tracker für Router bzw. Controller liefert – Clients, Access Points und Switches erscheinen dann hier und im Plan (Bereich zuordnen oder im Editor mit „Gerät“ platzieren).</p>`;
+      body.innerHTML = `<p class="hint">Keine Netzwerkgeräte. Dafür in Home Assistant eine Netzwerk-Integration mit Geräte-Trackern einrichten.</p>`;
       return;
     }
     const online = list.filter((n) => n.online).length;

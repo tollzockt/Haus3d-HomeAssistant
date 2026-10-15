@@ -437,6 +437,64 @@ ENERGY_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
+DEMO_PV_MAX_ENTRIES = 200
+DEMO_PV_MAX_WATT = 100000.0
+DEMO_DAY_MINUTES = 1440
+
+
+def _demo_watt(value: Any) -> float:
+    """Leistung in W: Zahl (auch als Text), außerhalb auf 0 … 100 000 begrenzt; sonst ungültig."""
+    if isinstance(value, bool):
+        raise vol.Invalid("Wahrheitswert statt Zahl")
+    if isinstance(value, str):
+        value = value.strip()
+    number = float(value)
+    if not math.isfinite(number):
+        raise vol.Invalid("keine endliche Zahl")
+    return round(min(DEMO_PV_MAX_WATT, max(0.0, number)), 3) + 0.0
+
+
+def _demo_minute(value: Any) -> int | None:
+    """Minute seit Mitternacht (0 … 1439) oder None = Sonnenauf-/-untergang; alles andere → None."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value.strip() if isinstance(value, str) else value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or not 0 <= number <= DEMO_DAY_MINUTES - 1:
+        return None
+    return round(number)
+
+
+def _demo_pv(value: Any) -> dict[str, Any]:
+    """Demo-PV-Einstellungen {Schlüssel: {min, max, from, to}} weich prüfen (wie normalizeDemoSettings im Frontend).
+
+    Unbrauchbare Einträge fallen einzeln weg; Leistung wird auf 0 … 100 000 W begrenzt und „bis“ auf mindestens
+    „von“ gesetzt. Ein Zeitfenster, das vor seinem Anfang endet, fällt auf Sonnenauf-/-untergang zurück.
+    """
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key, entry in value.items():
+        if len(out) >= DEMO_PV_MAX_ENTRIES:
+            break
+        if not isinstance(key, str) or not 1 <= len(key) <= 80 or not isinstance(entry, dict):
+            continue
+        try:
+            low = _demo_watt(entry.get("min"))
+            high = _demo_watt(entry.get("max"))
+        except (vol.Invalid, TypeError, ValueError):
+            continue
+        start, end = _demo_minute(entry.get("from")), _demo_minute(entry.get("to"))
+        if start is not None and end is not None and end <= start:
+            start = end = None
+        out[key] = {"min": low, "max": max(low, high), "from": start, "to": end}
+    return out
+
+
+DEMO_SCHEMA = vol.Schema({vol.Optional("pv", default=dict): _demo_pv}, extra=vol.ALLOW_EXTRA)
+
 SETTINGS_SCHEMA = vol.Schema(
     {
         vol.Optional("wall_exterior", default=0.24): vol.All(vol.Coerce(float), vol.Range(min=0.02, max=1)),
@@ -450,6 +508,8 @@ SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("title"): _soft(vol.Any(None, vol.All(str, vol.Length(max=60))), None),
         # 0.23: Grundeinstellungen im Editor erledigt
         vol.Optional("setup_done"): _soft(vol.Boolean(), False),
+        # Demo-Modus (Vorführhaus): PV-Erzeugung je Quelle; wird nur in einem Demo-Haus gelesen
+        vol.Optional("demo"): _soft(DEMO_SCHEMA, None),
     },
     extra=vol.ALLOW_EXTRA,
 )

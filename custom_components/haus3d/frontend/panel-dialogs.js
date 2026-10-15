@@ -16,12 +16,14 @@ import { closeGaps } from "./walls.js";
 import { esc, plural, touchScroll } from "./panel-util.js";
 
 export const DialogMethods = {
-  /** Dialog statt „Weitere Infos“: Zustand des Geräts in der Simulation setzen. */
+  /** Dialog statt „Weitere Infos“: Zustand des Geräts in der Simulation bzw. im Demo-Haus setzen. */
   _simDialog(entityId) {
     this._closeDialog();
     const st = this._hass.states[entityId];
     const domain = domainOf(entityId);
     const name = st?.attributes?.friendly_name ?? entityId;
+    const demo = this._isDemo?.() ? this._demo : null; // Demo-Haus: eigene Sitzung (DemoHouse), nichts geht an Home Assistant
+    const setState = (value) => (demo ? demo.set(entityId, value) : this._sim.set(entityId, value, {}, st));
     const el = document.createElement("div");
     el.className = "dialog-backdrop";
     const onOff = ["light", "switch", "fan", "input_boolean", "binary_sensor", "automation", "siren", "humidifier"].includes(domain);
@@ -33,15 +35,16 @@ export const DialogMethods = {
     else if (domain === "lock") body = `<div class="btns"><button data-svc="unlock">Aufschließen</button><button data-svc="lock">Abschließen</button></div>`;
     else if (domain === "climate") body = `<div class="row"><span>Soll</span><input type="number" step="0.5" data-temp value="${st?.attributes?.temperature ?? 21}"><button data-act="temp">Setzen</button></div>`;
     else body = `<div class="row"><input type="${/^-?\d+(\.\d+)?$/.test(st?.state ?? "") ? "number" : "text"}" step="any" data-val value="${esc(st?.state ?? "")}"><button data-act="val">Setzen</button></div>`;
-    el.innerHTML = `<div class="dialog simdlg" role="dialog" aria-label="Simulation">
+    const hint = demo ? `Demo – wird nur simuliert: „${esc(name)}“ ist gerade „${esc(st?.state ?? "unbekannt")}“. Nichts geht an Home Assistant.` : `Simulation: ${esc(entityId)} ist gerade „${esc(st?.state ?? "unbekannt")}“. Änderungen bleiben in der Simulation.`;
+    el.innerHTML = `<div class="dialog simdlg" role="dialog" aria-label="${demo ? "Demo" : "Simulation"}">
       <div class="dialog-head"><span>${esc(name)}</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-      <div class="dialog-body"><p class="hint">Simulation: ${esc(entityId)} ist gerade „${esc(st?.state ?? "unbekannt")}“. Änderungen bleiben in der Simulation.</p>${body}</div></div>`;
+      <div class="dialog-body"><p class="hint">${hint}</p>${body}</div></div>`;
     const done = () => {
       this._simChanged();
       this._closeDialog();
     };
     el.querySelectorAll("[data-set]").forEach((b) => b.addEventListener("click", () => {
-      this._sim.set(entityId, b.dataset.set, {}, st);
+      setState(b.dataset.set);
       done();
     }));
     const sim = this._hass; // Simulations-hass beim Öffnen (endet die Simulation, schließt das Fenster)
@@ -49,7 +52,7 @@ export const DialogMethods = {
     el.querySelector("[data-pos]")?.addEventListener("change", (ev) => sim.callService("cover", "set_cover_position", { entity_id: entityId, position: Number(ev.target.value) }).then(() => this._closeDialog()));
     el.querySelector("[data-act=temp]")?.addEventListener("click", () => sim.callService("climate", "set_temperature", { entity_id: entityId, temperature: Number(el.querySelector("[data-temp]").value) }).then(() => this._closeDialog()));
     el.querySelector("[data-act=val]")?.addEventListener("click", () => {
-      this._sim.set(entityId, el.querySelector("[data-val]").value, {}, st);
+      setState(el.querySelector("[data-val]").value);
       done();
     });
     el.querySelector(".close").addEventListener("click", () => this._closeDialog());
@@ -66,7 +69,7 @@ export const DialogMethods = {
     const list = this._visibleAlerts ?? [];
     const el = document.createElement("div");
     el.className = "popup statuspop alertpop";
-    el.innerHTML = `<div class="head">Hinweise (${list.length})</div><div class="scroll">${list.map((a, i) => `<div class="item ${a.level}"><ha-icon icon="${esc(a.icon)}"></ha-icon><span></span>${a.roomId ? `<button data-show="${i}">Zeigen</button>` : ""}<button data-ack="${i}">Ausblenden</button></div>`).join("") || `<div class="item"><span>Keine Hinweise.</span></div>`}</div>`;
+    el.innerHTML = `<div class="head">Hinweise (${list.length})</div><div class="scroll">${list.map((a, i) => `<div class="item ${a.level}"><ha-icon icon="${esc(a.icon)}"></ha-icon><span></span>${a.roomId ? `<button data-show="${i}">Zeigen</button>` : ""}<button data-ack="${i}">Ausblenden</button></div>`).join("") || `<div class="item"><span>Keine Hinweise – alles in Ordnung.</span></div>`}</div>`;
     el.querySelectorAll(".item span").forEach((sp, i) => list[i] && (sp.textContent = list[i].text));
     el.querySelectorAll("[data-show]").forEach((b) => b.addEventListener("click", () => this._showAlert(list[Number(b.dataset.show)])));
     el.querySelectorAll("[data-ack]").forEach((b) => b.addEventListener("click", () => this._ackAlert(list[Number(b.dataset.ack)])));
@@ -95,7 +98,7 @@ export const DialogMethods = {
       for (const c of calls) {
         await this._hass.callService(c.domain, c.service, c.data).catch((err) => {
           ok = false; // nicht als erledigt abhaken (auch im Testhaus, wo nichts geschaltet wird)
-          if (!err?.quiet) this._toast(`Fehlgeschlagen: ${err.message ?? err}`);
+          if (!err?.quiet) this._toast(`Ausführen fehlgeschlagen: ${err.message ?? err}`);
         });
       }
       return ok;
@@ -108,18 +111,19 @@ export const DialogMethods = {
           ${done ? `<p class="allok"><ha-icon icon="mdi:check-circle"></ha-icon> Alles zu und aus.</p>` : ""}
           ${sections.map((sec, si) => !sec.items.length ? "" : `<h4>${esc(sec.title)} (${sec.items.length})</h4>
             ${sec.items.map((it, ii) => `<div class="crow">${sec.info ? `<ha-icon icon="mdi:window-open-variant"></ha-icon>` : `<input type="checkbox" data-s="${si}" data-i="${ii}"${it.checked ? " checked" : ""}>`}<button class="go" data-s="${si}" data-i="${ii}"></button></div>`).join("")}
-            ${sec.info ? `<p class="hint">Fenster und Türen bitte von Hand schließen – Tipp auf eine Zeile zeigt den Raum.</p>` : `<div class="btns"><button class="secrun" data-s="${si}">${esc({ garage: "Tore schließen", locks: "Abschließen", lights: "Lichter aus", covers: "Rollläden runter" }[sec.key] ?? "Ausführen")}</button></div>`}`).join("")}
-          ${mode === "leave" ? `<label class="chkrow away"><input type="checkbox" data-away${this._away ? " checked" : ""}> Urlaub: Anwesenheit simulieren (abends einzelne Lichter, läuft im Hintergrund)</label>` : ""}
+            ${sec.info ? `<p class="hint">Fenster und Türen von Hand schließen – ein Tipp auf die Zeile zeigt den Raum.</p>` : `<div class="btns"><button class="secrun" data-s="${si}">${esc({ garage: "Tore schließen", locks: "Abschließen", lights: "Lichter aus", covers: "Rollläden runter" }[sec.key] ?? "Ausführen")}</button></div>`}`).join("")}
+          ${mode === "leave" ? `<label class="chkrow away"><input type="checkbox" data-away${this._away && !this._isDemo?.() ? " checked" : ""}> Urlaub: Anwesenheit simulieren (abends einzelne Lichter, läuft im Hintergrund)</label>` : ""}
           <div class="btns"><button class="finish primary">${mode === "goodnight" ? "Fertig – Gute Nacht" : "Fertig – Haus verlassen"}</button></div>
         </div></div>`;
       el.querySelector("[data-away]")?.addEventListener("change", async (ev) => {
+        if (this._isDemo?.()) return this._toast("Demo: Die Anwesenheitssimulation wird hier nicht gestartet."); // der echte Urlaubsstatus bleibt unberührt
         try {
           await this._hass.callWS({ type: "haus3d/away/set", on: ev.target.checked });
           this._away = ev.target.checked;
           this._toast(this._away ? "Anwesenheit wird simuliert – abends gehen einzelne Lichter an und aus." : "Anwesenheitssimulation aus.");
         } catch (err) {
           ev.target.checked = !ev.target.checked;
-          this._toast(`Fehlgeschlagen: ${err.message ?? err.code ?? err}`);
+          this._toast(`Umschalten fehlgeschlagen: ${err.message ?? err.code ?? err}`);
         }
       });
       el.querySelectorAll(".go").forEach((g) => {
@@ -152,14 +156,14 @@ export const DialogMethods = {
         const r = routineCall(b.settings?.routines, mode, hass);
         if (r) {
           if (!r.exists) this._toast(`${r.data.entity_id} gibt es nicht.`);
-          else await this._hass.callService(r.domain, r.service, r.data).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+          else await this._hass.callService(r.domain, r.service, r.data).catch((err) => this._toast(`Ausführen fehlgeschlagen: ${err.message ?? err}`));
         }
         this._closeDialog();
-        this._toast(mode === "goodnight" ? "Gute Nacht!" : "Bis später!");
+        this._toast(mode === "goodnight" ? "Gute Nacht." : "Bis später.");
       });
     };
     render();
-    if (mode === "leave") {
+    if (mode === "leave" && !this._isDemo?.()) {
       this._hass.callWS({ type: "haus3d/away/status" }).then((r) => {
         this._away = !!r?.on;
         const c = el.querySelector("[data-away]");
@@ -233,7 +237,7 @@ export const DialogMethods = {
     el.querySelector(".alloff")?.addEventListener("click", (ev) => {
       ev.stopPropagation();
       this._closePopup();
-      hass.callService("light", "turn_off", { entity_id: list.map((x) => x.entity_id) }).then(() => this._toast(`${list.length} Lichter aus`)).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+      hass.callService("light", "turn_off", { entity_id: list.map((x) => x.entity_id) }).then(() => this._toast(`${plural(list.length, "Licht", "Lichter")} aus`)).catch((err) => this._toast(`Ausschalten fehlgeschlagen: ${err.message ?? err}`));
     });
     el.addEventListener("click", (ev) => ev.stopPropagation());
     this._els.stage.appendChild(el);
@@ -252,7 +256,8 @@ export const DialogMethods = {
       <label class="en-row"><span>Startetage</span><select data-k="startFloor">${floors.map(([id, n]) => `<option value="${esc(id)}"${(k.startFloor ?? "") === id ? " selected" : ""}>${esc(n)}</option>`).join("")}</select></label>
       <label class="en-row"><span>Ruhe nach (min)</span><input type="number" data-k="idleMin" min="0" max="240" step="1" value="${k.idleMin ?? ""}" placeholder="${this.hasAttribute("kiosk") ? "5" : "aus"}"></label>
       <div class="en-row"><span>Dimmen</span><input type="time" data-k="dimFrom" value="${esc(k.dimFrom ?? "")}"><span class="to">bis</span><input type="time" data-k="dimTo" value="${esc(k.dimTo ?? "")}"></div>
-      <p class="hint">In Ruhe schließen sich Raumfenster und Menüs, die Startetage erscheint und das Bild steht still. Im Dimm-Zeitraum wird der Bildschirm dunkel; der erste Tipp weckt nur. Hinweise wecken das Tablet. Direkt als Wandtablet öffnen: /haus3d?kiosk&amp;etage=eg</p>`;
+      <p class="hint">In Ruhe schließen sich Fenster und Menüs, die Startetage erscheint; im Dimm-Zeitraum wird es dunkel, der erste Tipp weckt nur.</p>
+      <p class="hint">Direkt als Wandtablet öffnen: /haus3d?kiosk&amp;etage=eg</p>`;
     const save = () => {
       this._settings.kiosk = k;
       this._saveSettings();
@@ -314,7 +319,7 @@ export const DialogMethods = {
       <p class="hint">Wichtig für Sonnenstand und PV-Ausrichtung: Grad im Uhrzeigersinn, um die Norden von „oben im Plan“ abweicht.</p>
       <label class="en-row"><span>Jahreszeit im Garten</span><select data-season>${SEASONS.map(([k, n]) => `<option value="${k}"${(this._building?.settings?.season ?? "auto") === k ? " selected" : ""}>${n}</option>`).join("")}</select></label>
       <label class="en-row"><span>Energiefluss im Haus</span><select data-houseflow><option value="on"${this._building?.settings?.house_flow === false ? "" : " selected"}>in den Leitungen (Editor → Leitung)</option><option value="off"${this._building?.settings?.house_flow === false ? " selected" : ""}>aus</option></select></label>
-      <p class="hint">Das Dach erscheint nur in der Ansicht „Alle“. Wählt man eine Etage, schaut man hinein. Module liegen auf den Dachflächen, die in die Richtung zeigen (L-Dach: Hauptdach und Flügel). Eigene Dächer (Garage, Anbau, Erker) bearbeitet man im Editor: Etage wählen → „Dach“.</p>
+      <p class="hint">Das Dach ist nur in der Ansicht „Alle“ zu sehen. Module liegen auf den Flächen ihrer Richtung; eigene Dächer im Editor: Etage → „Dach“.</p>
       <div class="btns"><button class="house-save primary">Speichern</button></div>`;
     // PV-Felder: Richtung, Spalten × Reihen, hoch/quer, Abstand von links (von außen gesehen), ab Reihe
     // Norden: Schnellwahl und genauer Winkel (±5°) halten sich gegenseitig aktuell
@@ -460,7 +465,7 @@ export const DialogMethods = {
           this._setBuilding(res.building, res.revision, { keepCamera: true });
           this._toast("Geräte gespeichert.");
         } catch (err) {
-          this._toast(err.code === "conflict" ? "Der Stand wurde inzwischen geändert. Seite neu laden." : `Speichern fehlgeschlagen: ${err.message ?? err.code}`);
+          this._toast(err.code === "conflict" ? "Inzwischen woanders geändert – nicht gespeichert. Seite neu laden." : `Speichern fehlgeschlagen: ${err.message ?? err.code}`);
         }
       });
     };
@@ -485,7 +490,7 @@ export const DialogMethods = {
           ${list.map((f, i) => `<div class="qrow">${f.key
             ? `<ha-icon icon="${esc(builtin[f.key].icon)}"></ha-icon><span class="fixed">${esc(builtin[f.key].name)}</span>`
             : `<input class="nm" data-name="${i}" value="${esc(f.name ?? "")}" placeholder="Name"><input list="fn-ents" data-ent="${i}" value="${esc(f.entity ?? "")}" placeholder="script.…"><label class="qc" title="Vor dem Ausführen nachfragen"><input type="checkbox" data-cf="${i}"${f.confirm ? " checked" : ""}>Nachfragen</label>`}
-            <button class="icon" data-up="${i}" title="nach oben"><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="icon" data-rm="${i}" title="Ausblenden/Entfernen"><ha-icon icon="mdi:${f.key ? "eye-off-outline" : "delete-outline"}"></ha-icon></button></div>`).join("") || `<p class="hint">Keine Einträge.</p>`}
+            <button class="icon" data-up="${i}" title="nach oben"><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="icon" data-rm="${i}" title="Ausblenden/Entfernen"><ha-icon icon="mdi:${f.key ? "eye-off-outline" : "delete-outline"}"></ha-icon></button></div>`).join("") || `<p class="hint">Keine Einträge. „Standard“ stellt die Liste wieder her.</p>`}
           <datalist id="fn-ents">${Object.keys(hass.states).filter((x) => domains.includes(x.split(".")[0])).sort().map((x) => `<option value="${esc(x)}">${esc(hass.states[x].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
           ${missing.length ? `<div class="qrow"><select class="addkey"><option value="">Ausgeblendete wieder zeigen …</option>${missing.map((k) => `<option value="${k}">${esc(builtin[k].name)}</option>`).join("")}</select></div>` : ""}
           <div class="btns"><button class="reset">Standard</button><button class="addq">+ Eigener Eintrag</button><button class="save primary">Speichern</button></div>
@@ -548,7 +553,7 @@ export const DialogMethods = {
         <div class="dialog-head"><span>Kurzwahl</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
         <div class="dialog-body">
           <p class="hint">Antippen löst aus: Automation (trigger), Skript/Szene (starten), Taster (drücken), sonst umschalten. Lange drücken öffnet die Details. Im Rad sind ${WHEEL_VISIBLE} zu sehen, weitere werden durchgedreht.</p>
-          ${list.map((q, i) => `<div class="qrow"><input class="nm" data-name="${i}" value="${esc(q.name ?? "")}" placeholder="Name"><input list="quick-ents" data-ent="${i}" value="${esc(q.entity ?? "")}" placeholder="automation.…"><label class="qc" title="Vor dem Ausführen nachfragen"><input type="checkbox" data-cf="${i}"${q.confirm ? " checked" : ""}>Nachfragen</label><button class="icon" data-up="${i}" title="nach oben"><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("") || `<p class="hint">Noch keine Einträge.</p>`}
+          ${list.map((q, i) => `<div class="qrow"><input class="nm" data-name="${i}" value="${esc(q.name ?? "")}" placeholder="Name"><input list="quick-ents" data-ent="${i}" value="${esc(q.entity ?? "")}" placeholder="automation.…"><label class="qc" title="Vor dem Ausführen nachfragen"><input type="checkbox" data-cf="${i}"${q.confirm ? " checked" : ""}>Nachfragen</label><button class="icon" data-up="${i}" title="nach oben"><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("") || `<p class="hint">Noch keine Einträge. „+ Eintrag“ wählen und eine Automation, ein Skript oder eine Szene eintragen.</p>`}
           <datalist id="quick-ents">${Object.keys(hass.states).filter((x) => domains.includes(x.split(".")[0])).sort().map((x) => `<option value="${esc(x)}">${esc(hass.states[x].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
           <div class="btns"><button class="addq">+ Eintrag</button><button class="save primary">Speichern</button></div>
         </div></div>`;
@@ -616,12 +621,15 @@ export const DialogMethods = {
     this._popup = el;
   },
 
-  _export() {
-    const blob = new Blob([JSON.stringify(exportFile(this._building), null, 2)], { type: "application/json" });
+  _export(name = null) {
+    // Demo-Haus: ohne die automatischen Demo-Geräte (h3demo), so wie es gespeichert ist
+    if (this._isDemo?.() && !this._demoStrip) return this._toast("Demo: Export gerade nicht möglich – gleich noch einmal versuchen.");
+    const building = this._isDemo?.() ? this._demoStrip(this._building) : this._building;
+    const blob = new Blob([JSON.stringify(exportFile(building), null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `haus3d-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = name ?? `haus3d-${new Date().toISOString().slice(0, 10)}.json`;
     this.shadowRoot.appendChild(a);
     a.click();
     a.remove();
@@ -643,7 +651,7 @@ export const DialogMethods = {
     const epoch = this._importEpoch ?? this._houseEpoch ?? 0;
     this._importEpoch = null;
     const moved = () => (this._houseEpoch ?? 0) !== epoch;
-    if (moved()) return this._toast("Inzwischen wurde das Haus gewechselt – nicht importiert.");
+    if (moved()) return this._toast("Inzwischen Haus gewechselt – nicht importiert.");
     // Räume mit Spalt dazwischen (Innenmaße statt Wandmitten) ergeben doppelte Außenwände: anbieten zu schließen
     const closed = building.floors.map((f) => closeGaps(f.rooms));
     const gapCount = closed.reduce((n, c) => n + c.gaps.length, 0);
@@ -652,13 +660,13 @@ export const DialogMethods = {
     }
     if (moved()) return;
     const rooms = building.floors.reduce((n, f) => n + f.rooms.length, 0);
-    if (!(await this._confirm(`Grundriss mit ${plural(building.floors.length, "Etage", "Etagen")} und ${plural(rooms, "Raum", "Räumen")} importieren?`, "Importieren", { sub: this._house ? `Testhaus „${this._house.name}“: kein Verlauf – der jetzige Stand wird ersetzt.` : "Der aktuelle Stand wird vorher im Verlauf gesichert." })) || moved()) return;
+    if (!(await this._confirm(`Grundriss mit ${plural(building.floors.length, "Etage", "Etagen")} und ${plural(rooms, "Raum", "Räumen")} importieren?`, "Importieren", { sub: this._house ? `${this._house.demo ? "Demo-Haus" : "Testhaus"} „${this._house.name}“: kein Verlauf – der jetzige Stand wird ersetzt.${this._house.demo ? " Demo-Geräte kommen danach wieder von selbst dazu." : ""}` : "Der aktuelle Stand wird vorher im Verlauf gesichert." })) || moved()) return;
     try {
       const res = await this._callLocked({ type: "haus3d/building/save", building, revision: this._revision }, "admin");
       this._setBuilding(res.building, res.revision);
       this._toast("Grundriss importiert.");
     } catch (err) {
-      if (err.code === "conflict") this._toast("Der Stand wurde inzwischen geändert. Seite neu laden und erneut versuchen.");
+      if (err.code === "conflict") this._toast("Inzwischen woanders geändert – nicht importiert. Seite neu laden.");
       else this._toast(`Import fehlgeschlagen: ${err.message ?? err.code}`);
     }
   },
@@ -677,15 +685,15 @@ export const DialogMethods = {
     try {
       ({ items } = await this._hass.callWS({ type: "haus3d/history/list" }));
     } catch (err) {
-      this._toast(`Verlauf nicht verfügbar: ${err.message ?? err.code}`);
+      this._toast(`Verlauf laden fehlgeschlagen: ${err.message ?? err.code}`);
       return;
     }
     const el = document.createElement("div");
     el.className = "popup";
-    const reasons = { save: "vor Speichern", restore: "vor Wiederherstellen", manual: "gesichert" };
+    const reasons = { save: "vor Speichern", restore: "vor Wiederherstellen", manual: "gesichert", reset: "vor Zurücksetzen" };
     el.innerHTML = `<div class="head">Verlauf (letzte 20 Stände)</div><div class="scroll"></div>`;
     const list = el.querySelector(".scroll");
-    if (!items.length) list.innerHTML = `<div class="item"><span>Noch keine Stände gesichert.</span></div>`;
+    if (!items.length) list.innerHTML = `<div class="item"><span>Noch keine Stände. Gesichert wird bei jedem Speichern oder mit „Stand sichern“.</span></div>`;
     for (const item of items) {
       const row = document.createElement("div");
       row.className = "item";

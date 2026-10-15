@@ -10,7 +10,7 @@ import { TECH_PACK } from "../../custom_components/haus3d/frontend/catalog-tech.
 import { offsetPolyline } from "../../custom_components/haus3d/frontend/edit-ops.js";
 import { followMoves } from "../../custom_components/haus3d/frontend/follow.js";
 import { buildFurniture, furnitureMaterials } from "../../custom_components/haus3d/frontend/furniture.js";
-import { holoItems, holoRows, holoTitle } from "../../custom_components/haus3d/frontend/holo.js";
+import { holoItems, holoRows, holoRowsFor, holoTitle } from "../../custom_components/haus3d/frontend/holo.js";
 import { KERB_KINDS } from "../../custom_components/haus3d/frontend/kerb.js";
 import { propsUi } from "../../custom_components/haus3d/frontend/props-ui.js";
 import { liveRestore, liveTarget, moveLive } from "../../custom_components/haus3d/frontend/scene-arrows.js";
@@ -269,7 +269,7 @@ const hass = {
   },
 };
 
-test("Info-Hologramm: Geräte im Schrank teilen sich die Tafel des Schranks (Zwischenzeile je Gerät), keine Tafeln im Schrank", () => {
+test("Info-Hologramm: Geräte im Schrank teilen sich die Tafel des Schranks (eine Zeile je Gerät, Werte eingerückt), keine Tafeln im Schrank", () => {
   const { c, a, b, floor } = rackFloor();
   const room = { id: "technik", name: "Technik", points: rect(0, 0, 10, 10) };
   const fl = { ...floor, rooms: [room], outdoor: [] };
@@ -278,19 +278,21 @@ test("Info-Hologramm: Geräte im Schrank teilen sich die Tafel des Schranks (Zwi
   get(fl, b.id).name = "Meine USV";
   // vorher: zwei Tafeln übereinander; jetzt eine am Schrank
   assert.deepEqual(holoItems(fl, "technik").map((m) => m.id), [c.id]);
-  const rows = holoRows(get(fl, c.id), hass, fl);
-  // obere Geräte zuerst (USV auf HE 2 vor dem Server auf HE 1)
-  assert.deepEqual(rows.map((r) => [r.group, r.name, r.value]), [
-    ["Meine USV", "sensor.usv_last", "35 %"],
-    [holoTitle(get(fl, a.id)), "Temperatur", "41,2 °C"],
+  const rows = holoRowsFor(fl, get(fl, c.id), hass);
+  // obere Geräte zuerst (USV auf HE 2 vor dem Server auf HE 1), je Gerät eine Zeile (ohne Entität kein Wert), seine Werte eingerückt darunter
+  assert.deepEqual(rows.map((r) => [r.sub === true, r.name, r.value]), [
+    [false, "Meine USV", ""],
+    [true, "sensor.usv_last", "35 %"],
+    [false, holoTitle(get(fl, a.id)), ""],
+    [true, "Temperatur", "41,2 °C"],
   ]);
   assert.equal(holoTitle(get(fl, c.id)), "Netzwerkschrank");
   // mit eigenen Werten des Schranks: zuerst diese, ohne Zwischenzeile
   get(fl, c.id).info = [{ entity: "sensor.schrank_temp", name: "Innen" }];
   assert.deepEqual(holoItems(fl, "technik").map((m) => m.id), [c.id]);
-  const all = holoRows(get(fl, c.id), hass, fl);
-  assert.equal(all.length, 3);
-  assert.equal(all[0].group, undefined);
+  const all = holoRowsFor(fl, get(fl, c.id), hass);
+  assert.equal(all.length, 5);
+  assert.equal(all[0].sub, undefined);
   assert.equal(all[0].value, "28 °C");
   // ohne Etage (alter Aufruf) nur die eigenen Zeilen; ausgebaute Geräte behalten ihre eigene Tafel
   assert.equal(holoRows(get(fl, c.id), hass).length, 1);
@@ -307,7 +309,7 @@ test("Info-Hologramm: Geräte im Schrank teilen sich die Tafel des Schranks (Zwi
 
 // ---------------------------------------------------------------- 7 Glastür des Schranks lässt den Zeiger durch
 
-test("Schrank: die Scheibe der Glastür ist nicht anwählbar (noPick), alles andere schon", () => {
+test("Schrank: alle Teile der Glastür (Scheibe, Rahmen, Griff) sind nicht anwählbar (noPick), alles andere schon", () => {
   const c = cab();
   const g = buildFurniture(c, M, 0, 2.5);
   const nopick = [];
@@ -316,8 +318,13 @@ test("Schrank: die Scheibe der Glastür ist nicht anwählbar (noPick), alles and
     if (!o.isMesh) return;
     (o.userData.noPick ? nopick : pickable).push(o);
   });
-  assert.equal(nopick.length, 1);
-  assert.ok(nopick[0].material.transparent && nopick[0].material.opacity < 0.5, "es ist das getönte Glas");
+  assert.equal(nopick.length, 6, "Scheibe, zwei Pfosten, zwei Querstreben, Griff");
+  assert.ok(nopick.some((m) => m.material.transparent && m.material.opacity < 0.5), "darunter das getönte Glas");
   assert.ok(pickable.length > 10);
-  assert.equal(nopick[0].userData.furniture, c.id);
+  assert.ok(nopick.every((m) => m.userData.furniture === c.id));
+  // genau die Meshes der Tür-Gruppe
+  const door = g.getObjectByName("door");
+  const inDoor = [];
+  door.traverse((o) => o.isMesh && inDoor.push(o));
+  assert.deepEqual(new Set(inDoor), new Set(nopick));
 });

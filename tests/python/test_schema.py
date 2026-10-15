@@ -469,6 +469,22 @@ def test_garden_edge_and_tub_cover_soft() -> None:
     assert w7["open"] is False and w8["open"] is True and w9["open"] == 0 and w9["open"] is not False
 
 
+def test_cabinet_door_open_flag_survives_validation() -> None:
+    """Netzwerk- und Serverschrank: das Feld „open“ (Tür offen) bleibt beim Speichern/Laden erhalten, Eingebautes ebenso."""
+    floor = {
+        "id": "eg", "name": "EG", "elevation": 0, "height": 2.5, "rooms": [],
+        "furniture": [
+            {"id": "c1", "type": "network_cabinet", "x": 1, "z": 1, "open": True, "rack_used": 3},
+            {"id": "c2", "type": "server_rack", "x": 3, "z": 1},
+            {"id": "d1", "type": "tech_ups_2u", "x": 1, "z": 1, "in_rack": "c1", "rack_u": 1, "mount_y": 0.12},
+        ],
+    }
+    f = validate_building({"version": 1, "floors": [floor], "settings": {}})["floors"][0]
+    c1, c2, d1 = f["furniture"]
+    assert c1["open"] is True and c1["rack_used"] == 3 and "open" not in c2
+    assert d1["in_rack"] == "c1" and d1["rack_u"] == 1
+
+
 def test_outdoor_unknown_type_only_drops_that_entry() -> None:
     """Eine Art, die erst eine neuere Version kennt, kostet nur ihre Fläche – nicht den ganzen gespeicherten Stand."""
     pts = [[0, 0], [4, 0], [4, 3]]
@@ -501,3 +517,41 @@ def test_kerb_kinds_match_frontend() -> None:
     kinds = re.findall(r"^  (\w+): \{ name:", text, re.M)
     assert len(kinds) >= 5
     assert set(kinds) == set(schema.KERB_EDGES) - {"none"}
+
+
+def test_demo_settings_soft() -> None:
+    """Demo-Modus: settings.demo.pv wird weich geprüft; Ungültiges fällt einzeln weg, der Stand bleibt gültig."""
+    pv = {
+        "roof:d1": {"min": 0, "max": 3000, "from": 480, "to": 1080},
+        "item:eg:pv1": {"min": "100", "max": 200000, "from": None, "to": None},  # Text → Zahl, Leistung begrenzt
+        "cfg:pv_1": {"min": 500, "max": 100, "from": 600, "to": 600},  # bis < von, Fenster leer
+        "kaputt1": {"min": "viel", "max": 10},  # keine Zahl → fällt weg
+        "kaputt2": "text",
+        "kaputt3": {"min": 1},  # max fehlt
+        "kaputt4": {"min": -50, "max": True},  # Wahrheitswert statt Zahl
+        "": {"min": 0, "max": 1},  # leerer Schlüssel
+        "x" * 81: {"min": 0, "max": 1},  # Schlüssel zu lang
+        "item:eg:pv2": {"min": 0, "max": 800, "from": 1440, "to": -3},  # außerhalb 0 … 1439 → Sonne
+        "item:eg:pv3": {"min": 0, "max": 800, "from": 480.4, "to": "1020"},
+        "extra": {"min": 0, "max": 1, "from": 1, "to": 2},
+    }
+    out = validate_building(_building(demo={"pv": pv, "zusatz": 1}))["settings"]["demo"]
+    assert out["zusatz"] == 1  # unbekannte Felder bleiben (ALLOW_EXTRA)
+    assert out["pv"]["roof:d1"] == {"min": 0, "max": 3000, "from": 480, "to": 1080}
+    assert out["pv"]["item:eg:pv1"] == {"min": 100, "max": 100000, "from": None, "to": None}
+    assert out["pv"]["cfg:pv_1"] == {"min": 500, "max": 500, "from": None, "to": None}
+    assert out["pv"]["item:eg:pv2"] == {"min": 0, "max": 800, "from": None, "to": None}
+    assert out["pv"]["item:eg:pv3"] == {"min": 0, "max": 800, "from": 480, "to": 1020}
+    assert out["pv"]["extra"] == {"min": 0, "max": 1, "from": 1, "to": 2}
+    assert set(out["pv"]) == {"roof:d1", "item:eg:pv1", "cfg:pv_1", "item:eg:pv2", "item:eg:pv3", "extra"}
+    # Rundlauf: ein gültiger Stand bleibt beim erneuten Prüfen unverändert
+    assert validate_building(_building(demo=out))["settings"]["demo"] == out
+
+    # kein Wörterbuch → weich verworfen; ohne pv → leer; zu viele Einträge werden gekappt
+    assert validate_building(_building(demo="ja"))["settings"]["demo"] is None
+    assert validate_building(_building(demo={}))["settings"]["demo"] == {"pv": {}}
+    assert validate_building(_building(demo={"pv": [1, 2]}))["settings"]["demo"] == {"pv": {}}
+    many = {f"roof:{i}": {"min": 0, "max": 10} for i in range(300)}
+    assert len(validate_building(_building(demo={"pv": many}))["settings"]["demo"]["pv"]) == 200
+    # ohne Angabe bleibt settings ohne demo (kein Eintrag im echten Haus)
+    assert "demo" not in validate_building(_building())["settings"]

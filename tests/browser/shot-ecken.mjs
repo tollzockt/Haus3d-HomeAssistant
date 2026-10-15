@@ -88,7 +88,7 @@ t.check(s4.link && s4.stored === "1" && /^Ecken koppeln an/.test(s4.hint) && btn
 // Werkzeug wechseln: Hinweis des Werkzeugs statt des Toasts
 await edTool(pg, "wall");
 const toolHint = await pg.evaluate(() => window.panel._editor.hint.textContent);
-t.check(/an Raumkanten ein/.test(toolHint), `Hinweis Werkzeug Wand: ${toolHint}`);
+t.check(/Raumkanten ein/.test(toolHint), `Hinweis Werkzeug Wand: ${toolHint}`);
 // 5. Ecke klebt nicht (gekoppelt): über die Ecke (7,4) von Küche und Flur hinweg
 await selectRoom(pg, 2, 2);
 const u5 = (await state(pg)).undo;
@@ -274,6 +274,6 @@ await tab.waitForTimeout(150);
 const l2 = await solo();
 const tabState = await tab.evaluate(() => ({ link: window.panel._editor.link, cb: window.panel._editor.props.querySelector("input[data-link]")?.checked ?? null, hint: window.panel._editor.hint.textContent }));
 t.results.tabletKoppeln = { l2, ...tabState };
-t.check(tabState.link && tabState.cb === true && l2.text === "Einzeln" && /„Einzeln“ kehrt das für einen Zug um/.test(tabState.hint), `Tablet Ecken koppeln: ${JSON.stringify(t.results.tabletKoppeln)}`);
+t.check(tabState.link && tabState.cb === true && l2.text === "Einzeln" && /„Einzeln“ kehrt es einmal um/.test(tabState.hint), `Tablet Ecken koppeln: ${JSON.stringify(t.results.tabletKoppeln)}`);
 await t.shot(tab, "p-ecken-tablet.png");
 await t.done();

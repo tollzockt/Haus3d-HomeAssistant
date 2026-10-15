@@ -63,13 +63,14 @@ export const SceneMethods = {
       if (ev.target.closest(".rm")) return this._deleteRoomScene(floor, room, sc);
       const eid = sceneEntity(this._hass, sc.id);
       if (!eid) return this._toast(`Szene „${sc.name}“ gibt es in Home Assistant nicht (mehr).`);
-      this._hass.callService("scene", "turn_on", { entity_id: eid }).then(() => this._toast(`${sc.name}`)).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+      this._hass.callService("scene", "turn_on", { entity_id: eid }).then(() => this._toast(this._isDemo?.() ? `Demo: ${sc.name} ausgelöst` : `${sc.name}`)).catch((err) => this._toast(`Szene auslösen fehlgeschlagen: ${err.message ?? err}`));
     }));
     bar.querySelector(".act-addscene")?.addEventListener("click", () => this._sceneDialog(floor, room));
   },
 
   /** Dialog: Name, Symbol, Geräte – speichert die Szene in HA und am Raum. */
   _sceneDialog(floor, room) {
+    if (this._isDemo?.()) return this._toast("Im Demo-Haus werden keine Szenen gespeichert.");
     if (this._sim) return this._toast("In der Simulation werden keine Szenen gespeichert.");
     const hass = this._hass;
     const ids = this._panelEntities(room).filter((id) => SCENE_DOMAINS.includes(id.split(".")[0]) && hass.states[id]);
@@ -104,7 +105,7 @@ export const SceneMethods = {
       try {
         await this._hass.callApi("POST", `config/scene/config/${id}`, { id, name: `${room.name}: ${label}`, icon, entities });
       } catch (err) {
-        return this._toast(`Szene nicht gespeichert (nur HA-Administratoren dürfen Szenen anlegen): ${err.message ?? err.body?.message ?? err}`);
+        return this._toast(`Szene speichern fehlgeschlagen (braucht ein HA-Administratorkonto): ${err.message ?? err.body?.message ?? err}`);
       }
       await this._saveRoomScenes(floor, room, [...(room.scenes ?? []), { id, name: label, icon }], `Szene „${label}“ gespeichert.`);
       this._closeDialog();
@@ -115,6 +116,7 @@ export const SceneMethods = {
   },
 
   async _deleteRoomScene(floor, room, sc) {
+    if (this._isDemo?.()) return this._toast("Im Demo-Haus werden keine Szenen gelöscht.");
     if (this._sim) return this._toast("In der Simulation werden keine Szenen gelöscht.");
     if (!(await this._confirm(`Szene „${sc.name}“ löschen?`, "Löschen", { danger: true }))) return;
     await this._hass.callApi("DELETE", `config/scene/config/${sc.id}`).catch(() => {}); // fehlt sie schon, egal

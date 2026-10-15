@@ -1,5 +1,51 @@
 # Änderungen
 
+## 0.24.0b1 (Vorabversion)
+
+- **Demo-Modus (Vorführhaus)**: Weitere Häuser gibt es jetzt für alle mit Admin-PIN – Admin-Einstellungen →
+  „Häuser“: neben „Mein Haus“ (immer echt) bis zu 5 weitere (Beispielhaus, Kopie meines Hauses oder leer),
+  anlegen, öffnen, umbenennen, löschen. Mit dem Kästchen „Demo-Modus“ wird ein Haus zum Vorführmodell ohne echte
+  Werte: nichts geht an Home Assistant, keine Personen und Kamerabilder, Chip „Demo: <Name>“ mit „Mein Haus“.
+  Lichter, Steckdosen und Verbraucher schalten per Tippen (der Verbrauch steigt mit), Türen, Fenster und Tore
+  öffnen und schließen direkt im 3D, Vorhang, Kamin, Whirlpool und Schrank-LEDs folgen, Szenen melden
+  „Demo: … ausgelöst“. Fehlen Geräte, setzt der Demo-Modus selbst Demo-Geräte ein (sie werden nie gespeichert).
+  Gedrückthalten öffnet einen Demo-Dialog statt des Gerätedialogs von Home Assistant.
+  Gespeichert wird nie etwas Demo-Eigenes: Verknüpfungen, Energie-Einstellung und Bereiche kommen beim
+  Speichern so zurück, wie sie vorher waren; Meldungen echter Automationen erscheinen im Demo-Haus nicht, eigene
+  3D-Modelle sind dort nur lesbar. Eingebaute Schrankgeräte laufen im Demo von Anfang an (Status-LED grün,
+  „Leistung gesamt“).
+- **PV-Erzeugung (Demo)**: PV-Feld, Aufständerung oder Balkonkraftwerk antippen – Leistung von–bis (von = am Anfang
+  und Ende des Zeitfensters, bis = Spitze zur Mitte), Zeitfenster (Standard Sonnenauf- bis -untergang), Vorschau-
+  Kurve mit „jetzt“, „Jetzt: … · Heute: … kWh“; „Speichern“ (Bearbeiten-PIN) gilt für alle Browser. Energie,
+  Speicher und Netz rechnen damit. Die Demo-Leiste unten hat einen Regler „Uhrzeit“ und „Zurücksetzen“.
+- **Schrank bestücken**: Im Eigenschaftenfeld des Netzwerk- bzw. Serverschranks eine Leiste mit allen
+  Höheneinheiten („Bestückung“, „Belegt: x von y HE · n Geräte“ mit Leistung). Freie HE antippen zeigt nur passende
+  Teile und baut genau dort ein; Gerät antippen, „▲ hoch“/„▼ runter“ (Tausch mit dem Nachbarn), mit der Maus in der
+  Leiste ziehen, am Tablet scrollen. „Lücken schließen“ setzt Blindblenden, die Vorlagen „Heimnetz klein“ und
+  „Homelab“ bestücken einen leeren Schrank in einem Schritt, „Tür offen“ schwenkt die Glastür auf. Neue Teile:
+  Blindblende 2 HE, Bürstenleiste.
+- **Schrank in der Hauptansicht**: Eingebaute Geräte mit Entität zeigen ihren Zustand mit Status-LEDs (grün an,
+  grau aus, rot Fehler); antippen öffnet die Infos und schaltet nie. Die Info-Tafel des Schranks nennt „Leistung
+  gesamt“ (W bzw. kW) und je Gerät Zustand und Werte (bis 12 Zeilen, dann „+ n weitere“).
+- **Hilfe „?“**: Knopf in der Kopfzeile, „Hilfe & Einführung“ im Zahnrad, „?“ in der Editor-Leiste oder Taste
+  ?/F1. Abschnitte Erste Schritte, Gesten (Maus und Finger), Tastenkürzel, Editor-Werkzeuge, Dach-Ebene, Farben,
+  Daten; durchsuchbar (auch ohne Umlaute), im Editor beim aktiven Werkzeug. Lädt nichts aus dem Netz – nur
+  Links mit „↗“ öffnen die Anleitung.
+- **Einführung**: kurze Tour beim ersten Öffnen des Panels (5 Schritte, im Demo-Haus 6) und des Editors
+  (6 Schritte); „Überspringen“ oder Esc beendet sie, „?“ → „Einführung starten“ zeigt sie erneut. Am Wandtablet
+  startet sie nicht von selbst.
+- **Alles zurücksetzen** (Admin → Daten & Verlauf): zwei Schritte, „ZURÜCKSETZEN“ eintippen. Vorher wird der Stand
+  heruntergeladen (`haus3d-sicherung-…json`) und im Verlauf als „vor Zurücksetzen“ gesichert – dieser Eintrag
+  fällt nicht aus dem Verlauf heraus. Danach öffnen die Grundeinstellungen. PINs, eigene 3D-Modelle,
+  Bauplan-Fotos und weitere Häuser bleiben. Gesperrt in Simulation, Demo-Haus und bei offenem Editor.
+- **Plan drucken / exportieren** (Admin → Daten & Verlauf, im Editor „Drucken“): Etagen, Inhalt (Maße, Raumnamen
+  mit Fläche, Nordpfeil, Garten, Schwarz-Weiß, 3D-Bild der aktuellen Ansicht), Papier A4/A3, Maßstab (automatisch
+  oder fest), Vorschau; „Drucken …“ (als PDF über den Druckdialog des Browsers) oder „PNG speichern“ (200 dpi).
+- **Hinweise kürzer und einheitlich**: rund 85 Texte überarbeitet; leere Zustände nennen den nächsten Schritt
+  (z. B. „Noch kein Grundriss.“ mit Knopf „Grundriss anlegen“).
+- **Intern**: Simulation, PV, Hinweis-Banner und Nachfragen aus dem Panel sowie die Werkzeugliste aus dem Editor in
+  eigene Module ausgelagert (Panel ≈ 97 KB statt 108 KB).
+
 ## 0.23.0
 
 Stabile Version mit allem aus 0.23.0b1–b4, dazu:

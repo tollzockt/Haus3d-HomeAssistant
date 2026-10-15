@@ -71,7 +71,7 @@ export const OutdoorPropsMethods = {
     );
     el.querySelector("[data-act=autoh]")?.addEventListener("click", () => {
       const hs = autoHeights(this.b, this.floorId, o.id);
-      if (!hs) return this._toast("Keine Gartenfläche einer anderen Etage in der Nähe (bis 50 cm). Ecken an die obere Fläche ziehen oder Höhen von Hand eintragen.");
+      if (!hs) return this._toast("Keine Gartenfläche einer anderen Etage in 50 cm Nähe – Ecken heranziehen oder Höhen eintragen.");
       this.change((fl) => {
         fl.outdoor.find((y) => y.id === o.id).heights = hs;
       });

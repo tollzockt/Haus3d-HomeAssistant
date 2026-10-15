@@ -6,6 +6,21 @@ import { isOpen } from "./devices.js";
 import { energyRowSpecs } from "./energymodel.js";
 
 export const LONG_PRESS_MS = 550;
+
+/**
+ * Stil eines Moduls beim ersten Gebrauch in die Wurzel (Schattenbaum des Panels) hängen; jeder Schlüssel nur einmal.
+ * @param {ParentNode} root
+ * @param {string} key
+ * @param {string} css
+ */
+export function ensureStyle(root, key, css) {
+  if (!root || [...root.querySelectorAll("style[data-sk]")].some((s) => s.dataset.sk === key)) return;
+  const el = document.createElement("style");
+  el.dataset.sk = key;
+  el.textContent = css;
+  root.appendChild(el);
+}
+
 /**
  * Finger-Scrollen als Rückfallebene: Scrollt der Browser selbst, bricht er die Zeiger-Gesten ab
  * (pointercancel) und hier passiert nichts. Blockiert etwas das native Scrollen (manche Tablet-Apps),

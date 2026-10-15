@@ -43,7 +43,7 @@ export const WallMethods = {
     this._updateTouch?.();
     const cb = this.props?.querySelector?.("input[data-link]");
     if (cb) cb.checked = this.link;
-    this._toast(`${this.link ? "Ecken koppeln an: angrenzende Räume gehen beim Ziehen mit" : "Ecken koppeln aus: nur der gewählte Raum ändert sich"} (${this._flipName()} kehrt das für einen Zug um).`);
+    this._toast(`${this.link ? "Ecken koppeln an: Nachbarräume gehen mit" : "Ecken koppeln aus: nur dieser Raum ändert sich"} (${this._flipName()} kehrt es einmal um).`);
   },
 
   _linkButton() {

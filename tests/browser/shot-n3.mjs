@@ -1,5 +1,6 @@
-// N3: Testhaus (Entwickler): anlegen, wechseln, darin bearbeiten und speichern – das echte Haus bleibt
-// unberührt; Geräte werden im Testhaus nur mit „echt schalten“ geschaltet; zurück zu „Mein Haus“.
+// N3: Testhaus (Admin → Häuser, ohne Entwickler-Instanz): anlegen, wechseln, darin bearbeiten und speichern –
+// das echte Haus bleibt unberührt; Geräte werden im Testhaus nur mit „echt schalten“ (Entwickler) geschaltet;
+// zurück zu „Mein Haus“.
 import { start, unlock } from "./lib.mjs";
 
 const t = await start(process.argv[2]);
@@ -11,28 +12,27 @@ const services = () => E(() => window.calls.filter((c) => c.service).length);
 const realTitle = await E(() => window.panel.shadowRoot.querySelector("header .title").textContent);
 const realRooms = await E(() => window.panel._building.floors.reduce((n, f) => n + f.rooms.length, 0));
 
-// Entwickler-Instanz und Admin → Entwickler → Testhaus
-await E(async () => {
-  window.devInstance = true;
-  window.panel._devLoaded = false;
-  window.panel._dev = undefined;
-  await window.panel._loadDev();
-});
+// Admin → Häuser (ohne Entwickler-Instanz)
 await unlock(pg, "admin");
 await pg.waitForTimeout(300);
-await pg.locator('haus3d-panel .admin .cat[data-cat="dev"]').click();
-await pg.waitForSelector("haus3d-panel .testhaus .thnew");
-t.check(await R('.testhaus .threw.sel'), "„Mein Haus“ nicht als geöffnet markiert");
-await t.shot(pg, "n3-entwickler-testhaus.png");
-await pg.locator("haus3d-panel .testhaus .thname").fill("Spielwiese");
-await pg.locator("haus3d-panel .testhaus .thsrc").selectOption("current");
-await pg.locator('haus3d-panel .testhaus [data-th="new"]').click();
+t.check(!(await R('.admin .cat[data-cat="dev"]')) && (await R('.admin .cat[data-cat="houses"]')), "Kategorie „Häuser“ fehlt bzw. „Entwickler“ ohne Entwickler-Instanz sichtbar");
+await pg.locator('haus3d-panel .admin .cat[data-cat="houses"]').click();
+await pg.waitForSelector("haus3d-panel .houses .thnew");
+t.check(await R(".houses .threw.sel"), "„Mein Haus“ nicht als geöffnet markiert");
+t.check(!(await R(".houses .threw.sel .thdemo")), "„Mein Haus“ hat ein Demo-Kästchen");
+t.check((await E(() => window.panel.shadowRoot.querySelector(".houses .thname").value)) === "Vorführhaus 1" && (await R(".houses .thdemonew:checked")), "Vorgaben für ein neues Haus");
+await t.shot(pg, "n3-haeuser.png");
+// ein Testhaus (Demo-Kästchen aus)
+await pg.locator("haus3d-panel .houses .thname").fill("Spielwiese");
+await pg.locator("haus3d-panel .houses .thsrc").selectOption("current");
+await pg.locator("haus3d-panel .houses .thdemonew").uncheck();
+await pg.locator('haus3d-panel .houses [data-th="new"]').click();
 await pg.waitForFunction(() => window.panel._house?.name === "Spielwiese", null, { timeout: 5000 });
 await pg.waitForTimeout(800);
 const house = await E(() => window.panel._house);
 const chip = await E(() => window.panel.shadowRoot.querySelector(".modes .mode.m-test")?.textContent ?? "");
 t.results.testhaus = { house, chip };
-t.check(/Testhaus: Spielwiese/.test(chip) && /^test/.test(house.id) && house.live === false, `Testhaus offen: ${JSON.stringify({ house, chip })}`);
+t.check(/Testhaus: Spielwiese/.test(chip) && /^test/.test(house.id) && house.live === false && house.demo === false && !(await R(".modes .mode.m-demo")), `Testhaus offen: ${JSON.stringify({ house, chip })}`);
 t.check(await E(() => JSON.parse(localStorage.getItem("haus3d.house")).id === window.panel._house.id), "Testhaus nicht gemerkt");
 t.check((await E(() => window.panel._building.floors.reduce((n, f) => n + f.rooms.length, 0))) === realRooms, "Kopie hat nicht dieselben Räume");
 

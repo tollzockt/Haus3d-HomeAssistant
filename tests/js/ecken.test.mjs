@@ -334,12 +334,12 @@ test("Editor: toggleLink speichert, zeichnet Leiste und Schalter vor dem Hinweis
   assert.equal(store.get(LINK_KEY), "1");
   assert.deepEqual(ed.calls, ["renderBar", "touch", "toast"]);
   assert.equal(cb.checked, true);
-  assert.equal(ed.toasts.at(-1), "Ecken koppeln an: angrenzende Räume gehen beim Ziehen mit (Alt kehrt das für einen Zug um).");
+  assert.equal(ed.toasts.at(-1), "Ecken koppeln an: Nachbarräume gehen mit (Alt kehrt es einmal um).");
   ed.coarse = true;
   ed.toggleLink();
   assert.equal(store.get(LINK_KEY), "0");
   assert.equal(cb.checked, false);
-  assert.equal(ed.toasts.at(-1), "Ecken koppeln aus: nur der gewählte Raum ändert sich („Mitziehen“ kehrt das für einen Zug um).");
+  assert.equal(ed.toasts.at(-1), "Ecken koppeln aus: nur dieser Raum ändert sich („Mitziehen“ kehrt es einmal um).");
   // Knopf und Feld
   assert.match(ed._linkButton(), /data-act="link" class=""/);
   ed.link = true;

@@ -534,7 +534,7 @@ export const RoofUnitMethods = {
     const part = partOver(this.b, f.id, r);
     if (part) {
       pick(unitKey("part", f.id, part.id));
-      return this._toast(`„${name}“ liegt unter dem Dachteil „${part.name || NAMES[part.type] || ""}“ – dort die Dachform ändern oder das Teil löschen.`);
+      return this._toast(`„${name}“ liegt unter dem Dachteil „${part.name || NAMES[part.type] || ""}“ – dort ändern oder das Teil löschen.`);
     }
     await this._addRoomRoofAt(f.id, r, this._roofAdd?.type ?? "gable", (res) => {
       if (res?.key) pick(res.key);

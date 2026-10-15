@@ -8,6 +8,7 @@ import { ADMIN_KEYS, canAdmin, newPinError } from "./access.js";
 import { MAX_CARDS, normalizeCards } from "./hud.js";
 import { QUALITY_CHOICES } from "./perf.js";
 import { LAYERS, energyRowList, esc } from "./panel-util.js";
+import { resetBlocked } from "./reset.js";
 
 /** Anzeige-Kacheln im Zahnrad (Ebenen) – alles andere unter Admin → Anzeige. */
 const QUICK_LAYERS = [
@@ -41,6 +42,7 @@ const CATEGORIES = [
   ["display", "mdi:layers-outline", "Anzeige", "weitere Ebenen, Leistungsanzeige"],
   ["kiosk", "mdi:tablet", "Wandtablet", "dieses Gerät"],
   ["data", "mdi:database-outline", "Daten & Verlauf", "Export, Import, Stände"],
+  ["houses", "mdi:home-group", "Häuser", "Mein Haus, Testhäuser, Demo"],
   ["pin", "mdi:key-variant", "PIN & Zugang", "PINs für Bearbeiten, Admin und Türen"],
 ];
 
@@ -71,15 +73,20 @@ export const AdminMethods = {
         <div class="qtiles">
           ${QUICK_LAYERS.map(([k, icon, name]) => tile(`data-layer="${k}"`, icon, name, st.layers[k] !== false)).join("")}
           ${tile('data-act="fullscreen"', document.fullscreenElement ? "mdi:fullscreen-exit" : "mdi:fullscreen", "Vollbild", !!document.fullscreenElement)}
-          ${this._adminMode || this._sim ? tile('data-act="sim"', "mdi:test-tube", "Simulation", !!this._sim) : ""}
+          ${(this._adminMode || this._sim) && !this._house?.demo ? tile('data-act="sim"', "mdi:test-tube", "Simulation", !!this._sim) : ""}
         </div>
         <div class="bigtiles">
           <button class="bigtile edit${editing ? " active" : ""}"><ha-icon icon="${editing ? "mdi:check" : "mdi:pencil"}"></ha-icon><span>${editing ? "Beenden" : "Bearbeiten"}</span>${editing ? "" : '<ha-icon class="lk" icon="mdi:lock"></ha-icon>'}</button>
           ${this._adminMode ? `<div class="bigtile admin active"><button class="aopen"><ha-icon icon="mdi:cog"></ha-icon><span>Admin-Einstellungen</span></button><button class="aend">Beenden</button></div>` : `<button class="bigtile admin"><ha-icon icon="mdi:cog"></ha-icon><span>Admin-Einstellungen</span><ha-icon class="lk" icon="mdi:lock"></ha-icon></button>`}
         </div>
         ${this._supportRow()}
+        <button class="helprow"><ha-icon icon="mdi:help-circle-outline"></ha-icon><span>Hilfe &amp; Einführung</span><ha-icon class="go" icon="mdi:chevron-right"></ha-icon></button>
       </div></div>`;
     el.querySelector(".supportrow")?.addEventListener("click", () => this._supportDialog());
+    el.querySelector(".helprow").addEventListener("click", () => {
+      this._closeDialog();
+      this._openHelp();
+    });
     for (const s of el.querySelectorAll(".seg")) {
       s.addEventListener("click", (ev) => {
         const b = ev.target.closest("button");
@@ -182,6 +189,7 @@ export const AdminMethods = {
         display: () => this._renderDisplayConfig(box),
         kiosk: () => this._renderKioskConfig(box),
         data: () => this._renderDataConfig(box),
+        houses: () => this._renderHouses(box),
         pin: () => this._renderPinConfig(box),
         dev: () => this._renderDevConfig(box, showGrid),
       })[k]();
@@ -233,15 +241,20 @@ export const AdminMethods = {
   },
 
   _renderDataConfig(box) {
+    // Zurücksetzen ist in Simulation, Demo-Haus, mit offenem Editor und während eines Hauswechsels gesperrt
+    const why = resetBlocked({ sim: !!this._sim, demo: !!(this._isDemo?.() ?? this._house?.demo), editor: !!this._editor, switching: !!this._switching });
     box.innerHTML = `<div class="btns col">
       <button data-d="export"><ha-icon icon="mdi:download"></ha-icon> Exportieren (JSON)</button>
       <button data-d="import"><ha-icon icon="mdi:upload"></ha-icon> Importieren (JSON) …</button>
       <button data-d="snap"><ha-icon icon="mdi:content-save-outline"></ha-icon> Stand sichern</button>
-      <button data-d="history"><ha-icon icon="mdi:history"></ha-icon> Verlauf …</button></div>`;
+      <button data-d="history"><ha-icon icon="mdi:history"></ha-icon> Verlauf …</button>
+      <button data-d="print"><ha-icon icon="mdi:printer-outline"></ha-icon> Plan drucken / exportieren …</button></div>
+      <div class="btns danger-row"><button data-d="reset" class="danger"${why === null ? "" : " disabled"}><ha-icon icon="mdi:restore-alert"></ha-icon> Alles zurücksetzen …</button></div>
+      <p class="hint">${why ? esc(why) : "Löscht Grundriss und Haus-Einstellungen. Vorher wird gesichert."}</p>`;
     const act = { export: () => this._export(), import: () => {
         this._importEpoch = this._houseEpoch ?? 0; // Haus beim Antippen festhalten (Dateiauswahl kann dauern)
         this._els.file.click();
-      }, snap: () => this._snapshot(), history: () => this._showHistory() };
+      }, snap: () => this._snapshot(), history: () => this._showHistory(), print: () => this._openPrint(), reset: () => this._resetDialog() };
     box.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => act[b.dataset.d]()));
   },
 
@@ -257,8 +270,8 @@ export const AdminMethods = {
       <div class="prow"><input type="password" inputmode="numeric" maxlength="8" class="p1" placeholder="neue PIN (4–8 Ziffern)"><input type="password" inputmode="numeric" maxlength="8" class="p2" placeholder="wiederholen"><button class="set primary">Ändern</button></div>
       <p class="pmsg hint"></p></div>`;
     box.innerHTML = `${part("edit", "PIN für „Bearbeiten“")}${part("admin", "PIN für „Admin-Einstellungen“")}${part("door", "PIN für Türen (Schlösser entriegeln/öffnen)")}
-      <p class="hint">Türen: Abschließen geht immer ohne PIN. Entriegeln und Öffnen über Haus 3D (Symbol, Raumfenster, Kurzwahl, Karten) fragen jedes Mal nach der Tür-PIN; Home Assistant schließt erst nach richtiger PIN auf.</p>
-      <p class="hint">Jeder, der eine PIN kennt, darf den Bereich nutzen – auch ohne Admin-Konto in Home Assistant. Freigaben enden mit „Beenden“, beim Schließen bzw. nach 10 min ohne Bedienung.</p>`;
+      <p class="hint">Abschließen geht ohne PIN; Entriegeln und Öffnen fragen die Tür-PIN.</p>
+      <p class="hint">Wer eine PIN kennt, darf den Bereich nutzen. Freigaben enden mit „Beenden“ oder nach 10 min Ruhe.</p>`;
     box.querySelectorAll(".pinset").forEach((p) => p.querySelector(".set").addEventListener("click", async () => {
       const a = p.querySelector(".p1").value.trim();
       const b = p.querySelector(".p2").value.trim();
@@ -273,7 +286,7 @@ export const AdminMethods = {
         this._toast("PIN geändert.");
         this._renderPinConfig(box);
       } catch (e) {
-        msg.textContent = `Fehlgeschlagen: ${e.message ?? e.code ?? e}`;
+        msg.textContent = `PIN ändern fehlgeschlagen: ${e.message ?? e.code ?? e}`;
       }
     }));
   },
@@ -315,7 +328,7 @@ export const AdminMethods = {
       form.innerHTML = `<label class="lbl">Titel</label><div class="qrow"><input class="ttl" value="${esc(card.title ?? "Energie")}"></div>
         <label class="lbl">Symbol</label>${this._iconPicker(card.icon ?? "mdi:lightning-bolt-circle")}
         <label class="lbl">Zeilen <small>(Haken = anzeigen, ▲▼ = Reihenfolge)</small></label>
-        ${rows.length ? rows.map((r, i) => `<div class="qrow erow"><input type="checkbox" data-vis="${i}"${r.hidden ? "" : " checked"}><ha-icon icon="${r.icon}"></ha-icon><input class="nm" data-nm="${i}" value="${esc(r.custom ?? "")}" placeholder="${esc(r.base)}"><button class="icon" data-up="${i}"${i ? "" : " disabled"}>▲</button><button class="icon" data-dn="${i}"${i < rows.length - 1 ? "" : " disabled"}>▼</button></div>`).join("") : `<p class="hint">Noch keine Energie-Werte – unter Admin → Energie die Entitäten wählen.</p>`}
+        ${rows.length ? rows.map((r, i) => `<div class="qrow erow"><input type="checkbox" data-vis="${i}"${r.hidden ? "" : " checked"}><ha-icon icon="${r.icon}"></ha-icon><input class="nm" data-nm="${i}" value="${esc(r.custom ?? "")}" placeholder="${esc(r.base)}"><button class="icon" data-up="${i}"${i ? "" : " disabled"}>▲</button><button class="icon" data-dn="${i}"${i < rows.length - 1 ? "" : " disabled"}>▼</button></div>`).join("") : `<p class="hint">Noch keine Energie-Werte. Admin → Energie → „Aus HA-Energie übernehmen“.</p>`}
         <label class="chkrow"><input type="checkbox" class="sdot"${card.sdot === false ? "" : " checked"}> Überschuss-Ampel im Kopf</label>
         <label class="chkrow"><input type="checkbox" class="chart"${card.chart === false ? "" : " checked"}> Knopf „Tagesverlauf“</label>
         <div class="btns"><button class="ents">Entitäten (Admin → Energie)</button><button class="save primary">Speichern</button></div>
@@ -473,7 +486,12 @@ export const ADMIN_STYLE = `
 .cform .erow ha-icon { flex: none; color: var(--secondary-text-color); }
 .cform .erow input[type=checkbox] { width: 20px; height: 20px; flex: none; }
 .danger-row { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--divider-color, rgba(127,127,127,.3)); }
+.danger-row button.danger { color: #d32f2f; border-color: currentColor; }
 .btns.col { flex-direction: column; align-items: stretch; }
+.helprow { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 8px; padding: 10px 14px; border-radius: 14px; border: 1px solid var(--divider-color, rgba(127,127,127,.3)); background: transparent; color: var(--primary-text-color); font: inherit; cursor: pointer; text-align: left; }
+.helprow > ha-icon:first-child { color: var(--primary-color, #03a9f4); }
+.helprow span { flex: 1; }
+.helprow .go { color: var(--secondary-text-color); }
 .pinset .hint.warn { color: var(--warning-color, #ff9800); }
 .pinset .prow { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
 .pinset .prow input { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; padding: 10px; border-radius: 10px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: transparent; color: var(--primary-text-color); }

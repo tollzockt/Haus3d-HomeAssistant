@@ -1,7 +1,8 @@
 // Eingebaute Geräte (in_rack) ziehen mit ihrem Schrank mit (ohne DOM, mit node testbar; eingebunden über follow.js).
 // Die Rechnung (Höheneinheiten, Lage) steht in rack.js; hier steht, was nach einer Änderung im Editor mit den Geräten
 // geschieht:
-//  - neues oder in einen Schrank gezogenes einbaubares Gerät → in die unterste freie Lücke (passt keine: bleibt frei);
+//  - neues oder in einen Schrank gezogenes einbaubares Gerät → in die unterste freie Lücke (passt keine: bleibt frei); ein neues
+//    Gerät mit Wunsch (in_rack, rack_u – HE-Leiste, Vorlage, Lücken füllen) kommt in diesen Schrank genau auf die Wunsch-HE, wenn frei;
 //  - eingebautes Gerät aus der Schrankfläche gezogen → ausgebaut (landet es über einem anderen Schrank, zieht es dort ein);
 //  - Schrank verschoben, gedreht, höher gesetzt → Geräte folgen (Lage, Drehung, mount_y);
 //  - rack_u geändert → neue Lage; ist sie belegt, rückt das Gerät in die nächste freie Lücke;
@@ -65,9 +66,10 @@ export function followRack(before, after) {
       // neu gesetzt, kopiert oder eingefügt: ein alter Verweis gilt nicht, die Lage entscheidet (die HE bleibt Wunsch)
       const had = d.in_rack != null;
       const want = had ? toU(d.rack_u) : null;
+      const prefer = had ? d.in_rack : null; // der gemeinte Schrank (HE-Leiste, Vorlage, Kopie) wird zuerst geprüft
       if (had) release(d);
       else delete d.rack_u;
-      seekers.push({ d, want });
+      seekers.push({ d, want, prefer });
       continue;
     }
     const inId = d.in_rack ?? null;
@@ -130,9 +132,14 @@ export function followRack(before, after) {
     occByCab.set(cab.id, occ);
   }
 
-  // Geräte, die einen Schrank suchen: der Schrank unter der Gerätemitte (oberster zuerst), in dem eine Lücke passt
-  for (const { d, want } of seekers) {
-    for (const cab of [...cabs].reverse()) {
+  // Geräte, die einen Schrank suchen: der Schrank unter der Gerätemitte (oberster zuerst), in dem eine Lücke passt; ein neues Gerät
+  // mit Verweis (prefer) probiert zuerst diesen Schrank, sofern seine Grundfläche die Gerätemitte enthält – sonst bekäme bei
+  // überlappenden Schränken immer der oberste das Gerät
+  for (const { d, want, prefer } of seekers) {
+    const order = [...cabs].reverse();
+    const first = prefer != null ? byId.get(prefer) : null;
+    if (first && inFootprint(first, d.x, d.z)) order.unshift(first);
+    for (const cab of order) {
       if (!inFootprint(cab, d.x, d.z) || fitsCabinet(cab, d) !== "") continue;
       const L = cabinetLayout(cab);
       const occ = occByCab.get(cab.id);

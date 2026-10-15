@@ -5,6 +5,7 @@
 
 import { allIds, newId } from "./edit-ops.js";
 import { withToken } from "./access.js";
+import { plural } from "./panel-util.js";
 import {
   MULTI_KINDS,
   alignGuides,
@@ -32,8 +33,8 @@ const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const MAX_TEMPLATES = 30;
 
 export const PLAN_HINTS = {
-  bgmove: "Vorlage: Bild rechts laden, ziehen verschiebt es; Maßstab aus zwei Punkten, drehen oder an einer Linie ausrichten. Fertig: „Auswählen“ oder Esc.",
-  bgscale: "Maßstab: zwei Punkte auf dem Foto antippen, deren Abstand du kennst (z. B. eine bemaßte Wand).",
+  bgmove: "Bild rechts laden, ziehen verschiebt es. Maßstab aus zwei Punkten; fertig mit „Auswählen“ (Esc).",
+  bgscale: "Zwei Punkte auf dem Foto antippen, deren Abstand du kennst (z. B. eine bemaßte Wand).",
 };
 
 export const PlanMethods = {
@@ -230,7 +231,7 @@ export const PlanMethods = {
       this.sel = null;
       this.render();
       this.renderProps();
-      if (found.length) this._toast(`${found.length} Teile im Rahmen gewählt.`);
+      if (found.length) this._toast(`${plural(found.length, "Teil", "Teile")} im Rahmen gewählt.`);
       return true;
     }
     return drag.mode === "bgmove" || drag.mode === "multimove";
@@ -365,7 +366,7 @@ export const PlanMethods = {
     this.multi = [];
     this.render();
     this.renderProps();
-    const msg = `${n} Teile gelöscht (Strg+Z holt sie zurück).`;
+    const msg = `${plural(n, "Teil", "Teile")} gelöscht (Strg+Z holt sie zurück).`;
     if (!this._houseGuard(h0, msg)) this._toast(msg);
   },
 
@@ -558,10 +559,10 @@ export const PlanMethods = {
       this.change((fl) => {
         fl.background = keep ? { ...keep, aspect: r3(h / w) } : defaultBackground(bounds, h / w);
       });
-      this._toast(`Bild geladen (${w} × ${h}). Jetzt zwei Punkte mit bekanntem Abstand antippen und die echte Länge eingeben.`);
+      this._toast("Bild geladen. Jetzt zwei Punkte mit bekanntem Abstand antippen und die Länge eingeben.");
       this._setPlanTool("bgscale");
     } catch (err) {
-      this._toast(`Bild ließ sich nicht laden: ${err.message ?? err.code ?? err}`);
+      this._toast(`Bild laden fehlgeschlagen: ${err.message ?? err.code ?? err}`);
     }
   },
 

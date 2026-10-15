@@ -40,10 +40,12 @@ export const ModelCatalogMethods = {
   _modelBody(list, style) {
     const upload = this.sim
       ? `<p class="muted">In der Simulation lassen sich keine Modelle hochladen.</p>`
-      : `<div class="btns left mdl-up"><button class="primary" data-model-upload><ha-icon icon="mdi:upload"></ha-icon> Modell hochladen …</button></div>`;
+      : this.demo
+        ? `<p class="muted" data-model-demo>Demo: eigene 3D-Modelle werden hier nicht geändert.</p>`
+        : `<div class="btns left mdl-up"><button class="primary" data-model-upload><ha-icon icon="mdi:upload"></ha-icon> Modell hochladen …</button></div>`;
     const tiles = list.length
       ? `<div class="tiles">${list.map((m) => this._modelTile(m, style)).join("")}</div>`
-      : `<p class="muted">Noch keine Modelle. Erlaubt sind .glb und .gltf (mit Farben und Texturen), .obj und .stl (einfarbig, Farbe wählbar).</p>`;
+      : `<p class="muted">Noch keine Modelle. „Modell hochladen …“ nimmt GLB/glTF (mit Farben) oder OBJ/STL (einfarbig).</p>`;
     const lim = modelLimits();
     const usage = list.length && lim ? `<p class="muted">${list.length} von ${lim.count} Modellen, ${formatBytes(modelsUsedBytes())} von ${formatBytes(lim.total)}.</p>` : "";
     return `${upload}${tiles}${usage}<p class="muted">Die Dateien bleiben auf deinem Home Assistant (Konfigurationsordner, in Backups enthalten). Der JSON-Export enthält nur den Verweis auf ein Modell, nicht die Datei.</p>`;
@@ -90,6 +92,7 @@ export const ModelCatalogMethods = {
 
   _modelPick() {
     if (this.sim) return this._toast("In der Simulation lassen sich keine Modelle hochladen.");
+    if (this.demo) return this._toast("Demo: eigene 3D-Modelle werden hier nicht geändert.");
     this._modelInput?.remove();
     const input = document.createElement("input");
     input.type = "file";

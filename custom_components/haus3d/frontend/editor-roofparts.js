@@ -52,10 +52,10 @@ const ICONS = {
 const iconSvg = (t) => `<svg viewBox="0 0 40 28"><path d="${ICONS[t]}" fill="currentColor" fill-opacity="${t === "terrace" ? 0.25 : 0.45}" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
 const MODES = { rect: "Rechteck ziehen", poly: "Punkte setzen", circle: "Kreis ziehen", room: "Auf Raum tippen" };
 const MODE_HINTS = {
-  rect: "Von Ecke zu Ecke ziehen – das Rechteck folgt der Ausrichtung des Hauses.",
-  poly: "Ecken antippen, ersten Punkt erneut antippen oder „Fertig“ zum Abschließen.",
+  rect: "Von Ecke zu Ecke ziehen: das Rechteck folgt der Ausrichtung des Hauses.",
+  poly: "Ecken antippen, zum Schließen den ersten Punkt erneut antippen oder „Fertig“ wählen.",
   circle: "Von der Mitte nach außen ziehen.",
-  room: "Einen Raum dieser Etage antippen – das Dach gehört dann zum Raum und wandert mit ihm. Berührende Räume mit gleicher Dachform (Flach-, Sattel-, Walm-, Pultdach) bekommen ein gemeinsames Dach.",
+  room: "Raum dieser Etage antippen: das Dach wandert mit ihm. Berührende Räume mit gleicher Dachform (Flach-, Sattel-, Walm-, Pultdach) teilen ein Dach.",
 };
 const modesFor = (type) => (type === "cone" ? ["circle", "room"] : ["rect", "poly", "room"]);
 

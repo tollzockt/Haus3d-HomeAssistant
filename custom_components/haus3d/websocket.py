@@ -15,17 +15,17 @@ from homeassistant.exceptions import HomeAssistantError
 
 from .access import LOGIN_SCOPES, SCOPES, keep_admin_settings, valid_pin
 from .const import BACKGROUND_MAX_CHARS, DOMAIN, SIGNAL_COMMAND
-from .schema import validate_building
+from .schema import empty_building, validate_building
 from .storage import Haus3DData, RevisionConflict, SandboxError
 
-# Testhaus (Entwickler): optionaler Parameter an Grundriss-, Verlaufs- und Bild-Befehlen
+# Weiteres Haus (Testhaus oder Demo-Haus): optionaler Parameter an Grundriss-, Verlaufs- und Bild-Befehlen
 _HOUSE = vol.All(str, vol.Match(r"^test[0-9]{1,30}$"))
 
 
 @callback
 def async_register_commands(hass: HomeAssistant) -> None:
     """Registriert die Befehle (nur einmal pro HA-Lauf, siehe __init__.py)."""
-    for command in (ws_get, ws_save, ws_history_list, ws_history_snapshot, ws_history_restore, ws_background_get, ws_background_set, ws_subscribe, ws_pin_status, ws_pin_verify, ws_pin_set, ws_pin_lock, ws_lock_unlock, ws_dev_set, ws_dev_clear, ws_climate_pause, ws_away_status, ws_away_set, ws_sandbox_list, ws_sandbox_create, ws_sandbox_delete):
+    for command in (ws_get, ws_save, ws_reset, ws_history_list, ws_history_snapshot, ws_history_restore, ws_background_get, ws_background_set, ws_subscribe, ws_pin_status, ws_pin_verify, ws_pin_set, ws_pin_lock, ws_lock_unlock, ws_dev_set, ws_dev_clear, ws_climate_pause, ws_away_status, ws_away_set, ws_sandbox_list, ws_sandbox_create, ws_sandbox_update, ws_sandbox_delete):
         websocket_api.async_register_command(hass, command)
 
 
@@ -52,18 +52,18 @@ def _house(data: Haus3DData, connection: websocket_api.ActiveConnection, msg: di
     try:
         return data.sandbox_house(house)
     except SandboxError:
-        connection.send_error(msg["id"], "not_found", "Dieses Testhaus gibt es nicht (mehr)")
+        connection.send_error(msg["id"], "not_found", "Dieses Haus gibt es nicht (mehr)")
         return False
 
 
 @websocket_api.websocket_command({vol.Required("type"): "haus3d/building/get", vol.Optional("house"): _HOUSE})
 @callback
 def ws_get(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
-    """Liefert Gebäude und Revision (mit `house` das Testhaus)."""
+    """Liefert Gebäude und Revision (mit `house` das weitere Haus samt `demo`; das echte Haus ist nie Demo)."""
     if (data := _data(hass, connection, msg)) is None or (house := _house(data, connection, msg)) is False:
         return
     if house is not None:
-        connection.send_result(msg["id"], {"building": house["building"], "revision": house["revision"], "house": msg["house"]})
+        connection.send_result(msg["id"], {"building": house["building"], "revision": house["revision"], "house": msg["house"], "demo": house.get("demo") is True})
         return
     connection.send_result(msg["id"], {"building": data.building, "revision": data.revision})
 
@@ -103,12 +103,47 @@ async def ws_save(hass: HomeAssistant, connection: websocket_api.ActiveConnectio
             return
         revision = await data.async_save(building, msg.get("revision"))
     except SandboxError:
-        connection.send_error(msg["id"], "not_found", "Dieses Testhaus gibt es nicht (mehr)")
+        connection.send_error(msg["id"], "not_found", "Dieses Haus gibt es nicht (mehr)")
         return
     except RevisionConflict:
         connection.send_error(msg["id"], "conflict", "Der Stand wurde inzwischen geändert")
         return
     connection.send_result(msg["id"], {"revision": revision, "building": data.building})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "haus3d/building/reset",
+        vol.Optional("revision"): vol.Any(None, int),
+        vol.Optional("token"): str,
+        vol.Optional("house"): _HOUSE,
+    }
+)
+@websocket_api.async_response
+async def ws_reset(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Alles zurücksetzen (nur mit Admin-Freigabe): Etagen und Haus-Einstellungen werden geleert.
+
+    Das echte Haus sichert den alten Stand vorher im Verlauf (Grund „reset“, bleibt bis zum nächsten Zurücksetzen
+    erhalten) und liefert `history_id`; ein Testhaus hat keinen Verlauf. PINs, eigene Modelle, Bauplan-Fotos und
+    weitere Häuser bleiben unberührt.
+    """
+    if (data := _data(hass, connection, msg)) is None or not _allowed(data, connection, msg, "admin"):
+        return
+    if (house := _house(data, connection, msg)) is False:
+        return
+    try:
+        if house is not None:
+            revision = await data.async_sandbox_save(msg["house"], empty_building(), msg.get("revision"))
+            connection.send_result(msg["id"], {"revision": revision, "building": data.sandbox_house(msg["house"])["building"], "house": msg["house"]})
+            return
+        revision, history_id = await data.async_reset(msg.get("revision"))
+    except SandboxError:
+        connection.send_error(msg["id"], "not_found", "Dieses Haus gibt es nicht (mehr)")
+        return
+    except RevisionConflict:
+        connection.send_error(msg["id"], "conflict", "Der Stand wurde inzwischen geändert")
+        return
+    connection.send_result(msg["id"], {"revision": revision, "building": data.building, "history_id": history_id})
 
 
 @websocket_api.websocket_command({vol.Required("type"): "haus3d/history/list", vol.Optional("house"): _HOUSE})
@@ -123,7 +158,7 @@ def ws_history_list(hass: HomeAssistant, connection: websocket_api.ActiveConnect
 def _no_sandbox(connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> bool:
     """Verlauf sichern/wiederherstellen gilt nur fürs echte Haus."""
     if msg.get("house"):
-        connection.send_error(msg["id"], "sandbox", "Im Testhaus gibt es keinen Verlauf")
+        connection.send_error(msg["id"], "sandbox", "In weiteren Häusern gibt es keinen Verlauf")
         return False
     return True
 
@@ -354,42 +389,68 @@ async def ws_away_set(hass: HomeAssistant, connection: websocket_api.ActiveConne
 @websocket_api.websocket_command({vol.Required("type"): "haus3d/sandbox/list"})
 @callback
 def ws_sandbox_list(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
-    """Testhäuser (ohne Grundriss)."""
+    """Weitere Häuser (Testhäuser und Demo-Häuser, ohne Grundriss)."""
     if (data := _data(hass, connection, msg)) is None:
         return
     connection.send_result(msg["id"], {"houses": data.sandbox_summary()})
 
 
+_HOUSE_NAME = vol.All(str, vol.Strip, vol.Length(min=1, max=40))
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "haus3d/sandbox/create",
-        vol.Required("name"): vol.All(str, vol.Strip, vol.Length(min=1, max=40)),
+        vol.Required("name"): _HOUSE_NAME,
         vol.Optional("source", default="example"): vol.In(("example", "current", "empty")),
+        vol.Optional("demo", default=False): bool,
         vol.Optional("token"): str,
     }
 )
 @websocket_api.async_response
 async def ws_sandbox_create(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
-    """Testhaus anlegen (Admin): Beispielhaus, Kopie des echten Hauses oder leer."""
+    """Weiteres Haus anlegen (Admin): Beispielhaus, Kopie des echten Hauses oder leer; mit `demo` als Vorführmodell."""
     if (data := _data(hass, connection, msg)) is None or not _allowed(data, connection, msg, "admin"):
         return
     try:
-        house = await data.async_sandbox_create(msg["name"], msg["source"])
+        house = await data.async_sandbox_create(msg["name"], msg["source"], msg["demo"])
     except SandboxError:
-        connection.send_error(msg["id"], "limit", "Höchstens 5 Testhäuser – erst eins löschen")
+        connection.send_error(msg["id"], "limit", "Höchstens 5 weitere Häuser – erst eins löschen")
         return
     connection.send_result(msg["id"], {"house": house, "houses": data.sandbox_summary()})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "haus3d/sandbox/update",
+        vol.Required("house"): _HOUSE,
+        vol.Optional("demo"): bool,
+        vol.Optional("name"): _HOUSE_NAME,
+        vol.Optional("token"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_sandbox_update(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Demo-Modus und/oder Namen eines weiteren Hauses ändern (Admin); das echte Haus kann nie Demo sein."""
+    if (data := _data(hass, connection, msg)) is None or not _allowed(data, connection, msg, "admin"):
+        return
+    try:
+        await data.async_sandbox_update(msg["house"], msg.get("demo"), msg.get("name"))
+    except SandboxError:
+        connection.send_error(msg["id"], "not_found", "Dieses Haus gibt es nicht (mehr)")
+        return
+    connection.send_result(msg["id"], {"houses": data.sandbox_summary()})
 
 
 @websocket_api.websocket_command({vol.Required("type"): "haus3d/sandbox/delete", vol.Required("house"): _HOUSE, vol.Optional("token"): str})
 @websocket_api.async_response
 async def ws_sandbox_delete(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
-    """Testhaus löschen (Admin); das echte Haus ist davon nie betroffen."""
+    """Weiteres Haus löschen (Admin); das echte Haus ist davon nie betroffen."""
     if (data := _data(hass, connection, msg)) is None or not _allowed(data, connection, msg, "admin"):
         return
     try:
         await data.async_sandbox_delete(msg["house"])
     except SandboxError:
-        connection.send_error(msg["id"], "not_found", "Dieses Testhaus gibt es nicht (mehr)")
+        connection.send_error(msg["id"], "not_found", "Dieses Haus gibt es nicht (mehr)")
         return
     connection.send_result(msg["id"], {"houses": data.sandbox_summary()})

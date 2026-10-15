@@ -185,7 +185,7 @@ test("Eigenschaften eines eingebauten Geräts: keine Felder Drehung und Höhe, k
   const ed = makeEditor({ ...floor, furniture: [...floor.furniture, free] }, { hass: { areas: {}, states: {} } });
   const stub = { addEventListener() {}, click() {}, value: "" };
   const render = (id) => {
-    const el = { innerHTML: "", querySelector: () => stub, querySelectorAll: () => [] };
+    const el = { innerHTML: "", querySelector: (s) => (/data-rack-strip/.test(s) ? null : stub), querySelectorAll: () => [] }; // (die HE-Leiste bindet rack-strip.js, siehe rack-fields.test.mjs)
     ed.sel = { kind: "furniture", id };
     ed._furnitureProps(el, ed.sel, propsUi(ed, el));
     return el.innerHTML;

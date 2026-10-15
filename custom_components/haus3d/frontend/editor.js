@@ -38,8 +38,8 @@ import { GRID_CHOICES, TOUCH_STYLE, TouchMethods } from "./editor-touch.js";
 import { MEASURE_STYLE, MeasureMethods } from "./editor-measure.js";
 import { StairMethods } from "./editor-stairs.js";
 import { LineMethods } from "./editor-lines.js";
-import { PIPE_HINT, PipeMethods } from "./editor-pipes.js";
-import { NODE_HINT, NODE_STYLE, NodeMethods } from "./editor-nodes.js";
+import { PipeMethods } from "./editor-pipes.js";
+import { NODE_STYLE, NodeMethods } from "./editor-nodes.js";
 import { AtticMethods } from "./editor-attic.js";
 import { RoofUnitMethods } from "./editor-roofunits.js";
 import { ROOF_STYLE, RoofPartMethods } from "./editor-roofparts.js";
@@ -57,41 +57,10 @@ import { ItemPropsMethods } from "./editor-props-items.js";
 import { OUTDOOR_TYPES, OutdoorPropsMethods } from "./editor-props-outdoor.js";
 import { RoomPropsMethods } from "./editor-props-room.js";
 import { closeGaps, computeWalls, labelPoint, planFootprints, signedArea } from "./walls.js";
+import { HINTS, TOOLS } from "./editor-tools.js";
+import { plural } from "./panel-util.js";
 
 const SVGNS = "http://www.w3.org/2000/svg";
-const TOOLS = [
-  ["select", "mdi:cursor-default-outline", "Auswählen"],
-  ["rect", "mdi:vector-square", "Raum (Rechteck)"],
-  ["poly", "mdi:vector-polygon", "Raum (frei)"],
-  ["wall", "mdi:wall", "Wand"],
-  ["window", "mdi:window-closed-variant", "Fenster"],
-  ["door", "mdi:door", "Tür"],
-  ["garage", "mdi:garage", "Garagentor"],
-  ["furniture", "mdi:sofa-outline", "Einrichten"],
-  ["device", "mdi:lightbulb-on-outline", "Gerät"],
-  ["outdoor", "mdi:tree-outline", "Garten"],
-  ["line", "mdi:vector-polyline", "Linie"],
-  ["pipe", "mdi:pipe", "Leitung"],
-  ["node", "mdi:fuse", "Verteiler"],
-  ["measure", "mdi:tape-measure", "Messen"],
-  ["bgmove", "mdi:image-outline", "Vorlage"],
-];
-const HINTS = {
-  select: "Antippen zum Auswählen, Ziehen zum Verschieben. Raum gewählt: Ecken und blaue Wände ziehen ändert nur diesen Raum – mit „Ecken koppeln“ gehen angrenzende Räume mit, Alt bzw. „Mitziehen“/„Einzeln“ kehrt das für einen Zug um. Möbel rasten mit dem Magnet an Wänden ein (Alt = frei). Pfeiltasten schieben (Umschalt = 1 cm), R dreht. Leere Fläche ziehen = Ansicht verschieben.",
-  rect: "Ziehen: Rechteck-Raum von Ecke zu Ecke.",
-  poly: "Punkte antippen, ersten Punkt erneut antippen (oder Doppelklick) zum Abschließen. Esc bricht ab.",
-  wall: "Anfang antippen, Ende antippen: gerade Wand (rastet bei 0/45/90°, an Ecken und an Raumkanten ein, Umschalt = frei). Weiter tippen setzt die nächste Wand an, Esc oder Doppelklick beendet.",
-  window: "Auf eine Wand tippen: Fenster einsetzen.",
-  door: "Auf eine Wand tippen: Tür einsetzen.",
-  garage: "Auf eine Wand tippen: Garagentor einsetzen.",
-  furniture: "Rechts etwas zum Einrichten wählen (Suche, Drinnen oder Draußen), dann in den Plan tippen.",
-  device: "Rechts ein Gerät wählen, dann an seine Stelle tippen. Ziehen im Auswahl-Modus verschiebt es.",
-  outdoor: "Punkte der Gartenfläche antippen, ersten Punkt erneut antippen zum Abschließen.",
-  line: "Weg, Hecke, Zaun, Mauer oder Randstein: Punkte antippen (0/45/90°, „Frei“ ohne Einrasten), „Fertig“ beendet.",
-  pipe: PIPE_HINT,
-  node: NODE_HINT,
-  measure: "Zwei Punkte antippen – rastet an Ecken und Wänden ein. Bis zu drei Messungen bleiben stehen (werden nicht gespeichert).",
-};
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -168,7 +137,7 @@ export class FloorEditor {
    * @param {(b: object) => Promise<void>} o.onSave
    * @param {() => void} o.onClose
    */
-  constructor({ container, building, hass, floorId, onSave, onClose, confirm = async (text) => window.confirm(text), sceneStyle = "standard", dark = false, revision = null, draftKey = undefined, sim = false }) {
+  constructor({ container, building, hass, floorId, onSave, onClose, confirm = async (text) => window.confirm(text), sceneStyle = "standard", dark = false, revision = null, draftKey = undefined, sim = false, demo = false }) {
     this.b = structuredClone(building);
     // leeres Haus (z. B. neues Testhaus): ein Erdgeschoss zum Loslegen – nicht im Verlauf, erst „Speichern“ übernimmt es
     if (!this.b.floors?.length) {
@@ -176,6 +145,7 @@ export class FloorEditor {
       this._autoFloor = true;
     }
     this.sim = sim; // Simulation: keine Bauplan-Fotos hochladen
+    this.demo = demo; // Demo-Haus: keine eigenen 3D-Modelle hochladen
     this.draftKey = draftKey; // Testhaus: eigener Entwurf, nie der des echten Hauses
     this.revision = revision; // Stand beim Öffnen (Entwurfssicherung)
     this.hass = hass;
@@ -489,12 +459,14 @@ export class FloorEditor {
       ${this._linkButton()}
       <button data-act="dims" class="${this.showDims ? "sel" : ""}" title="Maße aller Räume"><ha-icon icon="mdi:ruler"></ha-icon><span>Maße</span></button>`}
       <button data-act="setup" title="Grundeinstellungen: Name, Norden, Etagen, Wände, Dach, Bauplan"><ha-icon icon="mdi:home-cog-outline"></ha-icon><span>Grundeinstellungen</span></button>
+      <button data-act="print" title="Plan drucken oder als Bild speichern"><ha-icon icon="mdi:printer-outline"></ha-icon><span>Drucken</span></button>
       <button data-act="fit" title="Einpassen"><ha-icon icon="mdi:fit-to-screen-outline"></ha-icon><span>Einpassen</span></button>
       <button data-act="zoomsel" title="Zur Auswahl"${this.sel ? "" : " disabled"}><ha-icon icon="mdi:magnify-scan"></ha-icon><span>Zur Auswahl</span></button>
       ${this.roofMode ? "" : `<select class="gridsel" title="Raster zum Einrasten">${GRID_CHOICES.map(([v, n]) => `<option value="${v}"${Math.abs((this.b.settings?.grid ?? 0.05) - v) < 1e-6 ? " selected" : ""}>Raster ${n}</option>`).join("")}</select>`}`;
     const views = `<span class="seg" title="Ansicht">${[["2d", "2D"], ["split", compact ? "2D+3D" : "2D + 3D"], ["3d", "3D"]].map(([k, n]) => `<button data-view="${k}" class="${this.viewMode === k ? "sel" : ""}">${n}</button>`).join("")}</span>`;
     const history = `<button data-act="undo" title="Rückgängig (Strg+Z)${this.undoStack.length ? ` – ${this.undoStack.length} Schritte` : ""}"${this.undoStack.length ? "" : " disabled"}><ha-icon icon="mdi:undo"></ha-icon></button>
       <button data-act="redo" title="Wiederholen"${this.redoStack.length ? "" : " disabled"}><ha-icon icon="mdi:redo"></ha-icon></button>`;
+    const help = `<button data-act="help" title="Hilfe (?)"><ha-icon icon="mdi:help-circle-outline"></ha-icon></button>`;
     const save = `<button data-act="cancel" title="Abbrechen"><ha-icon icon="mdi:close"></ha-icon><span>Abbrechen</span></button>
       <button data-act="interim" title="Zwischenspeichern (Editor bleibt offen)"${this.dirty ? "" : " disabled"}><ha-icon icon="mdi:content-save-outline"></ha-icon></button>
       <button data-act="save" class="primary" title="Speichern"><ha-icon icon="mdi:content-save"></ha-icon><span>Speichern</span></button>`;
@@ -504,12 +476,12 @@ export class FloorEditor {
         <button data-menu="tools" class="menubtn sel" title="Werkzeug wählen"><ha-icon icon="${cur[1]}"></ha-icon><span class="always">${cur[2]}</span><ha-icon icon="mdi:menu-down"></ha-icon></button>
         ${history}
         <button data-menu="more" class="menubtn" title="Weitere Funktionen"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button>
-        <span class="grow"></span>
+        ${help}<span class="grow"></span>
         <button data-act="props" class="${this.root.classList.contains("noprops") ? "" : "sel"}" title="Eigenschaften ein-/ausblenden"><ha-icon icon="mdi:tune-vertical"></ha-icon></button>
         ${views}${save}
         <div class="ed-menu" data-for="tools" hidden>${toolsHtml}</div>
         <div class="ed-menu" data-for="more" hidden>${moreHtml}</div>`
-      : `${floorsel}<span class="sep"></span>${toolsHtml}<span class="sep"></span>${history}${moreHtml}<span class="grow"></span>${views}${save}`;
+      : `${floorsel}<span class="sep"></span>${toolsHtml}<span class="sep"></span>${history}${moreHtml}${help}<span class="grow"></span>${views}${save}`;
     bar.querySelector(".gridsel")?.addEventListener("change", (ev) => this.changeBuilding((b) => (b.settings.grid = Number(ev.target.value))));
     bar.querySelector(".floorsel").addEventListener("change", (ev) => {
       if (ev.target.value === "__attic") {
@@ -565,6 +537,8 @@ export class FloorEditor {
       return;
     }
     const act = b.dataset.act;
+    if (act === "help") return this.onHelp?.();
+    if (act === "print") return this.onPrint?.();
     if (act === "setup") return this.openSetup();
     if (act === "props") {
       this.root.classList.toggle("noprops");
@@ -599,7 +573,7 @@ export class FloorEditor {
       if (!gaps.length) this._toast("Keine Lücken gefunden.");
       else {
         this.change((f) => ({ ...f, rooms }));
-        this._toast(`${gaps.length} Lücken geschlossen.`);
+        this._toast(`${plural(gaps.length, "Lücke", "Lücken")} geschlossen.`);
       }
     } else if (act === "clean") {
       const { floor, fixed } = cleanFloor(this.floor);
@@ -615,7 +589,7 @@ export class FloorEditor {
       if (!fixed && !pushed) this._toast("Nichts aufzuräumen: keine doppelten Punkte, Spitzen oder Möbel in Wänden.");
       else {
         this.change(() => ({ ...floor, furniture }));
-        this._toast(`${fixed} überflüssige Eckpunkte entfernt, ${pushed} Möbel aus Wänden gerückt.`);
+        this._toast(`${plural(fixed, "Eckpunkt", "Eckpunkte")} entfernt, ${plural(pushed, "Möbelstück", "Möbelstücke")} aus der Wand gerückt.`);
       }
     } else if (act === "magnet") {
       this.magnet = !this.magnet;
@@ -1470,7 +1444,7 @@ export class FloorEditor {
     const el = this.props;
     if (this.multi?.length && !this.roofMode) return this._multiProps(el);
     const f = this.floor;
-    if (!f && !this.roofMode) return void (el.innerHTML = `<p class="muted">Keine Etage gewählt.</p>`);
+    if (!f && !this.roofMode) return void (el.innerHTML = `<p class="muted">Keine Etage gewählt – oben eine Etage wählen.</p>`);
     const sel = this.sel;
     const hass = this.hass;
     const ui = propsUi(this, el);
@@ -1499,7 +1473,7 @@ export class FloorEditor {
           const placed = f.placements.some((x) => x.entity_id === e);
           return `<button data-dev="${esc(e)}" class="${e === this.deviceEntity ? "sel" : ""}">${placed ? "● " : "○ "}${esc(hass.states[e]?.attributes.friendly_name ?? e)}</button>`;
         })
-        .join("") || `<span class="muted">Keine Geräte in den Bereichen dieser Etage.</span>`}</div>`;
+        .join("") || `<span class="muted">Keine Geräte in den Bereichen dieser Etage. Erst Räumen einen HA-Bereich zuordnen.</span>`}</div>`;
       el.querySelector(".list").addEventListener("click", (ev) => {
         const b = ev.target.closest("[data-dev]");
         if (!b) return;

@@ -71,7 +71,7 @@ export const CatalogMethods = {
         cats.innerHTML = this._modelFound(q, style) + FURNITURE_CATEGORIES.map(([cat, types]) => {
           const list = types.filter((t) => FURNITURE[t][0].toLowerCase().includes(q) || cat.toLowerCase().includes(q));
           return list.length ? `<div class="cat found">${esc(cat)}</div><div class="tiles">${list.map(tile).join("")}</div>` : "";
-        }).join("") || `<p class="muted">Nichts gefunden.</p>`;
+        }).join("") || `<p class="muted">Nichts gefunden. Anderes Wort versuchen, z. B. „Tisch“ oder „Lampe“.</p>`;
         return;
       }
       cats.innerHTML = this._modelSection(isOpenG(MODEL_GROUP), head, style) + FURNITURE_GROUPS.map(([g, cs]) => {

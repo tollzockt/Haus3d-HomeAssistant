@@ -33,6 +33,9 @@ Was sich je Version geändert hat, steht im [CHANGELOG.md](CHANGELOG.md).
 - **Info-Hologramme**: Antippen eines Raums zeigt über PC, Server, Heizung, 3D-Drucker & Co. die Werte, die
   du dort hinterlegt hast.
 - **Wandtablet** mit Kiosk-Adresse, Ruhemodus, Dimmen, Klingel-Kamera und Diensten für Automationen.
+- **Vorführen**: weitere Häuser mit Demo-Modus – ein Vorführmodell ohne echte Werte, in dem man Licht schaltet,
+  Türen öffnet und die PV-Erzeugung einstellt, ohne dass etwas an Home Assistant geht.
+- **Hilfe und Einführung**: „?“ mit Suche, Gesten und Tastenkürzeln; eine kurze Tour beim ersten Öffnen.
 - **Geschützt und lokal**: Ansehen ohne PIN; Bearbeiten, Admin und Türen mit je eigener PIN; läuft offline.
 
 ## Installation
@@ -62,6 +65,9 @@ Integration wie in Schritt 3 hinzufügen.
 4. **Energie einrichten**: Admin-Einstellungen → **Energie** → **Aus HA-Energie übernehmen** → **Speichern**.
 5. **Wandtablet (optional)**: auf dem Tablet `/haus3d?kiosk` öffnen und es unter Admin-Einstellungen →
    **Wandtablet** benennen (siehe [Wandtablet und Dienste](#wandtablet-und-dienste)).
+
+Nicht weiterkommen? Der Knopf **?** oben (oder die Taste **?**) erklärt Gesten, Tastenkürzel und Werkzeuge,
+dazu gibt es eine kurze Einführung ([Hilfe und Einführung](#hilfe-und-einführung)).
 
 ## Bedienung
 
@@ -150,6 +156,21 @@ Ansehen und Schalten gehen ohne PIN; Knöpfe zum Bearbeiten (Stifte, „+“) gi
   HA-Standort), dort auch „Schatten-Zeitraffer“.
 - **Begehen**: durchs Haus gehen aus Augenhöhe – linker Joystick zum Gehen, rechter zum Umsehen, am PC WASD;
   durch Türen gehst du hindurch, Esc beendet.
+
+### Hilfe und Einführung
+
+- **Hilfe**: Der Knopf **?** in der Kopfzeile, die Zeile **Hilfe & Einführung** im Zahnrad (auch am Wandtablet),
+  das **?** in der Editor-Leiste oder die Taste **?** bzw. **F1** öffnen sie (nicht in Eingabefeldern). Sie
+  erklärt Gesten (Maus und Finger), Tastenkürzel, die Editor-Werkzeuge, die Dach-Ebene, die Farben und die
+  Daten-Funktionen. Das Suchfeld findet Begriffe auch ohne Umlaute und Tasten wie „Strg+Z“; Esc leert erst die
+  Suche und schließt dann. Im Editor steht oben das **aktive Werkzeug** mit seiner Erklärung.
+- **Einführung**: Beim ersten Öffnen zeigt Haus 3D eine kurze Tour durch Räume, Etagen, Funktionsrad, Zahnrad
+  und Hilfe (im Demo-Haus mit einem Schritt mehr), beim ersten Öffnen des Editors eine zweite durch
+  Werkzeuge, Etagen, Dach, 3D-Ansicht, Speichern und Hilfe. Mit **Überspringen** oder Esc endet sie, danach
+  startet sie nie wieder von selbst (gemerkt wird das je Browser). Am Wandtablet gibt es keine
+  automatische Tour. Über **?** → **Einführung starten** läuft sie jederzeit erneut.
+- **Datenschutz**: Die Hilfe ist in Haus 3D eingebaut und lädt nichts aus dem Netz. Nur ein Klick auf einen
+  Link mit „↗“ (z. B. **Ausführliche Anleitung ↗**) öffnet diese Seite auf GitHub.
 
 ## Bearbeiten, Admin und PIN
 
@@ -261,10 +282,18 @@ im Etagen-Feld. Norden lässt sich nur mit der Admin-PIN ändern.
   Tischgeräte (NAS, Mini-PC, Router, Modem …), die man in einen Schrank setzt oder hineinzieht, ziehen in die
   unterste freie Höheneinheit ein (Netzwerkschrank 22 HE, Serverschrank 42 HE; zu tiefe Geräte nur in den
   Serverschrank). Verschiebt oder dreht man den Schrank, gehen sie mit; herausziehen oder „Ausbauen“ baut aus.
-  Am Gerät „Höheneinheit (unten)“ und „In Schrank einbauen“, am Schrank „Belegt: x von y HE“ mit der Liste der
-  Geräte (antippen wählt das Gerät). Im Plan erscheinen eingebaute Geräte nur, wenn sie gewählt sind; einen
-  Schrank duplizieren oder kopieren („Duplizieren“, Strg+D) nimmt seine Geräte mit, ihre Info-Werte stehen in
-  der Tafel des Schranks.
+  Am Gerät „Höheneinheit (unten)“ und „In Schrank einbauen“, am Schrank die Leiste „Bestückung“ (siehe unten).
+  Im Plan erscheinen eingebaute Geräte nur, wenn sie gewählt sind; einen Schrank duplizieren oder kopieren
+  („Duplizieren“, Strg+D) nimmt seine Geräte mit.
+- **Schrank bestücken** (Eigenschaften des Schranks, „Bestückung“): eine Leiste mit allen Höheneinheiten (1 unten),
+  oben „Belegt: x von y HE · n Geräte“ und die aktuelle Leistung. Eine freie HE antippen zeigt nur die Teile, die
+  dort passen (19-Zoll-Geräte, Blenden und Kabelführung, Tischgeräte auf Fachboden); das gewählte wird genau dort
+  eingebaut. Ein Gerät antippen wählt es, „▲ hoch“/„▼ runter“ verschieben es (ein belegter Nachbar tauscht), mit
+  der Maus lässt es sich in der Leiste ziehen (am Tablet wird gescrollt). „Lücken schließen“ setzt Blindblenden,
+  die Vorlagen „Heimnetz klein“ und „Homelab“ bestücken einen leeren Schrank in einem Schritt, „Tür offen“ schwenkt
+  die Glastür auf. In der Hauptansicht zeigen eingebaute Geräte mit Entität ihren Zustand mit Status-LEDs (grün an,
+  grau aus, rot Fehler); antippen öffnet die Infos statt zu schalten. Die Info-Tafel des Schranks nennt
+  „Leistung gesamt“ und je Gerät Zustand und Werte.
 - **Erweiterungsakkus**: Am Balkonspeicher stapelt „Erweiterungsakkus darunter“ (0–5) Akkus unter dem Gerät;
   die Kapazität für die Energie stellt man in den Energie-Einstellungen ein.
 - **Eigene 3D-Modelle**: „Modell hochladen …“ im Katalog nimmt .glb und .gltf (mit Farben und Texturen; .gltf
@@ -506,17 +535,28 @@ Geräts“ damit übereinstimmt.
 | `haus3d.reload` | `target` – lädt den Grundriss neu |
 | `haus3d.away` | `on` (Pflicht, `true`/`false`) – Anwesenheitssimulation, läuft in Home Assistant |
 
-## Ausprobieren: Simulation und Testhaus
+## Ausprobieren: Häuser, Demo-Modus und Simulation
+
+- **Häuser** (Admin-Einstellungen → „Häuser“, Admin-PIN): Neben „Mein Haus“ – immer echt – gibt es bis zu 5
+  weitere Häuser (Beispielhaus, Kopie meines Hauses oder leer), zum Ausprobieren oder Vorführen; anlegen, öffnen,
+  umbenennen, löschen. „Mein Haus“ in der Kopfleiste wechselt zurück.
+- **Demo-Modus** (Kästchen je Haus, gilt für alle Browser): Das Haus wird zum Vorführmodell ohne echte Werte –
+  nichts geht an Home Assistant, Personen und Kamerabilder werden nicht gezeigt, die Kopfleiste zeigt
+  „Demo: <Name>“. Lichter, Steckdosen und Verbraucher schalten per Tippen (der Verbrauch steigt mit), Türen,
+  Fenster und Tore öffnen und schließen direkt im 3D, Vorhang, Kamin, Whirlpool und Schrank-LEDs folgen. Ein
+  PV-Feld, eine Aufständerung oder ein Balkonkraftwerk antippen öffnet „PV-Erzeugung (Demo)“: Leistung von–bis
+  (von = am Anfang und Ende des Zeitfensters, bis = Spitze zur Mitte), Zeitfenster (Standard Sonnenauf- bis
+  -untergang), Vorschau-Kurve; „Speichern“ (Bearbeiten-PIN) gilt für alle Browser. Die Demo-Leiste unten hat
+  einen Regler „Uhrzeit“ und „Zurücksetzen“; Schaltzustände gelten nur bis zum Neuladen. Fehlen Geräte, setzt
+  der Demo-Modus selbst Demo-Geräte ein (sie werden nie gespeichert).
 
 - **Simulation** (im Admin-Modus Zahnrad → Kachel „Simulation“): Nichts wird wirklich geschaltet oder
   gespeichert. Die orange Leiste unten stellt Wetter, Uhrzeit und Solarleistung ein, „Beispielgeräte“ füllt
   Räume ohne Geräte. Gedrückthalten auf einem Gerät öffnet einen Simulationsdialog (an/aus, offen/zu,
   Rollladen-Position, Soll, Messwert). Die Simulation gilt nur in diesem Browser und endet mit dem
   Admin-Modus; danach lädt der echte Stand neu.
-- **Testhaus**: Entwickler-Funktion (nur in einer bestätigten Entwickler-Instanz) mit bis zu 5 getrennten
-  Häusern zum Ausprobieren (Admin-Einstellungen → Entwickler; Beispielhaus, Kopie oder leer). Das echte Haus
-  bleibt unberührt, Geräte schalten nur mit „Geräte echt schalten“, „Mein Haus“ wechselt zurück. Normale
-  Nutzer sehen sie nicht; sie schaltet nichts frei.
+- **Geräte echt schalten** (Entwickler-Funktion, nur in einer bestätigten Entwickler-Instanz): In einem weiteren
+  Haus ohne Demo-Modus schalten Geräte sonst nicht; mit dieser Einstellung schon. Im Demo-Haus gilt sie nie.
 
 ## Daten: Import, Export und Verlauf
 
@@ -528,7 +568,28 @@ Admin-Einstellungen → **Daten & Verlauf**:
   (`{format: "haus3d", building}`), bietet Lücken bis 45 cm zum Schließen an und ersetzt Grundriss und
   Einstellungen.
 - **Verlauf …** stellt einen der letzten 20 Stände wieder her. Gesichert wird vor jedem Speichern, vor jedem
-  Wiederherstellen und mit „Stand sichern“.
+  Wiederherstellen, vor dem Zurücksetzen und mit „Stand sichern“.
+- **Plan drucken / exportieren …** (im Editor **Drucken** in der Leiste, am Tablet unter „⋯“, dann mit dem Stand im Editor, auch
+  ungespeichert) öffnet „Plan drucken“: Etagen wählen (vorgewählt sind die der Ansicht bzw. des Editors, leere
+  sind ausgegraut), Inhalt (Maße, Raumnamen und Flächen, Nordpfeil, Garten und Außenflächen, Schwarz-Weiß,
+  3D-Bild der aktuellen Ansicht), Papier (A4 oder A3) und Maßstab (automatisch, meist 1:100; angeboten werden
+  nur Maßstäbe, bei denen der Plan aufs Blatt passt). Je Etage entsteht eine Seite mit gleichem Maßstab und
+  Ausschnitt, mit Maßen, Raumnamen samt Fläche, Nordpfeil und Maßstabsleiste, auf Wunsch gefolgt von einer Seite
+  mit dem 3D-Bild; die Vorschau blättert mit ‹ ›. **Drucken …** öffnet das Druckfenster des Browsers (als PDF:
+  dort „Als PDF speichern“ wählen); der Maßstab stimmt beim Drucken in Originalgröße (100 %). **PNG speichern**
+  lädt je Seite `haus3d-plan-<Etage>-JJJJ-MM-TT.png` bzw. `haus3d-3d-JJJJ-MM-TT.png` herunter (200 dpi). Alles
+  entsteht im Browser, nichts geht ins Netz; erreichbar ist es nur über die Admin-Einstellungen oder den Editor,
+  also mit PIN.
+- **Alles zurücksetzen …** (abgesetzt am Ende der Seite) löscht Grundriss und Haus-Einstellungen: alle Etagen mit
+  Räumen, Wänden, Möbeln, Geräten, Leitungen, Dächern und Garten sowie Name, Norden, Energie, Karten, Hinweise,
+  Kurzwahl, Funktionsrad, Abläufe und Alltag. Es fragt in zwei Schritten (erst die Übersicht, dann das Wort
+  `ZURÜCKSETZEN` eintippen). Vorher lädt Haus 3D `haus3d-sicherung-JJJJ-MM-TT-HHMM.json` herunter und legt im
+  Verlauf den Eintrag „vor Zurücksetzen“ an; er bleibt bis zum nächsten Zurücksetzen erhalten, auch wenn danach
+  mehr als 20 Stände gesichert werden. Danach öffnet das leere Haus die Grundeinstellungen im Editor. PINs,
+  eigene 3D-Modelle, Bauplan-Fotos, Testhäuser und die Einstellungen dieses Geräts bleiben; „Verlauf …“ →
+  Wiederherstellen bringt alles zurück, auch die Bauplan-Fotos erscheinen wieder. Gesperrt ist es in der
+  Simulation, im Demo-Haus und bei offenem Editor; in einem Testhaus gibt es keinen Verlauf, gesichert wird nur
+  per Download.
 
 Alle Daten liegen in `<config>/.storage/haus3d.*`.
 
@@ -576,6 +637,7 @@ settings         wall_exterior (0.24), wall_interior (0.12), grid (0.05), wall_c
   energy         haus, netz, netz_invert, netz_bezug, netz_einspeisung, sources [{type (pv|bkw|speicher),
                  power, energy, soc, capacity, reserve, …}], extra, kurz, ueberschuss
   daily          appliances, calendars, price, price_entity, kwp, vent_min, mold, waste_hour, window_heat
+  demo           pv {<Quelle>: {min, max, from, to}} – PV-Erzeugung im Demo-Haus (W, Minuten ab 0 Uhr)
 ```
 
 </details>

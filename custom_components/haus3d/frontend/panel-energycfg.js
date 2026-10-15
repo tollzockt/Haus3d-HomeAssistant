@@ -37,7 +37,7 @@ export const EnergyCfgMethods = {
       if (el) el.innerHTML = rows.map(([k, v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join("");
     };
     const render = () => {
-      box.innerHTML = `<div class="btns left"><button class="en-ha"><ha-icon icon="mdi:import"></ha-icon> Aus HA-Energie übernehmen</button></div>
+      box.innerHTML = `${this._isDemo?.() ? `<p class="hint demohint">Demo-Haus: Energie wird simuliert – Änderungen hier gelten für das Haus ohne Demo.</p>` : ""}<div class="btns left"><button class="en-ha"><ha-icon icon="mdi:import"></ha-icon> Aus HA-Energie übernehmen</button></div>
         <div class="en-found"></div>
         <h4>Haus</h4>
         ${field('data-core="haus"', "Hausverbrauch", e.haus, "Leer = wird aus Erzeugung, Netz und Speicher berechnet.")}
@@ -45,7 +45,7 @@ export const EnergyCfgMethods = {
         <div class="seg en-grid"><button data-gm="one" class="${gridMode === "one" ? "sel" : ""}">Ein Sensor (±)</button><button data-gm="two" class="${gridMode === "two" ? "sel" : ""}">Bezug und Einspeisung getrennt</button></div>
         ${gridMode === "one" ? `${field('data-core="netz"', "Netz (+ Bezug / − Einspeisung)", e.netz)}<label class="chkrow"><input type="checkbox" data-inv="netz_invert"${e.netz_invert ? " checked" : ""}> Vorzeichen umkehren</label>` : `${field('data-core="netz_bezug"', "Netzbezug", e.netz_bezug)}${field('data-core="netz_einspeisung"', "Einspeisung", e.netz_einspeisung)}`}
         <h4>Erweiterungen</h4>
-        ${e.sources.length ? `<p class="hint brandnote">Gerätenamen dienen nur der Zuordnung der passenden Integration – keine Verbindung zu den Herstellern.</p>` : `<p class="hint">Noch keine – PV-Anlage, Balkonkraftwerk oder AC-Speicher hinzufügen. Alle Erzeuger werden zusammengerechnet.</p>`}
+        ${e.sources.length ? `<p class="hint brandnote">Gerätenamen dienen nur der Zuordnung der passenden Integration – keine Verbindung zu den Herstellern.</p>` : `<p class="hint">Noch keine Erweiterungen. „+ PV-Anlage“, „+ Balkonkraftwerk“ oder „+ AC-Speicher“ wählen.</p>`}
         ${e.sources.map((s, i) => `<div class="src" data-i="${i}">
           <div class="srchead"><ha-icon icon="${SOURCE_TYPES.find(([t]) => t === s.type)[2]}"></ha-icon><input class="sname" data-sf="name" value="${esc(s.name)}"><small>${SOURCE_TYPES.find(([t]) => t === s.type)[1]}</small><button class="icon" data-srm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>
           <label class="en-row"><span>Gerät</span><select data-tpl><option value="">– anderes / selbst eintragen –</option>${templatesFor(s.type).map((t) => `<option value="${t.id}"${s.template === t.id ? " selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
@@ -159,7 +159,7 @@ export const EnergyCfgMethods = {
     const drawFound = () => {
       const fb = box.querySelector(".en-found");
       if (!found) return (fb.innerHTML = "");
-      if (!found.length) return (fb.innerHTML = `<p class="hint">Im HA-Energie-Dashboard ist nichts eingerichtet – Werte bitte von Hand wählen.</p>`);
+      if (!found.length) return (fb.innerHTML = `<p class="hint">Im HA-Energie-Dashboard ist nichts eingerichtet – Werte von Hand wählen.</p>`);
       fb.innerHTML = `<h4>Gefunden</h4>${found.map((f, i) => `<label class="chkrow"><input type="checkbox" data-f="${i}"${f.checked ? " checked" : ""}><span class="fl"></span></label>`).join("")}
         <div class="btns"><button class="f-no">Abbrechen</button><button class="f-ok primary">Übernehmen</button></div>`;
       fb.querySelectorAll("[data-f]").forEach((c) => {

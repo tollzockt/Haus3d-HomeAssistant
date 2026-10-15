@@ -30,22 +30,19 @@ import {
   watchedEntities,
   cameraCones,
   conePolygon,
-  areaOf,
 } from "./devices.js";
-import { compass16, fieldInfo, weatherEntity, weatherKind } from "./exterior.js";
-import { roofItemsAll } from "./roofunits.js";
+import { weatherEntity, weatherKind } from "./exterior.js";
 import { normalize } from "./model.js";
-import { SIM_WEATHER, Simulator } from "./sim.js";
 import { LEGACY_FUNCTION_KEYS, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions } from "./hud.js";
 import { entityAction } from "./actions.js";
 import { entityPlaces, houseStatus, openState, statusChips } from "./status.js";
-import { evaluateAlerts, exteriorOpenings, visibleAlerts } from "./alerts.js";
+import { exteriorOpenings } from "./alerts.js";
 import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
-import { batteryState, batteryText, ema, fieldPower, formatPower, gridState, gridText, surplus } from "./energy.js";
+import { batteryState, batteryText, ema, formatPower, gridState, gridText, surplus } from "./energy.js";
 import { sunFromHass } from "./sun.js";
 import { lightLook, roomLight } from "./light.js";
 import { HouseScene } from "./scene.js";
-import { loadEditor, whenIdle } from "./lazy.js";
+import { loadEditor, loadOnce, whenIdle } from "./lazy.js";
 import { PANEL_STYLE } from "./panel-style.js";
 import { EnergyMethods } from "./panel-energy.js";
 import { TabletMethods } from "./panel-tablet.js";
@@ -67,12 +64,14 @@ import { ACCESS_STYLE, AccessMethods } from "./panel-access.js";
 import { ADMIN_STYLE, AdminMethods } from "./panel-admin.js";
 import { poseInBox } from "./camera.js";
 
-import { LONG_PRESS_MS, esc, energyRows, loadSettings, fmt, fmtPower, setText, iconFor, isActive, touchScroll } from "./panel-util.js";
+import { LONG_PRESS_MS, ensureStyle, esc, energyRows, loadSettings, fmt, fmtPower, setText, iconFor, isActive, touchScroll } from "./panel-util.js";
 import { DialogMethods } from "./panel-dialogs.js";
-import { setModelHass } from "./models.js";
-
-/** Uhrzeit der Simulation („echt“ oder HH:MM). */
-const simTime = (min) => (min === null || min === undefined ? "echt" : `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`);
+import { SimMethods } from "./panel-sim.js";
+import { PvMethods } from "./panel-pv.js";
+import { AlertMethods } from "./panel-alerts.js";
+import { ConfirmMethods } from "./panel-confirm.js";
+import { HelpPanelMethods } from "./panel-help.js";
+import { readOnlyModelHass, setModelHass } from "./models.js";
 
 class Haus3DPanel extends HTMLElement {
   constructor() {
@@ -111,14 +110,11 @@ class Haus3DPanel extends HTMLElement {
 
   set hass(real) {
     this._realHass = real;
-    setModelHass(real); // eigene 3D-Modelle laden über das echte hass (fetchWithAuth)
-    // Simulation: Schicht über dem echten hass, nichts geht an Home Assistant
-    // Schlösser entriegeln/öffnen nur mit der Tür-PIN (Simulation schaltet ohnehin nichts Echtes)
-    // Zeitstrahl: Zustände zum gewählten Zeitpunkt (nur ansehen)
-    let hass = this._tl && !this._sim ? this._tlWrap(real) : this._sim ? this._sim.wrap(real, { building: this._building, onChange: () => this._simChanged(), onToast: (t) => this._toast(t) }) : doorGuard(real, (svc, data) => this._doorUnlock(svc, data));
-    // Testhaus (Entwickler): Grundriss getrennt vom echten Haus, Geräte nur mit „echt schalten“
-    if (this._house) hass = houseGuard(hass, this._house.id, { live: this._house.live, sim: !!this._sim, onBlocked: (what) => this._houseBlocked(what) });
+    // eigene 3D-Modelle laden über das echte hass (fetchWithAuth); im Demo-Haus nur lesen (Liste), nichts ändern
+    setModelHass(this._isDemo() ? readOnlyModelHass(real) : real);
+    if (this._demo && !this._isDemo()) this._demoStop?.(); // Demo-Kästchen aus: Sitzung des Demo-Hauses endet
     const prev = this._hass;
+    const hass = this._wrapHass(real);
     this._hass = hass;
     if (!this._built) return;
     if (!prev || prev.themes?.darkMode !== hass.themes?.darkMode) this._applyTheme();
@@ -137,6 +133,57 @@ class Haus3DPanel extends HTMLElement {
     const changed = this._watchedChanged();
     if (changed === "membership") this._refreshEntities();
     else if (changed) this._queueUpdate();
+  }
+
+  /**
+   * hass-Kette: echt → Demo-Wrapper (Demo-Haus) bzw. Zeitstrahl, Simulation oder Tür-Schutz → Hausschutz (weitere Häuser).
+   * Im Demo-Haus geht nichts an Home Assistant: Dienste simuliert, callApi abgelehnt, WebSocket nur die Erlaubnisliste.
+   */
+  _wrapHass(real) {
+    const demo = this._isDemo();
+    // Simulation: Schicht über dem echten hass, nichts geht an Home Assistant
+    // Schlösser entriegeln/öffnen nur mit der Tür-PIN (Simulation schaltet ohnehin nichts Echtes)
+    // Zeitstrahl: Zustände zum gewählten Zeitpunkt (nur ansehen)
+    let hass = demo ? this._demoHass(real) : this._tl && !this._sim ? this._tlWrap(real) : this._sim ? this._sim.wrap(real, { building: this._building, onChange: () => this._simChanged(), onToast: (t) => this._toast(t) }) : doorGuard(real, (svc, data) => this._doorUnlock(svc, data));
+    // weitere Häuser: Grundriss getrennt vom echten Haus; Testhaus schaltet nur mit „echt schalten“, Demo-Haus nie
+    if (this._house) hass = houseGuard(hass, this._house.id, { live: this._house.live, sim: !!this._sim, demo, onBlocked: (what) => this._houseBlocked(what) });
+    return hass;
+  }
+
+  /** Ist ein Demo-Haus offen (Vorführmodell: alles simuliert, keine echten Werte)? */
+  _isDemo() {
+    return this._house?.demo === true;
+  }
+
+  /**
+   * Demo-hass: DemoHouse.wrap aus dem nachgeladenen Demo-Teil (panel-demo.js). Solange er lädt, eine leere Hülle ohne
+   * Zustände; ihre Befehle warten auf den Demo-Teil und gehen dann durch den Demo-Wrapper (nie ans echte hass).
+   */
+  _demoHass(real) {
+    if (this._demoWrap) return this._demoWrap(real);
+    const later = (name) => async (...args) => {
+      await this._demoLoad();
+      return this._demoWrap(this._realHass)[name](...args);
+    };
+    this._demoLoad().catch(() => {});
+    return { config: real.config, locale: real.locale, user: real.user, themes: real.themes, language: real.language, states: {}, entities: {}, devices: {}, areas: {}, connection: null, haus3dDemo: true, haus3dSimulation: true, callWS: later("callWS"), callService: later("callService"), callApi: later("callApi") };
+  }
+
+  /** Demo-Teil einmal nachladen (Startbaum klein halten) und einmischen; danach die Hülle durch den Demo-Wrapper ersetzen. */
+  _demoLoad() {
+    this._demoLoading ??= loadOnce("demo", () => import("./panel-demo.js")).then(
+      (mod) => {
+        if (!Haus3DPanel.prototype._demoWrap) Object.assign(Haus3DPanel.prototype, mod.DemoMethods);
+        ensureStyle(this.shadowRoot, "demo", mod.DEMO_STYLE);
+        if (this._isDemo() && this._realHass) this.hass = this._realHass;
+      },
+      (err) => {
+        this._demoLoading = null;
+        if (this._els) this._toast(`Demo laden fehlgeschlagen: ${err?.message ?? err}. Seite neu laden.`);
+        throw err;
+      },
+    );
+    return this._demoLoading;
   }
 
   /**
@@ -249,100 +296,6 @@ class Haus3DPanel extends HTMLElement {
     return this._realHass ?? this._hass;
   }
 
-  // ------------------------------------------------------------------ Simulation
-
-  /** Simulation an/aus. Beim Start wird der Grundriss kopiert; beim Beenden der echte neu geladen. */
-  async _setSim(on) {
-    // offener Editor gehört zum bisherigen Stand (echt bzw. Simulationskopie): sichern und schließen
-    if (!!on !== !!this._sim && this._editor) {
-      if (!this._sim) this._editor._writeDraft?.();
-      this._editor.onClose?.();
-    }
-    if (!on && this._dialog?.querySelector(".simdlg")) this._closeDialog();
-    // nur im Admin-Modus (Beispielgeräte, Wetter und Energie verändern die Ansicht für alle am Gerät)
-    if (on && !this._sim && !this._adminMode) {
-      this._toast("Simulation nur im Admin-Modus – erst Admin-Einstellungen mit PIN öffnen.");
-      return;
-    }
-    this._settings.sim = !!on;
-    this._saveSettings();
-    if (on && !this._sim) {
-      this._sim = new Simulator();
-      if (this._building) {
-        this._simBase = structuredClone(this._building); // echter Stand, für Beispielgeräte an/aus
-        this._sim.building = structuredClone(this._building);
-        this._sim.revision = this._revision ?? 0;
-        if (this._settings.simDemo) this._sim.makeDemo(this._sim.building, this._realHass);
-        this._setBuilding(this._sim.building, this._sim.revision, { keepCamera: true });
-      }
-      this._toast("Simulation an: nichts wird wirklich geschaltet oder gespeichert.");
-    } else if (!on && this._sim) {
-      this._sim = null;
-      this.hass = this._realHass;
-      this._toast("Simulation beendet, echte Zustände.");
-      await this._load();
-    }
-    this._renderSimBar();
-    this._simChanged();
-  }
-
-  _simChanged() {
-    if (this._realHass) this.hass = this._realHass;
-  }
-
-  _renderSimBar() {
-    this._simBar?.remove();
-    this._simBar = null;
-    this._els?.stage.classList.toggle("has-simbar", !!this._sim);
-    if (!this._sim || !this._els) return;
-    const sim = this._sim;
-    const el = document.createElement("div");
-    el.className = "simbar";
-    el.innerHTML = `<b>SIMULATION</b>
-      <label>Wetter <select data-sim="weather">${SIM_WEATHER.map(([k, n]) => `<option value="${k}"${k === sim.weather ? " selected" : ""}>${n}</option>`).join("")}</select></label>
-      <label>Uhrzeit <input type="range" min="-15" max="1440" step="15" data-sim="time" value="${sim.time ?? -15}"><span class="tv">${simTime(sim.time)}</span></label>
-      <label>Solar <input type="range" min="0" max="1600" step="20" data-sim="solar" value="${sim.solar ?? 0}"><span class="sv">${sim.solar === null ? "echt" : `${sim.solar} W`}</span></label>
-      <label><input type="checkbox" data-sim="demo"${this._settings.simDemo ? " checked" : ""}> Beispielgeräte</label>
-      <button data-sim="reset">Zurücksetzen</button><button data-sim="stop">Beenden</button>`;
-    el.querySelector("[data-sim=weather]").addEventListener("change", (ev) => {
-      sim.weather = ev.target.value;
-      sim._cache = null;
-      this._simChanged();
-    });
-    el.querySelector("[data-sim=time]").addEventListener("input", (ev) => {
-      const v = Number(ev.target.value);
-      sim.time = v < 0 ? null : Math.min(1439, v);
-      sim._cache = null;
-      el.querySelector(".tv").textContent = simTime(sim.time);
-      this._simChanged();
-    });
-    el.querySelector("[data-sim=solar]").addEventListener("input", (ev) => {
-      sim.solar = Number(ev.target.value);
-      sim._cache = null;
-      el.querySelector(".sv").textContent = `${sim.solar} W`;
-      this._simChanged();
-    });
-    el.querySelector("[data-sim=demo]").addEventListener("change", (ev) => {
-      this._settings.simDemo = ev.target.checked;
-      this._saveSettings();
-      // frische Kopie des Grundrisses (Beispielgeräte vergeben Bereiche nur in der Kopie)
-      sim.clearDemo();
-      sim.building = structuredClone(this._simBase ?? this._building);
-      const n = this._settings.simDemo ? sim.makeDemo(sim.building, this._realHass) : 0;
-      this._setBuilding(sim.building, sim.revision, { keepCamera: true });
-      this._simChanged();
-      if (this._settings.simDemo) this._toast(n === 1 ? "1 Raum ohne Geräte hat Beispielgeräte bekommen." : n ? `${n} Räume ohne Geräte haben Beispielgeräte bekommen.` : "Alle Räume haben schon Geräte.");
-    });
-    el.querySelector("[data-sim=reset]").addEventListener("click", () => {
-      sim.reset();
-      this._renderSimBar();
-      this._simChanged();
-    });
-    el.querySelector("[data-sim=stop]").addEventListener("click", () => this._setSim(false));
-    this._els.stage.appendChild(el);
-    this._simBar = el;
-  }
-
   set narrow(value) {
     this.toggleAttribute("narrow", !!value);
   }
@@ -406,6 +359,7 @@ class Haus3DPanel extends HTMLElement {
           <button class="icon fit" title="Ansicht zurücksetzen"><ha-icon icon="mdi:fit-to-screen-outline"></ha-icon></button>
           <button class="icon edit" title="Bearbeiten" hidden><ha-icon icon="mdi:pencil-ruler"></ha-icon></button>
           <button class="icon more" title="Daten" hidden><ha-icon icon="mdi:dots-vertical"></ha-icon></button>
+          <button class="icon help" title="Hilfe (?)"><ha-icon icon="mdi:help-circle-outline"></ha-icon></button>
           <button class="icon gear" title="Einstellungen"><ha-icon icon="mdi:cog"></ha-icon></button>
         </header>
         <div class="stage">
@@ -443,6 +397,7 @@ class Haus3DPanel extends HTMLElement {
     $(".menu").addEventListener("click", () => this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true })));
     $(".fit").addEventListener("click", () => this._scene?.fitCamera());
     $(".edit").addEventListener("click", () => this._openEditor());
+    $(".help").addEventListener("click", () => this._openHelp());
     $(".gear").addEventListener("click", (ev) => {
       ev.stopPropagation();
       this._openSettings();
@@ -499,9 +454,10 @@ class Haus3DPanel extends HTMLElement {
       this._scene.setLayers(this._settings.layers);
       this._applyQuality();
     } catch (err) {
-      this._showMessage(`3D-Darstellung nicht möglich (WebGL fehlt?): ${err.message}`);
+      this._showMessage(`3D-Ansicht starten fehlgeschlagen (WebGL fehlt?): ${err.message}`);
     }
     this._renderToolbar();
+    this._helpInit();
   }
 
   async _load() {
@@ -533,7 +489,7 @@ class Haus3DPanel extends HTMLElement {
           }
           this._filter = localStorage.getItem("haus3d.filter") || "all";
           if (this._realHass) this.hass = this._realHass;
-          this._toast("Das Testhaus gibt es nicht mehr – zurück in deinem Haus.");
+          this._toast("Dieses Haus gibt es nicht mehr – zurück in deinem Haus.");
           want = null;
           epoch = this._houseEpoch ?? 0;
           res = await this._hass.callWS({ type: "haus3d/building/get" });
@@ -542,11 +498,23 @@ class Haus3DPanel extends HTMLElement {
         }
       }
       if ((this._houseEpoch ?? 0) !== epoch || (this._house?.id ?? null) !== want) return; // inzwischen gewechselt: veraltete Antwort
+      // Demo-Kästchen: maßgeblich ist das Backend (building/get liefert demo) – weicht der Browser ab, berichtigen
+      // (neue Hülle: Demo ↔ Testhaus) und einmal neu laden; ein offener Editor gehört zum alten Modus und geht vorher zu
+      if (this._house && this._editor) {
+        await this._houseEditorFor?.(res.demo);
+        if ((this._houseEpoch ?? 0) !== epoch || (this._house?.id ?? null) !== want) return;
+      }
+      if (this._house && this._houseSetDemo?.(res.demo === true)) {
+        res = await this._hass.callWS({ type: "haus3d/building/get" });
+        if ((this._houseEpoch ?? 0) !== epoch || (this._house?.id ?? null) !== want) return;
+      }
       this._buildingHouse = want; // zu diesem Haus gehört der geladene Grundriss
       this._setBuilding(res.building, res.revision);
       this._renderModes?.();
+      this._renderDemoBar?.(); // Demo-Leiste (bzw. weg, wenn kein Demo-Haus mehr)
       this._subscribeCommands();
       this._loadUserData();
+      this._tourAuto("panel");
       setTimeout(() => this._supportHintCheck(), 4000);
       // Simulation startet nie von selbst (nur im Admin-Modus); ein alter Merker wird gelöscht
       if (this._settings.sim) {
@@ -554,17 +522,19 @@ class Haus3DPanel extends HTMLElement {
         this._saveSettings();
       }
     } catch (err) {
-      this._showMessage(`Grundriss konnte nicht geladen werden: ${err.message ?? err.code ?? err}`);
+      this._showMessage(`Grundriss laden fehlgeschlagen: ${err.message ?? err.code ?? err}`);
     } finally {
       this._loading = false;
     }
   }
 
   _setBuilding(building, revision, { keepCamera = false } = {}) {
+    // Demo-Haus: die Antwort hat die Demo-Geräte neu eingesetzt – gleich mit dem frischen Demo-hass weiter
+    if (this._demo && this._realHass) this._hass = this._wrapHass(this._realHass);
     this._building = normalize(building);
     this._revision = revision;
     if (!this._building.floors.length) {
-      this._showMessage("Noch kein Grundriss vorhanden. Bearbeiten → Grundriss öffnet den Editor mit den Grundeinstellungen (Etagen, Wände, Dach, Bauplan) – oder als Admin über Zahnrad → Admin-Einstellungen → Daten & Verlauf → Importieren.");
+      this._showEmpty();
     } else if (this._scene) {
       this._els.msg.hidden = true;
     }
@@ -598,6 +568,16 @@ class Haus3DPanel extends HTMLElement {
   _showMessage(text) {
     this._els.msg.textContent = text;
     this._els.msg.hidden = false;
+  }
+
+  /** Leeres Haus: Knopf „Grundriss anlegen“ (nach der Bearbeiten-PIN öffnet der Editor mit den Grundeinstellungen) und der Weg über den Import. */
+  _showEmpty() {
+    const msg = this._els.msg;
+    msg.innerHTML = `<div class="empty"><p>Noch kein Grundriss.</p><button type="button">Grundriss anlegen</button><p>Oder Admin → Daten &amp; Verlauf → „Importieren“.</p></div>`;
+    msg.querySelector("button").addEventListener("click", async () => {
+      if (await this._startEdit()) this._openEditor();
+    });
+    msg.hidden = false;
   }
 
   _toast(text) {
@@ -684,6 +664,10 @@ class Haus3DPanel extends HTMLElement {
   _refreshEntities() {
     const hass = this._hass;
     if (!hass || !this._building) return;
+    // Hauswechsel: hass-Kette oder Grundriss gehören noch zum alten Haus – nichts damit rechnen (z. B. keine Statistik des
+    // echten Hauses beim Wechsel ins Demo-Haus); danach bauen set hass bzw. _setBuilding alles neu
+    const house = this._house?.id ?? null;
+    if ((hass.haus3dHouse ?? null) !== house || !!hass.haus3dDemo !== this._isDemo() || (this._switching && this._buildingHouse !== house)) return;
     this._byArea = entitiesByArea(hass);
     this._links = buildingLinks(this._building, hass, this._byArea);
     this._computeWatched();
@@ -925,12 +909,16 @@ class Haus3DPanel extends HTMLElement {
     const st = this._hass?.states[entityId];
     const label = name || st?.attributes?.friendly_name || entityId;
     const safety = this._building?.settings?.safety?.confirm !== false;
+    const demo = this._isDemo();
+    if (demo && !this._demo) return; // Demo-Teil lädt noch: nichts tun (nie ans echte hass)
     if (entityId.startsWith("camera.")) return this._cameraDialog(entityId);
     if (entityId.startsWith("device_tracker.") && st?.attributes?.source_type === "router") return this._networkPopup(entityId);
     if (entityId.startsWith("climate.") && source === "tap" && st && !["unavailable", "unknown"].includes(st.state)) return this._climatePopup(entityId);
-    const act = entityAction(entityId, st, { source, safety, confirm });
+    // Demo-Haus: Kontakte und Bewegung schalten um, PV öffnet den PV-Dialog, sonst wie im echten Haus (simuliert)
+    const act = demo ? this._demoAction(entityId, st, { source, safety, confirm }) : entityAction(entityId, st, { source, safety, confirm });
+    if (act.dialog === "pv") return this._demoPvDialog(act.key);
     if (act.dialog || !act.call) return this._moreInfo(entityId);
-    if (act.call[0] === "lock" && act.call[1] !== "lock") act.confirm = null; // die Tür-PIN ist die Nachfrage
+    if (act.call[0] === "lock" && act.call[1] !== "lock" && !demo) act.confirm = null; // die Tür-PIN ist die Nachfrage (Demo: ohne PIN, mit Nachfrage)
     if (act.confirm) {
       const where = this._placeText?.(entityId);
       const epoch = this._houseEpoch ?? 0;
@@ -939,74 +927,15 @@ class Haus3DPanel extends HTMLElement {
     }
     try {
       await this._hass.callService(act.call[0], act.call[1], { entity_id: entityId, ...act.data });
-      if (!quiet || act.confirm) this._toast(`${label}: ${act.verb}`);
+      if (!quiet || act.confirm) this._toast(`${demo ? "Demo: " : ""}${label}: ${act.verb}`);
     } catch (err) {
-      if (!err?.quiet) this._toast(`Fehlgeschlagen: ${err.message ?? err}`);
+      if (!err?.quiet) this._toast(`Ausführen fehlgeschlagen: ${err.message ?? err}`);
     }
-  }
-
-  /** „EG · Flur“: wo eine Entität im Haus liegt (über ihren Bereich oder eine verknüpfte Öffnung). */
-  _placeText(entityId) {
-    const b = this._building;
-    if (!b) return "";
-    const area = this._hass ? areaOf(this._hass, entityId) : null; // eigener Bereich oder der des Geräts
-    for (const f of b.floors ?? []) {
-      for (const r of f.rooms ?? []) if (area && r.area_id === area) return `${f.name} · ${r.name}`;
-      for (const o of f.openings ?? []) {
-        if (o.contact !== entityId && o.cover !== entityId) continue;
-        const r = (f.rooms ?? []).find((x) => x.id === o.room_id);
-        return r ? `${f.name} · ${r.name}` : f.name;
-      }
-    }
-    return "";
-  }
-
-  /**
-   * Eigene Nachfrage (statt window.confirm): großer Abbrechen-Knopf hat den Fokus, Esc oder Tipp
-   * daneben bricht ab, nach 15 s automatisch abgebrochen.
-   * @returns {Promise<boolean>}
-   */
-  _confirm(text, okLabel = "OK", { danger = false, sub = "" } = {}) {
-    this._confirmEl?._finish?.(false);
-    if (this._switching) return Promise.resolve(false); // Haus wird gewechselt: Abläufe des alten Hauses enden hier
-    return new Promise((resolve) => {
-      const el = document.createElement("div");
-      el.className = "confirm-backdrop";
-      el.innerHTML = `<div class="confirm" role="alertdialog" aria-modal="true" aria-label="${esc(text)}">
-        <div class="ct">${esc(text).replace(/\n/g, "<br>")}</div>${sub ? `<div class="cs">${esc(sub)}</div>` : ""}
-        <div class="cb"><button class="no">Abbrechen</button><button class="yes${danger ? " danger" : ""}">${esc(okLabel)}</button></div></div>`;
-      let timer = null;
-      const finish = (v) => {
-        clearTimeout(timer);
-        document.removeEventListener("keydown", onKey, true);
-        el.remove();
-        if (this._confirmEl === el) this._confirmEl = null;
-        resolve(v);
-      };
-      const onKey = (ev) => {
-        if (ev.key === "Escape") {
-          ev.stopPropagation();
-          finish(false);
-        }
-      };
-      el._finish = finish;
-      // der Klick, der zum Tipp gehört, kommt erst nach pointerup an: kurz nichts annehmen
-      const born = performance.now();
-      const ready = () => performance.now() - born > 400;
-      el.addEventListener("click", (ev) => {
-        if (ev.target === el && ready()) finish(false);
-      });
-      el.querySelector(".no").addEventListener("click", () => ready() && finish(false));
-      el.querySelector(".yes").addEventListener("click", () => ready() && finish(true));
-      document.addEventListener("keydown", onKey, true);
-      timer = setTimeout(() => finish(false), 15000);
-      (this._els?.stage ?? this.shadowRoot).appendChild(el);
-      this._confirmEl = el;
-      el.querySelector(".no").focus();
-    });
   }
 
   _moreInfo(entityId) {
+    // Demo-Haus: immer der Demo-Dialog – nie der HA-Dialog (der zeigt echte Werte und schaltet echt)
+    if (this._isDemo()) return this._demoDialog?.(entityId);
     if (this._sim) return this._simDialog(entityId);
     // Testhaus ohne „echt schalten“: der HA-Dialog könnte schalten – nur ansehen
     if (this._house && !this._house.live && !/^(sensor|binary_sensor|weather|person|device_tracker|sun|camera)\./.test(entityId)) return this._infoDialog(entityId);
@@ -1129,75 +1058,6 @@ class Haus3DPanel extends HTMLElement {
     this._holoUpdate();
   }
 
-  /** PV-Felder auf allen Dächern (Hausdach, eigene Dächer, Dachteile) mit Kenndaten: Name, kWp, Ausrichtung, Neigung, Entitäten. */
-  _pvFieldInfo() {
-    const out = new Map();
-    const north = Number(this._building?.settings?.north) || 0;
-    roofItemsAll(this._building ?? {}).filter(({ item }) => item?.type === "pv" && item.id).forEach(({ item: it, unit, others }, i) => {
-      const model = this._scene?.roofUnitModels?.get(unit.key) ?? unit.model;
-      const f = fieldInfo(model, it, north, unit.items, others);
-      const dir = f.azimuth === null ? "flach" : compass16(f.azimuth);
-      out.set(it.id, { ...f, id: it.id, name: it.name || `PV ${dir}${unit.kind === "house" ? "" : ` · ${unit.label}`}`, short: it.name || dir, dir, entity: it.entity || null, energy: it.energy_entity || null, index: i, roofKey: unit.key });
-    });
-    return out;
-  }
-
-  /** Leistung je PV-Feld: Schilder und Glanz der Module. */
-  _updatePv(energy, hass) {
-    if (!this._pvInfo?.size) return;
-    const lang = hass.locale?.language;
-    const fields = [...this._pvInfo.values()].map((f) => {
-      const st = f.entity ? hass.states[f.entity] : null;
-      const w = st ? Number(st.state) * (st.attributes?.unit_of_measurement === "kW" ? 1000 : 1) : NaN;
-      return { id: f.id, kwp: f.kwp, azimuth: f.azimuth, tilt: f.tilt, w: Number.isFinite(w) ? w : null };
-    });
-    const power = fieldPower(fields, energy.haus_pv, sunFromHass(hass));
-    this._pvPower = power;
-    const ratios = new Map();
-    for (const [id, p] of power) {
-      const f = this._pvInfo.get(id);
-      if (Number.isFinite(p.w) && f.kwp > 0) ratios.set(id, p.w / (f.kwp * 1000));
-      const ov = this._overlays.get(`pv:${id}`);
-      if (ov) setText(ov.el.querySelector("b"), Number.isFinite(p.w) ? `${p.estimated ? "ca. " : ""}${formatPower(p.w, lang)}` : `${fmt(f.kwp, 2)} kWp`);
-    }
-    this._scene?.setPvPower(ratios);
-  }
-
-  /** Infokarte eines PV-Felds: Module/kWp, Ausrichtung/Neigung, Leistung jetzt, W je kWp, Ertrag heute. */
-  _pvCard(id) {
-    const f = this._pvInfo?.get(id);
-    if (!f) return;
-    this._closePopup();
-    const hass = this._hass;
-    const lang = hass.locale?.language;
-    const p = this._pvPower?.get(id);
-    const est = p?.estimated ? "ca. " : "";
-    const yieldSt = f.energy ? hass.states[f.energy] : null;
-    const rows = [
-      ["Module", `${f.count} × ${f.wp} Wp = ${fmt(f.kwp, 2)} kWp`],
-      ["Ausrichtung", f.azimuth === null ? "flach" : `${Math.round(f.azimuth)}° (${f.dir}) · Neigung ${Math.round(f.tilt)}°`],
-      ["Leistung jetzt", Number.isFinite(p?.w) ? `${est}${formatPower(p.w, lang)}` : "–"],
-      ["je kWp", Number.isFinite(p?.w) && f.kwp > 0 ? `${est}${fmt(p.w / f.kwp, 0)} W` : "–"],
-      ["Ertrag heute", yieldSt ? (hass.formatEntityState ? hass.formatEntityState(yieldSt) : `${yieldSt.state} ${yieldSt.attributes?.unit_of_measurement ?? ""}`) : "–"],
-    ];
-    const el = document.createElement("div");
-    el.className = "popup pvpop";
-    el.innerHTML = `<div class="head"></div><div class="scroll">${rows.map(() => `<div class="item"><span></span><b></b></div>`).join("")}${p?.estimated ? `<p class="hint">Geschätzt aus der Gesamtleistung (PV Dach) nach Größe und Sonnenstand.</p>` : ""}</div><div class="foot"><button class="shade"><ha-icon icon="mdi:weather-partly-cloudy"></ha-icon><span>Verschattung prüfen</span></button>${f.entity ? `<button class="more"><ha-icon icon="mdi:information-outline"></ha-icon><span>Weitere Infos</span></button>` : ""}</div>`;
-    el.querySelector(".head").textContent = `PV-Feld ${f.name}`;
-    el.querySelectorAll(".item").forEach((row, i) => {
-      row.querySelector("span").textContent = rows[i][0];
-      row.querySelector("b").textContent = rows[i][1];
-    });
-    el.querySelector(".more")?.addEventListener("click", () => {
-      this._closePopup();
-      this._moreInfo(f.entity);
-    });
-    el.querySelector(".shade").addEventListener("click", () => this._pvShadingDialog());
-    el.addEventListener("click", (ev) => ev.stopPropagation());
-    this._els.stage.appendChild(el);
-    this._popup = el;
-  }
-
   /** Energie-Karte: Werte, Akku-Balken und -Restzeit, Netz-Richtung, Überschuss-Punkt, Kurzanzeige. */
   _updateEnergy(energy, hass) {
     const cfg = this._building.settings?.energy ?? {};
@@ -1258,132 +1118,6 @@ class Haus3DPanel extends HTMLElement {
     }[cfg.kurz] ?? this._energyEl.querySelector(".row b")?.textContent ?? "";
     setText(this._energyEl.querySelector(".short"), short);
     this._smartEnergy(tot);
-  }
-
-  /** Ausgeblendete Hinweise (dieses Gerät): {key: Zeitpunkt}. */
-  _alertAck(next) {
-    try {
-      if (next) localStorage.setItem(this._hk("haus3d.alerts.ack"), JSON.stringify(next));
-      return next ?? JSON.parse(localStorage.getItem(this._hk("haus3d.alerts.ack")) || "{}") ?? {};
-    } catch {
-      return next ?? this._ackMem ?? {};
-    }
-  }
-
-  /**
-   * Hinweise auswerten (alerts.js) und anzeigen: Banner, Glocke, Zeile am Raumnamen, Bodenfarbe.
-   * Neu gezeichnet wird nur, wenn sich die Hinweise ändern.
-   * @returns {Map<string, string>} Raum → Stufe (für die Bodenfarbe)
-   */
-  _evalAlerts(energy) {
-    const hass = this._hass;
-    const weather = weatherKind(this._weatherRef ?? null).kind;
-    this._smartStep();
-    const res = evaluateAlerts({
-      building: this._building, hass, byArea: this._byArea, links: this._links, places: this._places ?? new Map(), exterior: this._exterior ?? new Set(),
-      weather, energy, now: Date.now(), cfg: this._building.settings?.alerts, humidityMax: Number(this._building.settings?.climate?.humidity_max) || 65,
-    });
-    this._needTick("alerts", res.pending);
-    // Alltag: Gerät fertig, Müll, Lüften, Schimmel; Aktionen (Heizung pausieren …)
-    res.alerts.push(...this._smartAlerts(res.alerts));
-    const order = { critical: 0, warn: 1, info: 2 };
-    res.alerts.sort((a, b) => order[a.level] - order[b.level]);
-    // Ausblenden gilt, bis der Hinweis verschwindet (dann darf er wiederkommen)
-    let ack = this._alertAck();
-    const keys = new Set(res.alerts.map((a) => a.key));
-    const pruned = Object.fromEntries(Object.entries(ack).filter(([k]) => keys.has(k)));
-    if (Object.keys(pruned).length !== Object.keys(ack).length) ack = this._alertAck(pruned);
-    const visible = visibleAlerts(res.alerts, ack);
-    this._alerts = res.alerts;
-    this._visibleAlerts = visible;
-    const rooms = new Map();
-    for (const a of visible) {
-      if (!a.roomId) continue;
-      const k = `${a.floorId}:${a.roomId}`;
-      if (!rooms.has(k) || a.level === "critical") rooms.set(k, a.level);
-    }
-    const sig = visible.map((a) => a.key).join("|");
-    if (sig !== this._alertSig) {
-      this._alertSig = sig;
-      this._renderAlerts();
-    }
-    return rooms;
-  }
-
-  /** Banner oben, Glocke in der Statusleiste, Zeile am Raumnamen. */
-  _renderAlerts() {
-    const list = this._visibleAlerts ?? [];
-    // Raumnamen
-    for (const ov of this._overlays.values()) {
-      if (!ov.parts) continue;
-      const mine = list.filter((x) => ov.room && x.roomId === ov.room.id && ov.floorId === x.floorId);
-      const a = mine[0];
-      setText(ov.parts.alarm, a ? `${a.text}${mine.length > 1 ? ` (+${mine.length - 1})` : ""}` : "");
-      ov.label.classList.toggle("alarm", !!a);
-      ov.label.classList.toggle("crit", a?.level === "critical");
-    }
-    // Hinweis (Warnung/kritisch) weckt das ruhende oder gedimmte Tablet und zeigt den Raum
-    const top = list[0];
-    if (top && top.level !== "info" && (this._idle || this._dimmer)) {
-      this._wake();
-      if (top.roomId) setTimeout(() => this._showAlert(top), 0);
-    }
-    // Banner (Karten rücken auf schmalen Bildschirmen darunter)
-    this._alertBar?.remove();
-    this._alertBar = null;
-    this._els.stage.classList.toggle("alerting", list.length > 0);
-    if (list.length) {
-      const a = list[0];
-      const el = document.createElement("div");
-      el.className = `alertbar ${a.level}`;
-      el.setAttribute("role", "alert");
-      el.innerHTML = `<ha-icon icon="${esc(a.icon)}"></ha-icon><span class="at"></span>${list.length > 1 ? `<button class="more" title="Alle Hinweise">+${list.length - 1}</button>` : ""}${a.action ? `<button class="act">${esc(a.action.label)}</button>` : ""}${a.roomId ? `<button class="show">Zeigen</button>` : ""}<button class="ack" title="Ausblenden, bis sich etwas ändert">Ausblenden</button>`;
-      el.querySelector(".at").textContent = a.text;
-      el.querySelector(".show")?.addEventListener("click", () => this._showAlert(a));
-      el.querySelector(".act")?.addEventListener("click", () => this._alertAction(a));
-      el.querySelector(".ack").addEventListener("click", () => this._ackAlert(a));
-      el.querySelector(".more")?.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        this._alertsPopup();
-      });
-      this._els.stage.appendChild(el);
-      this._alertBar = el;
-    }
-    // Glocke
-    const box = this._els?.chips;
-    let bell = this._els?.status?.querySelector(".bell");
-    if (!list.length) bell?.remove();
-    else {
-      if (!bell) {
-        bell = document.createElement("button");
-        bell.className = "chip bell";
-        bell.innerHTML = `<ha-icon icon="mdi:bell-ring-outline"></ha-icon><span></span>`;
-        bell.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          this._alertsPopup();
-        });
-        box?.parentElement.insertBefore(bell, box);
-      }
-      bell.classList.toggle("crit", list.some((x) => x.level === "critical"));
-      bell.querySelector("span").textContent = String(list.length);
-      bell.title = `${list.length} Hinweis${list.length > 1 ? "e" : ""}`;
-    }
-  }
-
-  _showAlert(a) {
-    this._closePopup();
-    if (!a.roomId) return;
-    this._setFilter(a.floorId);
-    this._selectRoom({ floorId: a.floorId, roomId: a.roomId });
-  }
-
-  _ackAlert(a) {
-    const ack = this._alertAck();
-    ack[a.key] = Date.now();
-    this._alertAck(ack);
-    this._alertSig = null;
-    this._closePopup();
-    this._updateStates();
   }
 
   /**
@@ -1525,7 +1259,7 @@ class Haus3DPanel extends HTMLElement {
       mod = await loadEditor();
     } catch (err) {
       console.error("Haus 3D: Editor laden", err);
-      this._editorToast(`Der Editor ließ sich nicht laden (${err?.message ?? err}). Bitte die Seite neu laden.`);
+      this._editorToast(`Editor laden fehlgeschlagen: ${err?.message ?? err}. Seite neu laden.`);
       return;
     } finally {
       clearTimeout(hint);
@@ -1546,6 +1280,7 @@ class Haus3DPanel extends HTMLElement {
   _buildEditor(FloorEditor) {
     const houseId = this._house?.id ?? null; // der Editor gehört zu diesem Haus …
     const simAtOpen = !!this._sim; // … und zu echt bzw. Simulation
+    const demoAtOpen = this._isDemo(); // Demo-Haus: der Editor hält ein Gebäude mit eingesetzten Demo-Geräten
     this._closePopup();
     this._closeDialog();
     this._selectRoom(null);
@@ -1560,16 +1295,19 @@ class Haus3DPanel extends HTMLElement {
         sceneStyle: this._appliedStyle === "cyber" ? "cyber" : this._appliedStyle === "night" ? "night" : "standard",
         dark: !!this._hass.themes?.darkMode,
         revision: this._revision,
-        draftKey: this._sim ? "haus3d.editorDraft.sim" : this._house ? `haus3d.editorDraft.${this._house.id}` : undefined, // Entwurf je Haus, Simulation getrennt
+        draftKey: this._sim ? "haus3d.editorDraft.sim" : this._house ? `haus3d.editorDraft.${this._house.id}${demoAtOpen ? ".demo" : ""}` : undefined, // Entwurf je Haus, Simulation und Demo getrennt (der Demo-Entwurf trägt Demo-Geräte)
         onSave: async (building, { keepOpen = false } = {}) => {
-          if ((this._house?.id ?? null) !== houseId || this._switching || !!this._sim !== simAtOpen) throw new Error("Inzwischen wurde das Haus gewechselt oder die Simulation umgeschaltet – nicht gespeichert.");
+          if ((this._house?.id ?? null) !== houseId || this._switching || !!this._sim !== simAtOpen) throw new Error("Inzwischen Haus gewechselt oder Simulation umgeschaltet – nicht gespeichert.");
+          // Demo-Haus: gespeichert wird nie eine Demo-Kennung (auch wenn der Demo-Wrapper nicht mehr in der Kette steckt);
+          // dasselbe, wenn ein alter Entwurf eines Demo-Hauses in einem anderen Haus fortgesetzt wurde
+          if (demoAtOpen || JSON.stringify(building).includes("h3demo_")) building = this._demoStrip ? this._demoStrip(building) : (await import("./demo-build.js")).demoStrip(building);
           try {
             const res = await this._callLocked({ type: "haus3d/building/save", building, revision: this._revision }, "edit");
             this._setBuilding(res.building, res.revision, { keepCamera: true });
             if (!keepOpen) this._toast("Gespeichert.");
             return res.revision;
           } catch (err) {
-            if (err.code === "conflict") throw new Error("Der Stand wurde inzwischen woanders geändert. Bitte Seite neu laden.");
+            if (err.code === "conflict") throw new Error("Inzwischen woanders geändert – Seite neu laden.");
             throw err;
           }
         },
@@ -1584,14 +1322,19 @@ class Haus3DPanel extends HTMLElement {
           this._refreshEntities();
         },
         sim: !!this._sim,
+        demo: demoAtOpen,
       });
     } catch (err) {
       console.error("Haus 3D: Editor", err);
       this._els.stage.querySelectorAll(":scope > .ed").forEach((n) => n.remove());
-      this._toast(`Der Editor ließ sich nicht öffnen: ${err?.message ?? err}`);
+      this._toast(`Editor öffnen fehlgeschlagen: ${err?.message ?? err}`);
       return;
     }
     this._editor = ed;
+    if (this._isDemo()) this._toast("Demo-Haus: automatische Demo-Geräte (h3demo) werden nicht gespeichert.");
+    ed.onHelp = () => this._openHelp({ editor: ed });
+    ed.onPrint = () => this._openPrint({ editor: ed });
+    this._tourAuto("editor", ed);
     // Hauptansicht ruht, solange der Editor offen ist (der hat seine eigene 3D-Ansicht)
     this._scene?.stop();
     if (this._editBand) this._editBand.hidden = true;
@@ -1649,8 +1392,10 @@ class Haus3DPanel extends HTMLElement {
 
   /** Gemeinsame Einstellungen speichern (ins Gebäude, mit Revision). */
   _closeDialog() {
-    this._dialog?.remove();
+    const el = this._dialog;
     this._dialog = null;
+    el?.remove();
+    el?._onClose?.(); // z. B. PV-Vorschau im Demo-Haus zurücknehmen
   }
 
   // ------------------------------------------------------------------ Klicks in die 3D-Szene, Raumauswahl
@@ -1669,7 +1414,11 @@ class Haus3DPanel extends HTMLElement {
         if (!down) return;
         const hit = this._scene?.pick(down.x, down.y);
         const ent = hit?.entity_id ?? (hit?.pvField ? this._pvInfo?.get(hit.pvField)?.entity : null);
-        if (ent) {
+        if (hit?.opening) {
+          // Demo-Haus: Tür/Fenster gedrückt halten → Demo-Dialog (Rollladen-Position bzw. offen/zu)
+          down.long = true;
+          this._demoOpening?.(hit.opening, { long: true });
+        } else if (ent) {
           down.long = true;
           this._moreInfo(ent);
         } else if (hit?.roomId) {
@@ -1698,7 +1447,8 @@ class Haus3DPanel extends HTMLElement {
       if (this._scene?.isWalking()) return;
       if (!d || d.long || Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 8) return;
       const hit = this._scene?.pick(ev.clientX, ev.clientY);
-      if (hit?.entity_id) this._activate(hit.entity_id);
+      if (hit?.entity_id) hit.info ? this._moreInfo(hit.entity_id) : this._activate(hit.entity_id); // eingebautes Gerät: Infos statt schalten
+      else if (hit?.opening) this._demoOpening?.(hit.opening); // nur im Demo-Haus antippbar (scene.tapOpenings)
       else if (hit?.pvField) this._pvCard(hit.pvField);
       else if (hit?.pipe || hit?.pipeNode) this._pipePopup(hit);
       else if (hit?.roomId) {
@@ -1712,6 +1462,9 @@ class Haus3DPanel extends HTMLElement {
       if (hit?.entity_id) {
         ev.preventDefault();
         this._moreInfo(hit.entity_id);
+      } else if (hit?.opening) {
+        ev.preventDefault();
+        this._demoOpening?.(hit.opening, { long: true });
       }
     });
   }
@@ -1830,7 +1583,7 @@ class Haus3DPanel extends HTMLElement {
     this._roomExtras(p, floor, room, bar);
     const bulk = (domain, service, list) => {
       if (!list.length) return;
-      this._hass.callService(domain, service, { entity_id: list }).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+      this._hass.callService(domain, service, { entity_id: list }).catch((err) => this._toast(`Ausführen fehlgeschlagen: ${err.message ?? err}`));
     };
     bar.querySelector(".act-light")?.addEventListener("click", () => {
       const on = p.actions.lights.on;
@@ -1852,7 +1605,7 @@ class Haus3DPanel extends HTMLElement {
       // gesammelt senden: ein Aufruf nach kurzer Pause
       const hass = this._hass; // beim Tippen festhalten (Testhaus-Wechsel in der Zwischenzeit)
       p.climateTimer = setTimeout(() => {
-        hass.callService("climate", "set_temperature", { entity_id: c.entity, temperature: value }).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+        hass.callService("climate", "set_temperature", { entity_id: c.entity, temperature: value }).catch((err) => this._toast(`Temperatur setzen fehlgeschlagen: ${err.message ?? err}`));
       }, 700);
     };
     bar.querySelector(".act-minus")?.addEventListener("click", () => step(-1));
@@ -1861,7 +1614,7 @@ class Haus3DPanel extends HTMLElement {
     // Geräte in Gruppen
     const list = p.el.querySelector(".rp-list");
     p.rows = new Map();
-    if (!ids.length) list.innerHTML = `<div class="rp-empty">Keine Geräte.${admin ? " Über das Regler-Symbol oben hinzufügen." : ""}</div>`;
+    if (!ids.length) list.innerHTML = `<div class="rp-empty">${room.area_id ? "Keine Geräte im Bereich." : "Kein HA-Bereich zugeordnet – im Editor unter „Bereich in Home Assistant“ wählen."}${admin ? " Regler-Symbol oben holt weitere dazu." : ""}</div>`;
     for (const g of groupRoomEntities(ids, hass)) {
       const h = document.createElement("div");
       h.className = "rp-group";
@@ -2208,7 +1961,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods, SupportMethods, PipeNetMethods, SmartMethods, TimelineMethods, SceneMethods, HoloMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods, SupportMethods, PipeNetMethods, SmartMethods, TimelineMethods, SceneMethods, HoloMethods, SimMethods, PvMethods, AlertMethods, ConfirmMethods, HelpPanelMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

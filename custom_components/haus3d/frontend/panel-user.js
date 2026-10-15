@@ -126,7 +126,7 @@ export const UserMethods = {
       this._updateStates();
       return;
     }
-    if (c.service === "notify") this._notice(c);
+    if (c.service === "notify" && !this._isDemo?.()) this._notice(c); // Meldungen echter Automationen gehören nicht ins Demo-Haus
   },
 
   /** Blinkender Raum (Dienst highlight) in die Hinweis-Färbung mischen. */

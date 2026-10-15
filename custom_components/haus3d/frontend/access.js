@@ -65,12 +65,17 @@ export function newPinError(a, b) {
 /** Einstellungen, die nur mit der Admin-PIN gespeichert werden (wie ADMIN_SETTINGS in access.py). */
 export const ADMIN_KEYS = ["energy", "alerts", "routines", "security", "safety", "doorbell", "weather", "climate", "season", "house_flow", "presence", "north", "daily"];
 
-/** Testhaus dieses Browsers: {id, name, live} oder null (Entwickler → Testhaus). */
+/**
+ * Weiteres Haus dieses Browsers: {id, name, live, demo} oder null (= Mein Haus, immer echt).
+ * Zwischenspeicher: maßgeblich ist die Antwort von building/get. Ein Demo-Haus ist nie „live“.
+ */
 export const HOUSE_KEY = "haus3d.house";
 export function loadHouse(raw) {
   try {
     const h = JSON.parse(raw ?? "null");
-    return h && typeof h.id === "string" && /^test[0-9]{1,30}$/.test(h.id) ? { id: h.id, name: String(h.name ?? "Testhaus"), live: h.live === true } : null;
+    if (!h || typeof h.id !== "string" || !/^test[0-9]{1,30}$/.test(h.id)) return null;
+    const demo = h.demo === true;
+    return { id: h.id, name: String(h.name ?? (demo ? "Demo" : "Testhaus")), live: h.live === true && !demo, demo };
   } catch {
     return null;
   }
@@ -83,17 +88,23 @@ export const HOUSE_BLOCKED = ["haus3d/lock/unlock", "haus3d/climate/pause"];
 /** Befehle, die im Testhaus nie gehen: dauerhafte Einstellungen des echten Hauses (PINs, Entwickler, Urlaub). */
 export const HOUSE_ALWAYS_BLOCKED = ["haus3d/pin/set", "haus3d/dev/clear", "haus3d/dev/set", "haus3d/away/set"];
 
-const testhausError = () => Object.assign(new Error("Testhaus: nichts an Home Assistant geschickt"), { code: "testhaus", quiet: true });
+const houseError = (demo) => (demo ? Object.assign(new Error("Demo: nichts an Home Assistant geschickt"), { code: "demo", quiet: true }) : Object.assign(new Error("Testhaus: nichts an Home Assistant geschickt"), { code: "testhaus", quiet: true }));
 
 /**
- * hass fürs Testhaus: Grundriss-Befehle bekommen `house` (echtes Haus bleibt unberührt).
+ * hass fürs Testhaus bzw. Demo-Haus: Grundriss-Befehle bekommen `house` (echtes Haus bleibt unberührt).
  * - Ohne `live` geht nichts an Geräte: Dienste, Tür, Heizung pausieren und Urlaub werden abgelehnt
  *   (Fehler mit quiet, onBlocked meldet es). In der Simulation (`sim`) schaltet die Simulation selbst.
  * - Immer gesperrt: Änderungen an der HA-Konfiguration (callApi außer GET, z. B. Szenen) und Befehle
  *   fürs echte Haus (PINs, Entwickler-Instanz) – auch mit `live` und in der Simulation.
+ * - `demo` (Vorführhaus): gilt immer als Simulation und nie als `live`; `base` ist dann der Demo-Wrapper,
+ *   der Dienste selbst simuliert (Fehlercode „demo“ statt „testhaus“).
  */
-export function houseGuard(base, house, { live = false, sim = false, onBlocked = () => {} } = {}) {
+export function houseGuard(base, house, { live = false, sim = false, demo = false, onBlocked = () => {} } = {}) {
   if (!base || !house) return base;
+  if (demo) {
+    live = false;
+    sim = true;
+  }
   const h = Object.create(base);
   h.haus3dHouse = house;
   h.callWS = (msg, ...rest) => {
@@ -101,21 +112,21 @@ export function houseGuard(base, house, { live = false, sim = false, onBlocked =
     if (HOUSE_TYPES.test(type)) return base.callWS({ ...msg, house }, ...rest);
     if (HOUSE_ALWAYS_BLOCKED.includes(type) || (!live && HOUSE_BLOCKED.includes(type))) {
       onBlocked(type);
-      return Promise.reject(testhausError());
+      return Promise.reject(houseError(demo));
     }
     return base.callWS(msg, ...rest);
   };
   if (!live && !sim) {
     h.callService = async (domain, service) => {
       onBlocked(`${domain}.${service}`);
-      throw testhausError();
+      throw houseError(demo);
     };
   }
   if (base.callApi) {
     h.callApi = (method, path, ...rest) => {
       if (String(method).toUpperCase() === "GET") return base.callApi(method, path, ...rest);
       onBlocked(path);
-      return Promise.reject(testhausError());
+      return Promise.reject(houseError(demo));
     };
   }
   return h;

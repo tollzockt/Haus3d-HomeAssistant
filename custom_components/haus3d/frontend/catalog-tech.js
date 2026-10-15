@@ -86,6 +86,8 @@ export const RACK_UNITS = {
   tech_rack_shelf: ["Fachboden 1 HE", 1, 0.45],
   tech_blank_panel: ["Blindblende 1 HE", 1, 0.02],
   tech_cable_mgmt: ["Kabelführung 1 HE", 1, 0.06],
+  tech_blank_panel_2u: ["Blindblende 2 HE", 2, 0.02],
+  tech_brush_panel: ["Bürstenleiste 1 HE (Kabeldurchführung)", 1, 0.03],
   tech_kvm: ["KVM-Konsole 1 HE", 1, 0.45],
 };
 

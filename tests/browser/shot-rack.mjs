@@ -92,7 +92,9 @@ t.check(sel1?.id === cab.id, `Schrank anwählbar: ${JSON.stringify(sel1)}`);
 // ---------------------------------------------------------------- B Felder am Schrank und am Gerät
 const p1 = await props();
 t.results.felderSchrank = p1.slice(0, 600);
-t.check(/Belegt: 4 von 22 HE/.test(p1) && /HE 3–4 · USV 2 HE/.test(p1) && /HE 1 · Server 1 HE/.test(p1), `Felder am Schrank: ${p1.slice(0, 400)}`);
+// (die Geräte stehen in der HE-Leiste, einer SVG-Zeichnung: ihr Text steht im aria-label)
+const rackLabels = await E(() => [...window.panel._editor.props.querySelectorAll("[data-tech-pick]")].map((e) => e.getAttribute("aria-label")));
+t.check(/Belegt: 4 von 22 HE/.test(p1) && rackLabels.includes("HE 3–4 · USV 2 HE") && rackLabels.includes("HE 1 · Server 1 HE"), `Felder am Schrank: ${p1.slice(0, 200)} ${JSON.stringify(rackLabels)}`);
 await t.shot(ed, "rack-plan.png");
 await ed.locator("haus3d-panel .ed-props [data-tech-pick]").nth(1).click(); // zweiter Eintrag von oben: der Switch
 const sel2 = await E(() => window.panel._editor.sel);

@@ -21,11 +21,11 @@ export const ROOF_TOOLS = [
 ];
 
 export const ROOF_HINTS = {
-  select: "Dach-Ebene dieser Etage: Dachfläche antippen – rechts Form, Neigung und Kanten; orange Punkte ziehen verschiebt eine Kante. Dachteile: Ecken ziehen, „+“ fügt Ecken ein, Fläche ziehen verschiebt. Kamin, Dachfenster, PV-Felder und Gauben antippen und ziehen. Pfeiltasten schieben, Entf setzt zurück bzw. löscht.",
-  roofadd: "Dach setzen: rechts Dachform und Zeichenart wählen – Rechteck ziehen, Punkte setzen, auf einen Raum tippen oder beim Kegeldach einen Kreis ziehen.",
+  select: "Dach antippen: rechts Form und Neigung. Orange Punkte verschieben Kanten; Dachteile und Aufbauten lassen sich ziehen.",
+  roofadd: "Rechts Dachform und Zeichenart wählen, dann Rechteck ziehen, Punkte setzen oder auf einen Raum tippen.",
   chimney: "Auf ein Dach dieser Etage tippen: Kamin setzen.",
   skylight: "Auf ein Dach dieser Etage tippen: Dachfenster setzen.",
-  dormer: "Auf eine geneigte Dachfläche tippen: Gaube setzen (Front zur Traufe). Form, Breite, Höhe und Neigung rechts einstellen.",
+  dormer: "Auf eine geneigte Dachfläche tippen: Gaube setzen (Front zur Traufe).",
   pv: "Auf ein Dach dieser Etage tippen: PV-Feld setzen (Spalten × Reihen rechts einstellen).",
 };
 

@@ -12,8 +12,8 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const LETTER = { hv: "H", uv: "U", einspeisung: "E", abzweig: "A", router: "R", switch: "S", wasser_in: "W", warm_in: "B", durch: "D" };
 
-export const NODE_HINT = "Verteiler: Art rechts wählen, dann an die Stelle tippen – rastet an Wänden ein und dreht sich zum Raum. Leitungen, die an einem Verteiler beginnen oder enden, hängen daran.";
-const NODE_TURN_HINT = "Das Dreieck im Plan zeigt die Vorderseite. Drehen: oranger Punkt (15°-Schritte, Umschalt bzw. „Frei“ = stufenlos), ⟳/⟲ am Steuerkreuz oder Taste R (Umschalt+R = 15° zurück). An einer Wand dreht sich der Verteiler beim Setzen und Ziehen von selbst zum Raum.";
+export const NODE_HINT = "Art rechts wählen, dann an die Stelle tippen: rastet an Wänden ein und dreht sich zum Raum.";
+const NODE_TURN_HINT = "Das Dreieck zeigt die Vorderseite. Drehen: oranger Punkt (15°-Schritte, Umschalt bzw. „Frei“ = stufenlos), ⟳/⟲ am Steuerkreuz oder Taste R. An Wänden dreht er sich selbst zum Raum.";
 
 const color = (kind) => {
   const medium = NODE_KINDS.find((k) => k[0] === kind)?.[3];

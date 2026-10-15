@@ -134,7 +134,7 @@ await c.pg.waitForTimeout(500);
 await c.E(() => window.panel._openEditor());
 const f1 = await c.E(() => ({ editor: !!window.panel._editor, toast: window.panel.shadowRoot.querySelector(".toast")?.textContent ?? "", opening: window.panel._editorOpening, styles: window.panel.shadowRoot.querySelectorAll("style").length }));
 t.results.fehlschlag = f1;
-t.check(!f1.editor && /nicht laden/.test(f1.toast) && !f1.opening && f1.styles === 1, `fehlschlag: ${JSON.stringify(f1)}`);
+t.check(!f1.editor && /^Editor laden fehlgeschlagen/.test(f1.toast) && !f1.opening && f1.styles === 1, `fehlschlag: ${JSON.stringify(f1)}`);
 // zweiter Versuch gelingt: die Fehlermeldung des ersten steht nicht mehr über dem offenen Editor
 c.state.fail = false;
 await c.E(() => window.panel._openEditor());

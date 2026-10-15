@@ -27,7 +27,7 @@ const meshes = (o) => {
 test("Katalog: drei Kategorien unter „Drinnen“, Typen mit Präfix tech_, Maße und Namen gültig", () => {
   assert.equal(WALL.length, 18);
   assert.equal(HEAT.length, 19);
-  assert.equal(SERVER.length, 25);
+  assert.equal(SERVER.length, 27);
   const drinnen = FURNITURE_GROUPS.find(([g]) => g === "Drinnen")[1];
   for (const c of ["Steckdosen & Schalter", "Heizungsraum", "Server & NAS"]) assert.ok(drinnen.includes(c), c);
   for (const t of [...WALL, ...HEAT, ...SERVER]) {
@@ -41,7 +41,7 @@ test("Katalog: drei Kategorien unter „Drinnen“, Typen mit Präfix tech_, Ma�
 });
 
 test("19-Zoll-Geräte: Breite 0,482 m, Höhe = HE × 0,0445 m, HE wie im Auftrag", () => {
-  const he = { tech_srv_1u: 1, tech_srv_2u: 2, tech_srv_4u: 4, tech_nas_rack: 2, tech_switch_24: 1, tech_switch_poe: 1, tech_patch_panel: 1, tech_firewall: 1, tech_ups_2u: 2, tech_pdu: 1, tech_rack_shelf: 1, tech_blank_panel: 1, tech_cable_mgmt: 1, tech_kvm: 1 };
+  const he = { tech_srv_1u: 1, tech_srv_2u: 2, tech_srv_4u: 4, tech_nas_rack: 2, tech_switch_24: 1, tech_switch_poe: 1, tech_patch_panel: 1, tech_firewall: 1, tech_ups_2u: 2, tech_pdu: 1, tech_rack_shelf: 1, tech_blank_panel: 1, tech_cable_mgmt: 1, tech_blank_panel_2u: 2, tech_brush_panel: 1, tech_kvm: 1 };
   assert.deepEqual(Object.keys(RACK_UNITS).sort(), Object.keys(he).sort());
   assert.equal(RACK_W, 0.482);
   assert.equal(HE, 0.0445);
@@ -146,9 +146,71 @@ test("Server-Geräte: LEDs in bulbs (Switch mit 24 Port-LEDs), Tischgeräte mit 
   assert.ok(bulbs("tech_nas_rack") >= 12);
   assert.ok(bulbs("tech_srv_1u") >= 4);
   for (const t of ["tech_nas_2bay", "tech_nas_5bay", "tech_nas_8bay", "tech_mini_pc", "tech_sbc", "tech_tower_server", "tech_switch_8", "tech_wifi_router", "tech_ap_ceiling", "tech_modem", "tech_ups_tower", "tech_ups_2u", "tech_firewall", "tech_pdu", "tech_kvm"]) assert.ok(bulbs(t) >= 1, t);
-  // Blindblende und Patchfeld leuchten nicht
+  // Blindblenden, Bürstenleiste und Patchfeld leuchten nicht
+  assert.equal(bulbs("tech_blank_panel_2u"), 0);
+  assert.equal(bulbs("tech_brush_panel"), 0);
   assert.equal(bulbs("tech_blank_panel"), 0);
   assert.equal(bulbs("tech_patch_panel"), 0);
+});
+
+test("Server-Geräte mit Entität: LEDs folgen ihr über onState (grün, aus, rot), stehen nicht in bulbs; ohne Entität wie bisher", () => {
+  const M = furnitureMaterials("standard");
+  const mats = ledMats(M);
+  const make = (item, MM = M) => buildFurniture({ x: 0, z: 0, ...item }, MM, 0, 2.5);
+  const ledMeshes = (g) => meshes(g).filter((m) => Object.values(mats).includes(m.material));
+  const kinds =(g) => [...new Set(ledMeshes(g).map((m) => Object.keys(mats).find((k) => mats[k] === m.material)))];
+  const states = {
+    on: { entity_id: "switch.test_server", state: "on" },
+    off: { entity_id: "switch.test_server", state: "off" },
+    gone: { entity_id: "switch.test_server", state: "unavailable" },
+    fault: { entity_id: "sensor.test_server", state: "error" },
+    problemOn: { entity_id: "binary_sensor.test_server", state: "on", attributes: { device_class: "problem" } },
+    problemOff: { entity_id: "binary_sensor.test_server", state: "off", attributes: { device_class: "problem" } },
+    watts: { entity_id: "sensor.test_srv_leistung", state: "245", attributes: { unit_of_measurement: "W" } },
+    zero: { entity_id: "sensor.test_srv_leistung", state: "0", attributes: { unit_of_measurement: "W" } },
+  };
+  let withLeds = 0;
+  for (const t of SERVER) {
+    for (const extra of [{}, { in_rack: "c1", rack_u: 3 }]) {
+      const plain = make({ id: t, type: t, ...extra });
+      const n = plain.userData.bulbs.length; // Zahl der LEDs ohne Entität
+      assert.equal(plain.userData.onState, undefined, `${t}: ohne Entität kein onState`);
+      assert.equal(ledMeshes(plain).length, 0, `${t}: ohne Entität die Standard-LEDs, keine Zustandsfarben`);
+      const g = make({ id: t, type: t, entity: "switch.test_server", ...extra });
+      if (!n) {
+        assert.equal(g.userData.onState, undefined, `${t}: ohne LEDs kein onState`);
+        continue;
+      }
+      withLeds++;
+      assert.equal(g.userData.bulbs.length, 0, `${t}: LEDs nicht in bulbs (lampBulbs überschriebe die Farbe)`);
+      assert.equal(typeof g.userData.onState, "function", t);
+      // vor dem ersten Zustand (Editor-3D ruft onState nie auf) bleiben die LEDs, wie sie waren
+      assert.equal(ledMeshes(g).length, 0, `${t}: vor onState keine Zustandsfarbe`);
+      g.userData.onState(states.on);
+      assert.equal(ledMeshes(g).length, n, `${t}: alle ${n} LEDs`);
+      assert.deepEqual(kinds(g), ["green"], `${t}: an`);
+      for (const [name, kind] of [["off", "off"], ["gone", "red"], ["fault", "red"], ["problemOn", "red"], ["problemOff", "green"], ["watts", "green"], ["zero", "off"]]) {
+        g.userData.onState(states[name]);
+        assert.deepEqual(kinds(g), [kind], `${t}: ${name}`);
+      }
+      g.userData.onState(null);
+      assert.deepEqual(kinds(g), ["off"], `${t}: Entität unbekannt`);
+      g.userData.onState(states.on);
+      assert.deepEqual(kinds(g), ["green"], `${t}: wieder an`);
+    }
+  }
+  assert.ok(withLeds >= 30, `Typen mit LEDs: ${withLeds}`);
+  // „none“ und ungültige Werte zählen nicht als Entität
+  for (const entity of ["none", "", "kaputt", null]) {
+    const g = make({ id: "x", type: "tech_switch_24", entity });
+    assert.equal(g.userData.onState, undefined, String(entity));
+    assert.ok(g.userData.bulbs.length >= 24, String(entity));
+  }
+  // Stil Cyberpunk: dieselben Farben (ledMats je Material-Satz)
+  const cyber = furnitureMaterials("cyber");
+  const gc = make({ id: "c", type: "tech_srv_1u", entity: "switch.test_server" }, cyber);
+  gc.userData.onState(states.gone);
+  assert.ok(meshes(gc).some((m) => m.material === ledMats(cyber).red));
 });
 
 test("Tischgerät im Schrank bekommt einen Fachboden, 19-Zoll-Geräte nicht", () => {
@@ -169,6 +231,7 @@ test("Schrank: Platzhalter-Einschübe mit LEDs nur ohne eingebaute Geräte, Glas
       assert.equal(leds({ ...item, rack_used: 3 }), 0, `${type}: belegt`);
       assert.equal(leds({ ...item, rack_used: 0 }), n * 4, `${type}: rack_used 0 = leer`);
       const g = buildFurniture({ ...item, rack_used: 3 }, M, 0, 2.5);
+      g.updateMatrixWorld(true);
       const glass = meshes(g).filter((m) => m.material.transparent && m.material.opacity < 0.4);
       assert.equal(glass.length, 1, `${type}: eine getönte Glastür`);
       const b = box3(glass[0]);
@@ -177,6 +240,57 @@ test("Schrank: Platzhalter-Einschübe mit LEDs nur ohne eingebaute Geräte, Glas
       // die Tür deckt nicht alles zu: innen ist genug Platz für ein Gerät (offener Rahmen, keine Vollkörper-Box)
       const solid = meshes(g).filter((m) => m.material !== glass[0].material && box3(m).getSize(new THREE.Vector3()).x > w * 0.9 && box3(m).getSize(new THREE.Vector3()).y > h * 0.5 && box3(m).getSize(new THREE.Vector3()).z > d * 0.9);
       assert.equal(solid.length, 0, `${type}: kein Vollkörper`);
+    }
+  }
+});
+
+test("Schrank: Tür als Gruppe „door“, zu wie bisher, mit open: true um 100° nach außen links offen, alle Tür-Teile noPick", () => {
+  for (const style of ["standard", "cyber"]) {
+    const M = furnitureMaterials(style);
+    for (const type of ["network_cabinet", "server_rack"]) {
+      const [, w, d, h] = FURNITURE[type];
+      const item = { id: "c", type, x: 0, z: 0, w, d, h, rack_used: 3 };
+      const make = (extra) => {
+        const g = buildFurniture({ ...item, ...extra }, M, 0, 2.5);
+        g.updateMatrixWorld(true);
+        return g;
+      };
+      const closed = make({});
+      const door = closed.getObjectByName("door");
+      assert.ok(door && door.isGroup && closed.userData.door === door, `${type}: Gruppe door`);
+      assert.equal(door.rotation.y, 0);
+      // Drehpunkt: linker Rahmen vorn (von vorn gesehen links = −x)
+      assert.ok(Math.abs(door.position.x - (-w / 2 + 0.015)) < 1e-9 && Math.abs(door.position.z - d / 2) < 1e-9, `${type}: Drehpunkt`);
+      // Scheibe, vier Rahmenteile, Griff – alle noPick
+      const parts = meshes(door);
+      assert.equal(parts.length, 1 + 2 + 2 + 1, `${type}: Teile der Tür`);
+      assert.ok(parts.every((m) => m.userData.noPick === true), `${type}: noPick`);
+      assert.ok(parts.some((m) => m.material.transparent && m.material.opacity < 0.4));
+      // alles andere (Gehäuse, Schienen) gehört nicht zur Tür und ist pickbar
+      const rest = meshes(closed).filter((m) => !parts.includes(m));
+      assert.ok(rest.length > 10 && rest.every((m) => !m.userData.noPick), `${type}: Gehäuse pickbar`);
+      // zu: die Hülle bleibt in den Maßen des Schranks
+      const bc = box3(closed);
+      assert.ok(Math.abs(bc.max.z - d / 2) < 0.01 && Math.abs(bc.max.x - w / 2) < 0.01 && Math.abs(bc.max.y - h) < 0.01, `${type}: geschlossen`);
+      // andere Werte als true öffnen nichts
+      for (const v of [false, 0, 1, "true", null]) assert.equal(make({ open: v }).getObjectByName("door").rotation.y, 0, `open ${v}`);
+
+      // offen: um 100° nach außen (+z) und links (−x)
+      const open = make({ open: true });
+      const od = open.getObjectByName("door");
+      assert.ok(Math.abs(od.rotation.y + (100 * Math.PI) / 180) < 1e-9, `${type}: −100°`);
+      const glass = meshes(od).find((m) => m.material.transparent && m.material.opacity < 0.4);
+      const b = box3(glass);
+      assert.ok(b.max.z > d / 2 + 0.4 * w, `${type}: Scheibe ragt ${(b.max.z - d / 2).toFixed(2)} m vor die Front`);
+      assert.ok(b.min.x < -w / 2 - 0.05 && b.max.x < w / 2 - 0.3, `${type}: Tür schwenkt nach links`);
+      assert.ok(Math.abs(b.min.z - d / 2) < 0.1 || b.min.z >= d / 2 - 0.1, `${type}: Scharnier bleibt vorn`);
+      // alle Tür-Teile sind weiter noPick; das Gehäuse ist unverändert
+      assert.ok(meshes(od).every((m) => m.userData.noPick === true));
+      const restOpen = meshes(open).filter((m) => !meshes(od).includes(m));
+      assert.equal(restOpen.length, rest.length);
+      // leerer Schrank (Platzhalter): Tür öffnet ebenso, der Platzhalter ist sichtbar
+      const empty = buildFurniture({ ...item, rack_used: undefined, open: true }, M, 0, 2.5);
+      assert.ok(Math.abs(empty.getObjectByName("door").rotation.y + (100 * Math.PI) / 180) < 1e-9);
     }
   }
 });
@@ -280,7 +394,7 @@ test("Anker-Stapel: Erweiterungsakkus unter dem Speicher, Höhe folgt der Anzahl
 test("Marken: Technik-Dateien nennen keine Hersteller (nur catalog-extra.js und energytemplates.js dürfen)", () => {
   const BRAND = /\b(ikea|playstation|xbox|nintendo|steam deck|solarbank|powerwall|unifi|ubiquiti|tibber|nordpool|awattar|epex|fronius|senec|huawei|victron|growatt|sungrow|goodwe|deye|byd|zendure|ecoflow|marstek|hoymiles|opendtu|apsystems|kostal|solaredge|pylontech|easee|keba|zaptec|tesla|anker|solix)\b/i;
   const dir = new URL("../../custom_components/haus3d/frontend/", import.meta.url);
-  for (const f of ["catalog-tech.js", "furniture-tech.js", "furniture-tech-wall.js", "furniture-tech-heat.js", "furniture-tech-rack.js", "tech-parts.js", "cabinet-model.js", "rack.js", "follow-rack.js", "fields-tech.js"]) {
+  for (const f of ["catalog-tech.js", "furniture-tech.js", "furniture-tech-wall.js", "furniture-tech-heat.js", "furniture-tech-rack.js", "tech-parts.js", "cabinet-model.js", "rack.js", "follow-rack.js", "fields-tech.js", "rack-plan.js", "rack-live.js", "rack-strip.js", "holo.js", "panel-holo.js", "scene-pick.js"]) {
     assert.doesNotMatch(readFileSync(new URL(f, dir), "utf8"), BRAND, f);
   }
   // Kategorie- und Typnamen ohne Marken

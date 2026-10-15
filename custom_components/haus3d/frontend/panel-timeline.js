@@ -9,6 +9,8 @@ import { TIMELINE_DOMAINS, cloudOf, forecastAt, historyStates, normalizeHistory,
 export const TimelineMethods = {
   /** Zeitstrahl öffnen: Verlauf seit Mitternacht und Vorhersage laden. */
   async _timelineOpen() {
+    // Demo-Haus: der Zeitstrahl liest den echten Verlauf und die echte Vorhersage – dort nie
+    if (this._isDemo?.()) return this._toast("Im Demo-Haus gibt es keinen Zeitstrahl.");
     if (this._sim) return this._toast("In der Simulation gibt es keinen Zeitstrahl.");
     if (this._tl) return this._timelineClose();
     const now = Date.now();

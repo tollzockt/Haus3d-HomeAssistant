@@ -25,7 +25,7 @@ import { SceneRoofParts } from "./scene-roofparts.js";
 import { onModelsChange } from "./models.js";
 import { addAreaKerb, buildKerbArea } from "./scene-kerb.js";
 import { SceneWalls } from "./wallmesh.js";
-import { hiddenBehind, inGarden, wallBlockers } from "./scene-pick.js";
+import { hiddenBehind, inGarden, markOpening, wallBlockers, withInfo } from "./scene-pick.js";
 import { floorPrisms } from "./wallcull.js";
 
 const OUTDOOR = {
@@ -131,6 +131,8 @@ export class HouseScene {
     this.lampBulbs = new Map(); // entity_id -> Leuchtmittel (Möbel-Lampen und 3D-Geräte)
     this.heatParts = []; // Heizkörper-Rippen (glühen beim Heizen)
     this.stateParts = []; // Möbel mit userData.onState: folgen dem Zustand ihrer Entität (offen/zu, an/aus …)
+    this.infoTap = new Set(); // Entitäten eingebauter Geräte (Schrank): Antippen öffnet die Infos statt zu schalten (pick: info)
+    this.tapOpenings = false; // Türen/Fenster antippbar (Demo-Haus): pick → {opening: {floorId, id}}
     // eigene 3D-Modelle laden nach dem Aufbau: danach Schatten setzen und neu zeichnen
     this._offModels = onModelsChange((kind) => kind === "loaded" && this._applyShadows());
     this.devicesGroup = new THREE.Group();
@@ -396,6 +398,7 @@ export class HouseScene {
     this.lampBulbs.clear();
     this.heatParts = [];
     this.stateParts = [];
+    this.infoTap.clear();
     this.pvFields = new Map(); // PV-Feld-ID → {mesh, solar, …} (Dach-Ebene)
     // Deckenöffnungen (Treppen von unten, Treppenlöcher) einmal je Etage
     this._slabHoles = new Map((building.floors ?? []).map((f) => [f.id, slabOpenings(building, f.id)]));
@@ -579,7 +582,12 @@ export class HouseScene {
     this.invalidate();
   }
 
-  pick(clientX, clientY, { furniture = false } = {}) {
+  /** Was liegt unter dem Zeiger? Treffer auf ein im Schrank eingebautes Gerät tragen `info: true` (scene-pick.js: withInfo). */
+  pick(clientX, clientY, opts) {
+    return withInfo(this, this._pick(clientX, clientY, opts));
+  }
+
+  _pick(clientX, clientY, { furniture = false } = {}) {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
@@ -589,11 +597,12 @@ export class HouseScene {
       for (let p = o; p; p = p.parent) if (!p.visible) return false;
       return true;
     };
+    const doors = this.tapOpenings && !furniture; // Demo-Haus: Türen und Fenster öffnen/schließen
     this.devicesGroup.traverse((o) => o.isMesh && targets.push(o));
     for (const entry of this.floors.values()) {
       if (!this.isFloorVisible(entry.floor.id)) continue; // Etagen darunter nur zur Ansicht
       // noPick: durchsichtige Teile (Glastür des Schranks) lassen den Zeiger durch zu dem, was dahinter steht
-      entry.group.traverse((o) => o.isMesh && !o.userData.noPick && (o.userData.entity || o.userData.room || (furniture && o.userData.furniture)) && targets.push(o));
+      entry.group.traverse((o) => o.isMesh && !o.userData.noPick && (o.userData.entity || o.userData.room || (furniture && o.userData.furniture) || (doors && o.userData.opening)) && targets.push(o));
       // Möbel außerhalb der Räume (Whirlpool auf dem Rasen, Außensteckdose oder Klingel an der Fassade): mit Entität immer antippbar, im Editor alle
       entry.garden.traverse((o) => o.isMesh && !o.userData.noPick && (furniture ? o.userData.furniture : o.userData.entity) && targets.push(o));
     }
@@ -609,6 +618,7 @@ export class HouseScene {
       if (hit.object.userData.pvField) return { pvField: hit.object.userData.pvField };
       if (hit.object.userData.roof || hit.object.userData.roofUnit) return null;
       if (furniture && hit.object.userData.furniture) return { furniture: hit.object.userData.furniture };
+      if (doors && hit.object.userData.opening) return { opening: { ...hit.object.userData.opening } };
       if (hit.object.userData.entity) return { entity_id: hit.object.userData.entity };
       if (hit.object.userData.room || hit.object.userData.layer === "walls") break; // der Raum dahinter bleibt unten wählbar
     }
@@ -845,6 +855,7 @@ export class HouseScene {
         if (!this.lampBulbs.has(entity)) this.lampBulbs.set(entity, []);
         this.lampBulbs.get(entity).push(...obj.userData.bulbs);
         if (typeof obj.userData.onState === "function") this.stateParts.push({ entity, fn: obj.userData.onState });
+        if (item.in_rack != null) this.infoTap.add(entity);
       }
       (inside([item.x, item.z]) ? furn : gardenFurn).add(obj);
     }
@@ -861,6 +872,7 @@ export class HouseScene {
       if (lim?.hidden.has(placed)) item.group.visible = false;
       else item.group.userData.layer = "openings";
       item.roomId = placed.opening.room_id ?? null;
+      markOpening(item.group, floor.id, placed.opening.id);
       group.add(item.group);
       entry.openings.set(placed.opening.id, item);
     }

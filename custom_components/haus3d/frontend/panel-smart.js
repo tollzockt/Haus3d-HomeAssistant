@@ -80,7 +80,8 @@ export const SmartMethods = {
 
   /** Bodenfarbe „Energie heute“: Verbrauch je Raum seit Mitternacht aus der HA-Statistik (alle 10 min). */
   async _loadRoomEnergy() {
-    const hass = this._realHass ?? this._hass;
+    // Demo-Haus: nur das Demo-hass (beantwortet die Statistik selbst) – nie die echte Statistik
+    const hass = this._isDemo?.() ? this._hass : this._realHass ?? this._hass;
     if (!hass?.callWS || !this._building) return;
     this._kwhLoading = true;
     this._kwhAt = Date.now();
@@ -247,7 +248,7 @@ export const SmartMethods = {
         this._toast("Heizung pausiert – sie läuft wieder, sobald das Fenster zu ist.");
         this._ackAlert(a);
       } catch (err) {
-        this._toast(`Fehlgeschlagen: ${err.message ?? err.code ?? err}`);
+        this._toast(`Heizung pausieren fehlgeschlagen: ${err.message ?? err.code ?? err}`);
       }
     }
   },
@@ -348,8 +349,8 @@ export const SmartMethods = {
     const appl = [...d.appliances];
     const render = () => {
       box.innerHTML = `<h4>Waschmaschine & Co.</h4>
-        <p class="hint">Läuft, sobald der Leistungssensor über ${10} W geht; „fertig“, wenn es danach eine Weile unter 4 W bleibt (Spülmaschine 15 min wegen Trocknen). Mit Restzeit-Sensor steht die Restzeit oben.</p>
-        <div class="dlist">${appl.map(applRow).join("") || `<p class="muted">Noch keine Geräte.</p>`}</div>
+        <p class="hint">Läuft ab ${10} W am Leistungssensor, „fertig“ nach einer Weile unter 4 W (Spülmaschine 15 min wegen Trocknen). Ein Restzeit-Sensor zeigt die Restzeit oben.</p>
+        <div class="dlist">${appl.map(applRow).join("") || `<p class="muted">Noch keine Geräte. „+ Gerät“ wählen, z. B. Waschmaschine mit Leistungssensor.</p>`}</div>
         <div class="btns left">${sugg.map((s, i) => `<button data-sugg="${i}"><ha-icon icon="mdi:plus"></ha-icon> ${esc(s.name)}: ${esc(nameOf(s.power) || s.power)}</button>`).join("")}<button data-add>+ Gerät</button></div>
         ${dl("dl_pow", sensors)}
         <h4>Termine & Müllabfuhr</h4>

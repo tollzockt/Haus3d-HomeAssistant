@@ -1,10 +1,13 @@
 // Modelle „Server & NAS“ (catalog-tech.js): 19-Zoll-Einbaugeräte (Breite 0,482 m, Höhe = HE × 0,0445 m) und Tischgeräte im Einheitsrahmen
-// (Breite w entlang x, Tiefe d entlang z, Höhe h nach oben, Vorderseite nach +z). Die LEDs stehen in bulbs: ohne verknüpfte Entität
-// leuchten sie grün, mit Entität folgen sie ihr. Im Schrank stehen Tischgeräte auf einem Fachboden (siehe rackShelf).
+// (Breite w entlang x, Tiefe d entlang z, Höhe h nach oben, Vorderseite nach +z). Ohne verknüpfte Entität stehen die LEDs in bulbs und
+// leuchten grün. Mit Entität folgen alle LEDs des Modells ihrem Zustand über g.userData.onState (rack-live.js, rackLedKind): grün = an,
+// dunkelgrau = aus, rot = Fehler; sie stehen dann nicht in bulbs, sonst überschriebe das Licht-an/aus aller Leuchtmittel die Farbe.
+// Im Schrank stehen Tischgeräte auf einem Fachboden (siehe rackShelf).
 
 import { cyl, rod } from "./model-parts.js";
-import { cbox, colors, disc, ring } from "./tech-parts.js";
+import { cbox, colors, disc, ledMats, ring } from "./tech-parts.js";
 import { HE, SHELF } from "./catalog-tech.js";
+import { rackLedKind } from "./rack-live.js";
 
 /** Kleine LED (grün, folgt einer verknüpften Entität) auf der Frontfläche z. */
 function led(g, M, bulbs, x, y, z, s = 0.0045) {
@@ -139,7 +142,8 @@ function buildUnit(type, w, d, h, M, g, bulbs) {
       for (let i = 0; i < 3; i++) cbox(g, M.plasticDark, w - 0.12, 0.0012, 0.03, 0, 0.0033, -0.06 + i * 0.07); // Lüftungsfelder
       break;
     }
-    case "tech_blank_panel": {
+    case "tech_blank_panel":
+    case "tech_blank_panel_2u": {
       const z = d / 2;
       cbox(g, M.dark, w, h - 0.001, 0.004, 0, h / 2, z - 0.002);
       for (const sx of [-1, 1]) {
@@ -152,6 +156,15 @@ function buildUnit(type, w, d, h, M, g, bulbs) {
       const z = chassis19(g, M, w, h, d, M.dark);
       cbox(g, M.plasticDark, w - 0.04, 0.003, d - 0.012, 0, 0.0015, -0.006);
       for (let i = 0; i < 6; i++) ring(g, M.metal, 0.0135, 0.0018, -0.19 + i * 0.076, h / 2, z + 0.004, 20); // Führungsringe
+      break;
+    }
+    case "tech_brush_panel": {
+      // Frontplatte mit Ohren, mittiger Schlitz (dunkel) und je einer Bürstenkante oben und unten; keine LEDs
+      const z = chassis19(g, M, w, h, d, M.metal);
+      const sw = w - 0.08;
+      const sh = h * 0.35;
+      cbox(g, M.screen, sw, sh, 0.002, 0, h / 2, z + 0.001);
+      for (const sy of [-1, 1]) cbox(g, x.slate, sw, Math.min(0.004, sh * 0.3), 0.004, 0, h / 2 + sy * (sh / 2 - 0.0015), z + 0.002);
       break;
     }
     case "tech_kvm": {
@@ -260,10 +273,26 @@ export function rackShelf(g, M, d) {
   cbox(g, M.metal, 0.452, 0.012, 0.004, 0, 0.006 - SHELF / 2, -depth / 2 + 0.002);
 }
 
-/** Baut einen Typ aus „Server & NAS“; false, wenn der Typ nicht dazugehört. */
+/** Ist eine Entität verknüpft? (Sie folgt dann der Status-LED, siehe buildRackGear.) */
+const linked = (item) => typeof item?.entity === "string" && item.entity.includes(".") && item.entity !== "none";
+
+/**
+ * Baut einen Typ aus „Server & NAS“; false, wenn der Typ nicht dazugehört. Mit verknüpfter Entität (item.entity) sammelt es die LEDs
+ * in einer eigenen Liste (nicht in bulbs) und setzt g.userData.onState: alle LEDs wechseln mit dem Zustand das Material
+ * (ledMats: green, off, red). Modelle ohne LEDs (Blenden, Patchfeld) bekommen kein onState.
+ */
 export function buildRackGear(type, w, d, h, M, g, bulbs, item = {}) {
-  if (buildUnit(type, w, d, h, M, g, bulbs)) return true;
-  if (!buildDesk(type, w, d, h, M, g, bulbs)) return false;
-  if (item?.in_rack) rackShelf(g, M, d);
+  const leds = linked(item) ? [] : bulbs;
+  if (!buildUnit(type, w, d, h, M, g, leds)) {
+    if (!buildDesk(type, w, d, h, M, g, leds)) return false;
+    if (item?.in_rack) rackShelf(g, M, d);
+  }
+  if (leds !== bulbs && leds.length) {
+    const mats = ledMats(M);
+    g.userData.onState = (st) => {
+      const mat = mats[rackLedKind(st)];
+      for (const l of leds) if (l.material !== mat) l.material = mat;
+    };
+  }
   return true;
 }

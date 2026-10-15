@@ -388,6 +388,9 @@ header .floors, header .temp, header .fit { display: none; }
 /* in der Simulation liegt die Simbar unten: Meldungen darüber */
 .stage.has-simbar .toast { bottom: 72px; }
 .msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--secondary-text-color); }
+.msg .empty { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.msg .empty p { margin: 0; }
+.msg button { pointer-events: auto; min-height: 44px; padding: 0 22px; border: none; border-radius: 22px; background: var(--primary-color, #03a9f4); color: #fff; font: inherit; cursor: pointer; }
 .popup {
   position: absolute; right: 8px; top: 8px; z-index: 6; min-width: 220px;
   background: var(--card-background-color, #fff); color: var(--primary-text-color);

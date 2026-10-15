@@ -37,6 +37,19 @@ export function setModelHass(hass, { keep = false } = {}) {
 
 export const hasModelHass = () => !!source;
 
+/**
+ * hass für das Demo-Haus: Modelle nur lesen (Liste und Dateien per GET); Hochladen (POST), Umbenennen und Löschen werden
+ * abgelehnt, bevor etwas den Server erreicht.
+ */
+export function readOnlyModelHass(real) {
+  if (!real?.callWS) return real;
+  const no = () => Promise.reject(Object.assign(new Error("Demo: eigene 3D-Modelle werden hier nicht geändert."), { code: "demo" }));
+  const h = Object.create(real);
+  h.callWS = (msg, ...rest) => (msg?.type === "haus3d/models/list" ? real.callWS(msg, ...rest) : no());
+  if (typeof real.fetchWithAuth === "function") h.fetchWithAuth = (path, init, ...rest) => (String(init?.method ?? "GET").toUpperCase() === "GET" ? real.fetchWithAuth(path, init, ...rest) : no());
+  return h;
+}
+
 /** Zuhören: fn("loaded") nach dem Laden/Fehler eines Modells, fn("list") nach einer neuen Liste. Gibt „abmelden“ zurück. */
 export function onModelsChange(fn) {
   listeners.add(fn);

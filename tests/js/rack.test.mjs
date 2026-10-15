@@ -503,3 +503,29 @@ test("Schrank schmaler/flacher gemacht oder Gerät vergrößert: nicht mehr pass
   assert.equal(get(ok, a.id).in_rack, c.id);
   assert.equal(get(ok, a.id).rack_u, get(f, a.id).rack_u);
 });
+
+test("Überlappende Schränke: ein neues Gerät mit Verweis (in_rack, rack_u) kommt in diesen Schrank genau auf die Wunsch-HE, ohne Verweis in den obersten", () => {
+  const a = cab({ x: 5, z: 5 });
+  const b = cab({ x: 5.2, z: 5.1 }); // steht später in der Liste und überlappt a
+  const f0 = floorOf(a, b);
+  const mk = (id, extra = {}) => ({ id, type: "tech_switch_24", x: 5.1, z: 5.05, rotation: 0, ...dims("tech_switch_24"), ...extra });
+  // Verweis auf a, Wunsch-HE 7: a, HE 7
+  const fa = edit(f0, (fl) => fl.furniture.push(mk("n1", { in_rack: a.id, rack_u: 7 })));
+  assert.equal(get(fa, "n1").in_rack, a.id);
+  assert.equal(get(fa, "n1").rack_u, 7);
+  assert.equal(get(fa, b.id).rack_used, undefined);
+  // Verweis auf b: b
+  const fb = edit(f0, (fl) => fl.furniture.push(mk("n2", { in_rack: b.id, rack_u: 3 })));
+  assert.equal(get(fb, "n2").in_rack, b.id);
+  assert.equal(get(fb, "n2").rack_u, 3);
+  // ohne Verweis: der oberste (b)
+  const fc = edit(f0, (fl) => fl.furniture.push(mk("n3")));
+  assert.equal(get(fc, "n3").in_rack, b.id);
+  // Verweis auf einen Schrank, der die Gerätemitte nicht enthält: die Lage entscheidet
+  const far = cab({ x: 15, z: 5 });
+  const fd = edit(floorOf(a, far), (fl) => fl.furniture.push(mk("n4", { in_rack: far.id, rack_u: 2 })));
+  assert.equal(get(fd, "n4").in_rack, a.id);
+  // Verweis auf einen Schrank, den es nicht gibt: ebenso
+  const fe = edit(f0, (fl) => fl.furniture.push(mk("n5", { in_rack: "weg", rack_u: 2 })));
+  assert.equal(get(fe, "n5").in_rack, b.id);
+});

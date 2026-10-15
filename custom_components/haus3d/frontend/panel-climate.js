@@ -52,7 +52,7 @@ export const ClimateMethods = {
         const hass = this._hass; // beim Tippen festhalten (Testhaus-Wechsel in der Zwischenzeit)
         timer = setTimeout(() => {
           const v = pending;
-          hass.callService("climate", "set_temperature", { entity_id: entityId, temperature: v }).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+          hass.callService("climate", "set_temperature", { entity_id: entityId, temperature: v }).catch((err) => this._toast(`Temperatur setzen fehlgeschlagen: ${err.message ?? err}`));
           setTimeout(() => {
             pending = null;
             if (el.isConnected) draw();
@@ -62,7 +62,7 @@ export const ClimateMethods = {
       el.querySelector(".minus").addEventListener("click", () => step(-1));
       el.querySelector(".plus").addEventListener("click", () => step(1));
       el.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => {
-        this._hass.callService("climate", "set_hvac_mode", { entity_id: entityId, hvac_mode: b.dataset.mode }).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+        this._hass.callService("climate", "set_hvac_mode", { entity_id: entityId, hvac_mode: b.dataset.mode }).catch((err) => this._toast(`Betriebsart setzen fehlgeschlagen: ${err.message ?? err}`));
         el.querySelectorAll("[data-mode]").forEach((x) => x.classList.toggle("sel", x === b));
       }));
       el.querySelector(".x").addEventListener("click", () => this._closePopup());

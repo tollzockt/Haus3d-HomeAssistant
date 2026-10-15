@@ -56,7 +56,7 @@ export const AccessMethods = {
           res = verify ? { ok: await verify(tried) } : await this._hass.callWS({ type: "haus3d/pin/verify", scope, pin: tried });
         } catch (err) {
           res = null;
-          if (verify && err?.code && err.code !== "unknown_command") this._toast(`Fehlgeschlagen: ${err.message ?? err.code}`);
+          if (verify && err?.code && err.code !== "unknown_command") this._toast(`PIN prüfen fehlgeschlagen: ${err.message ?? err.code}`);
         }
         if (done || my !== seq) return;
         if (verify && res?.ok) finish(true);
@@ -120,6 +120,8 @@ export const AccessMethods = {
    * Abbrechen wirft einen stillen Fehler (quiet), damit kein „Fehlgeschlagen“ erscheint.
    */
   async _doorUnlock(service, data = {}) {
+    // Riegel: im Demo-Haus gibt es keine Tür-PIN und nichts Echtes (Schlösser werden dort simuliert)
+    if (this._house?.demo) throw Object.assign(new Error("Demo: wird nur simuliert"), { quiet: true });
     const ids = [].concat(data.entity_id ?? []).filter((e) => typeof e === "string" && e.startsWith("lock."));
     if (!ids.length) return this._realHass.callService("lock", service, data);
     const names = ids.map((e) => this._realHass.states?.[e]?.attributes?.friendly_name ?? e).join(", ");
@@ -215,13 +217,14 @@ export const AccessMethods = {
   _renderModes() {
     const box = this.shadowRoot?.querySelector(".modes");
     if (!box) return;
-    // Wandtablet: Kopfzeile ausgeblendet – die Modus-Leiste (Testhaus, Bearbeiten, Admin) in die Ansicht holen
+    // Wandtablet: Kopfzeile ausgeblendet – die Modus-Leiste (Testhaus bzw. Demo, Bearbeiten, Admin) in die Ansicht holen
     const header = this.shadowRoot.querySelector("header");
     if (this.hasAttribute("kiosk") && box.parentElement === header && this._els?.stage) this._els.stage.appendChild(box);
     else if (!this.hasAttribute("kiosk") && box.parentElement !== header) header?.querySelector(".title")?.after(box);
     const parts = [];
-    // Testhaus: immer sichtbar, mit „Mein Haus“ zurück
-    if (this._house) parts.push(`<span class="mode m-test" title="Testhaus – dein Haus bleibt unverändert${this._house.live ? "; Geräte werden echt geschaltet" : "; es wird nichts geschaltet"}"><ha-icon icon="mdi:flask-outline"></ha-icon><span class="mt">Testhaus: ${esc(this._house.name)}${this._house.live ? " · live" : ""}</span><button class="end" data-end="test">Mein Haus</button></span>`);
+    // Demo-Haus bzw. Testhaus: immer sichtbar, mit „Mein Haus“ zurück (ohne PIN)
+    if (this._house?.demo) parts.push(`<span class="mode m-demo" title="Demo-Haus – alles wird simuliert, nichts geht an Home Assistant; dein Haus bleibt unverändert"><ha-icon icon="mdi:presentation-play"></ha-icon><span class="mt">Demo: ${esc(this._house.name)}</span><button class="end" data-end="test">Mein Haus</button></span>`);
+    else if (this._house) parts.push(`<span class="mode m-test" title="Testhaus – dein Haus bleibt unverändert${this._house.live ? "; Geräte werden echt geschaltet" : "; es wird nichts geschaltet"}"><ha-icon icon="mdi:flask-outline"></ha-icon><span class="mt">Testhaus: ${esc(this._house.name)}${this._house.live ? " · live" : ""}</span><button class="end" data-end="test">Mein Haus</button></span>`);
     if (this._editMode) parts.push(`<span class="mode m-edit"><ha-icon icon="mdi:pencil"></ha-icon><span class="mt">Bearbeiten</span>${this._scene ? `<button class="plan" title="Grundriss bearbeiten"><ha-icon icon="mdi:floor-plan"></ha-icon><span class="mt">Grundriss</span></button>` : ""}<button class="end" data-end="edit">Beenden</button></span>`);
     if (this._adminMode) parts.push(`<span class="mode m-admin"><button class="open" title="Admin-Einstellungen öffnen"><ha-icon icon="mdi:cog"></ha-icon><span class="mt">Admin</span></button><button class="end" data-end="admin">Beenden</button></span>`);
     box.innerHTML = parts.join("");
@@ -320,6 +323,8 @@ header .title .titlein { font: inherit; width: min(240px, 40vw); padding: 2px 6p
 .mode.m-admin { background: #e65100; padding-left: 3px; }
 .mode.m-test { background: #7e57c2; }
 .mode.m-test button.end { color: #7e57c2; }
+.mode.m-demo { background: #00897b; }
+.mode.m-demo button.end { color: #00897b; }
 .mode button { display: inline-flex; align-items: center; gap: 4px; font: inherit; border: 0; border-radius: 15px; height: 30px; padding: 0 10px; cursor: pointer; background: rgba(255,255,255,.2); color: #fff; }
 .mode button.end { background: #fff; color: #333; }
 .mode.m-edit button.end { color: #2e7d32; }

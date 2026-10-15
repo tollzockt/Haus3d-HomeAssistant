@@ -416,7 +416,7 @@ test("Hausdach-Wächter: Rechteck-Raum neben dem Haus, Einfügen und Mehrfach-L�
   ed.multi = [{ kind: "room", id: ed.floor.rooms[1].id }];
   ed._deleteMulti();
   assert.equal(ed.b.settings.roof.adjust, undefined, "Mehrfach-Löschen");
-  assert.match(ed.toasts.at(-1), /Teile gelöscht.*zurückgesetzt/);
+  assert.match(ed.toasts.at(-1), /Teil gelöscht.*zurückgesetzt/);
   // Einfügen neben dem Haus
   ed.b.settings.roof.adjust = [{ lo: 1 }];
   const { copyRefs } = await import("../../custom_components/haus3d/frontend/plan-tools.js");

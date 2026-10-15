@@ -217,14 +217,14 @@ const holo = await HE(() => {
   return {
     tafeln: els.length,
     head: card?.querySelector(".holohead")?.textContent,
-    subs: [...(card?.querySelectorAll(".holosub") ?? [])].map((x) => x.textContent),
-    lines: [...(card?.querySelectorAll(".hololine") ?? [])].map((x) => [x.querySelector("span").textContent, x.querySelector("b").textContent]),
+    subs: [...(card?.querySelectorAll(".holodev span") ?? [])].map((x) => x.textContent),
+    lines: [...(card?.querySelectorAll(".holoind") ?? [])].map((x) => [x.querySelector("span").textContent, x.querySelector("b").textContent]),
     ids: window.panel._holoIds(),
   };
 });
 t.results.holo = holo;
 t.check(holo.tafeln === 1 && holo.head === "Netzwerkschrank", `eine Tafel am Schrank: ${JSON.stringify(holo)}`);
-t.check(holo.subs.join() === "USV,Server", `Zwischenzeilen je Gerät (oberes zuerst): ${holo.subs}`);
+t.check(holo.subs.join() === "USV,Server", `eine Zeile je Gerät (oberes zuerst): ${holo.subs}`);
 t.check(holo.lines.length === 3 && holo.lines[0][0] === "Last" && holo.lines[0][1] === "23,9" && holo.lines[2][0] === "Temperatur" && /°C$/.test(holo.lines[2][1]), `Zeilen: ${JSON.stringify(holo.lines)}`);
 t.check(holo.ids.length === 3, `beobachtete Entitäten: ${holo.ids}`);
 await HE(() => {
@@ -233,7 +233,7 @@ await HE(() => {
   window.panel.hass = window.hass;
 });
 await hp.waitForTimeout(300);
-t.check((await HE(() => window.panel.shadowRoot.querySelector(".holo .hololine:last-of-type b")?.textContent)) === "30,5 °C", "Wert in der Tafel des Schranks aktualisiert sich");
+t.check((await HE(() => [...window.panel.shadowRoot.querySelectorAll(".holo .holoind b")].at(-1)?.textContent)) === "30,5 °C", "Wert in der Tafel des Schranks aktualisiert sich");
 await t.shot(hp, "np-holo-schrank.png");
 
 // ---------------------------------------------------------------- C Editor: Schrank mit Geräten, Randstein-Linie

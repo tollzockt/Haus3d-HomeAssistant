@@ -296,3 +296,84 @@ async def test_balcony_roof_and_weather_settings(hass: HomeAssistant, setup_inte
     assert msg["success"], msg
     assert msg["result"]["building"]["settings"]["roof"]["type"] == "none"
     assert msg["result"]["building"]["settings"]["roof"]["pitch"] == 60.0
+
+
+async def test_ws_reset_admin_only_and_backup(hass: HomeAssistant, setup_integration, hass_ws_client, admin_token) -> None:
+    """„Alles zurücksetzen“: nur mit Admin-PIN, leert Etagen und Einstellungen, der alte Stand bleibt im Verlauf (überlebt 25 Sicherungen)."""
+    data = hass.data[DOMAIN]
+    ws = await hass_ws_client(hass)
+    n = 0
+
+    async def call(**msg):
+        nonlocal n
+        n += 1
+        await ws.send_json({"id": n, **msg})
+        return await ws.receive_json()
+
+    named = copy.deepcopy(SEED)
+    named.setdefault("settings", {})["title"] = "Mein Haus"
+    assert (await call(type="haus3d/building/save", token=admin_token, building=named, revision=1))["success"]
+    old_floors = copy.deepcopy(data.building["floors"])
+    assert old_floors and data.building["settings"]["title"] == "Mein Haus"
+    pins = (await call(type="haus3d/pin/status"))["result"]
+    history = len(data.history)
+
+    # ohne Freigabe und mit Bearbeiten-PIN: gesperrt, nichts geändert
+    edit_token = await data.access.async_verify("edit", "0000", "test")
+    for extra in ({}, {"token": edit_token}):
+        res = await call(type="haus3d/building/reset", revision=2, **extra)
+        assert res["error"]["code"] == "locked"
+    assert data.revision == 2 and data.building["floors"] == old_floors and len(data.history) == history
+
+    # Konflikt: veraltete Revision ändert nichts (auch der Verlauf nicht)
+    res = await call(type="haus3d/building/reset", revision=1, token=admin_token)
+    assert res["error"]["code"] == "conflict"
+    assert data.revision == 2 and data.building["floors"] == old_floors and len(data.history) == history
+
+    # Zurücksetzen: leer, Revision + 1, Verlauf vorn „reset“ mit dem alten Stand
+    res = await call(type="haus3d/building/reset", revision=2, token=admin_token)
+    assert res["success"], res
+    assert res["result"]["revision"] == 3 and res["result"]["building"]["floors"] == []
+    assert "title" not in res["result"]["building"]["settings"]
+    assert data.building["floors"] == [] and data.revision == 3
+    last = data.history[-1]
+    assert res["result"]["history_id"] == last["id"] and last["reason"] == "reset"
+    assert last["building"]["floors"] == old_floors and last["building"]["settings"]["title"] == "Mein Haus"
+    listed = (await call(type="haus3d/history/list"))["result"]["items"]
+    assert listed[0]["reason"] == "reset" and listed[0]["floors"] == len(old_floors)
+    assert (await call(type="haus3d/pin/status"))["result"] == pins  # PINs bleiben
+    reset_id = last["id"]
+
+    # die Sicherung vor dem Zurücksetzen fällt nach vielen weiteren Sicherungen nicht heraus
+    for _ in range(HISTORY_LIMIT + 5):
+        assert (await call(type="haus3d/history/snapshot", token=admin_token))["success"]
+    items = (await call(type="haus3d/history/list"))["result"]["items"]
+    assert len(items) == HISTORY_LIMIT
+    assert items[-1]["id"] == reset_id and items[-1]["reason"] == "reset"
+    assert [i["id"] for i in items] == sorted((i["id"] for i in items), reverse=True)
+
+    # Wiederherstellen bringt den alten Stand zurück; ein zweites Zurücksetzen ersetzt die Sicherung (nur die neueste bleibt)
+    res = await call(type="haus3d/history/restore", token=admin_token, history_id=reset_id)
+    assert res["success"] and res["result"]["building"]["floors"] == old_floors
+    res = await call(type="haus3d/building/reset", revision=data.revision, token=admin_token)
+    assert res["success"], res
+    second_id = res["result"]["history_id"]
+    for _ in range(HISTORY_LIMIT + 5):
+        assert (await call(type="haus3d/history/snapshot", token=admin_token))["success"]
+    items = (await call(type="haus3d/history/list"))["result"]["items"]
+    assert len(items) == HISTORY_LIMIT
+    assert [i["id"] for i in items if i["reason"] == "reset"] == [second_id]
+    assert items[-1]["id"] == second_id
+
+
+async def test_ws_reset_without_revision_and_empty_house(hass: HomeAssistant, setup_integration, hass_ws_client, admin_token) -> None:
+    """Ohne Revision wird ohne Konfliktprüfung zurückgesetzt; ein schon leeres Haus lässt sich erneut zurücksetzen."""
+    data = hass.data[DOMAIN]
+    ws = await hass_ws_client(hass)
+    await ws.send_json({"id": 1, "type": "haus3d/building/reset", "token": admin_token})
+    msg = await ws.receive_json()
+    assert msg["success"] and msg["result"]["building"]["floors"] == []
+    await ws.send_json({"id": 2, "type": "haus3d/building/reset", "token": admin_token, "revision": msg["result"]["revision"]})
+    msg = await ws.receive_json()
+    assert msg["success"] and data.revision == 3
+    assert [h["reason"] for h in data.history] == ["reset", "reset"]

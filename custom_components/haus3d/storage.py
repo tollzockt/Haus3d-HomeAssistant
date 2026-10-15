@@ -116,9 +116,22 @@ class Haus3DData:
         }
         self._next_history_id += 1
         self.history.append(item)
-        del self.history[:-HISTORY_LIMIT]
+        self._trim_history()
         await self._async_save_history()
         return item
+
+    def _trim_history(self) -> None:
+        """Verlauf auf HISTORY_LIMIT kürzen. Die Sicherung vor dem letzten Zurücksetzen („reset“) bleibt: würde sie
+        herausfallen, ersetzt sie den ältesten der übrigen Einträge (bis zum nächsten Zurücksetzen)."""
+        excess = len(self.history) - HISTORY_LIMIT
+        if excess <= 0:
+            return
+        kept = next((h for h in reversed(self.history) if h["reason"] == "reset"), None)
+        dropped = self.history[:excess]
+        del self.history[:excess]
+        if kept is not None and any(h is kept for h in dropped):
+            del self.history[0]
+            self.history.insert(0, kept)
 
     async def async_save(self, building: dict[str, Any], expected_revision: int | None) -> int:
         """Speichert ein (bereits validiertes) Gebäude; der alte Stand wandert in den Verlauf."""
@@ -130,6 +143,18 @@ class Haus3DData:
             self.revision += 1
             await self._async_save_building()
             return self.revision
+
+    async def async_reset(self, expected_revision: int | None) -> tuple[int, int]:
+        """Setzt das Gebäude auf „leer“ zurück (Etagen und Haus-Einstellungen); der alte Stand wandert vorher als „reset“
+        in den Verlauf. PINs, Modelle, Bauplan-Fotos und weitere Häuser bleiben unberührt. Gibt (Revision, Verlauf-ID) zurück."""
+        async with self._lock:
+            if expected_revision is not None and expected_revision != self.revision:
+                raise RevisionConflict
+            item = await self._async_snapshot("reset")
+            self.building = empty_building()
+            self.revision += 1
+            await self._async_save_building()
+            return self.revision, item["id"]
 
     async def async_restore(self, history_id: int) -> int:
         """Stellt einen Stand aus dem Verlauf wieder her (der aktuelle Stand wird vorher gesichert)."""
@@ -178,7 +203,7 @@ class Haus3DData:
         await self._sandbox_store.async_save({"houses": self.sandbox})
 
     def sandbox_summary(self) -> list[dict[str, Any]]:
-        """Testhäuser ohne Grundriss, älteste zuerst."""
+        """Weitere Häuser (Testhäuser und Demo-Häuser) ohne Grundriss, älteste zuerst."""
         return [
             {
                 "id": sid,
@@ -186,6 +211,7 @@ class Haus3DData:
                 "created": h.get("created"),
                 "floors": len(h["building"].get("floors", [])),
                 "rooms": sum(len(f.get("rooms", [])) for f in h["building"].get("floors", [])),
+                "demo": h.get("demo") is True,  # Altbestand ohne Angabe = Testhaus
             }
             for sid, h in sorted(self.sandbox.items(), key=lambda kv: kv[1].get("created") or "")
         ]
@@ -195,8 +221,11 @@ class Haus3DData:
             raise SandboxError("not_found")
         return self.sandbox[house]
 
-    async def async_sandbox_create(self, name: str, source: str) -> str:
-        """Testhaus anlegen: Beispielhaus, Kopie des echten Hauses (mit Bauplan-Fotos) oder leer."""
+    async def async_sandbox_create(self, name: str, source: str, demo: bool = False) -> str:
+        """Weiteres Haus anlegen: Beispielhaus, Kopie des echten Hauses (mit Bauplan-Fotos) oder leer.
+
+        `demo` (Vorführmodell, alles simuliert) gehört zu den Metadaten des Hauses, nicht zum Grundriss.
+        """
         images = await self._async_backgrounds()  # vor dem Lock laden (danach ohne await kopieren)
         async with self._lock:
             if len(self.sandbox) >= SANDBOX_LIMIT:
@@ -208,13 +237,23 @@ class Haus3DData:
             else:
                 building = empty_building()
             sid = f"test{dt_util.utcnow().strftime('%Y%m%d%H%M%S%f')}"
-            self.sandbox[sid] = {"name": name, "created": dt_util.utcnow().isoformat(), "revision": 1, "building": building}
+            self.sandbox[sid] = {"name": name, "created": dt_util.utcnow().isoformat(), "revision": 1, "building": building, "demo": demo is True}
             if source == "current" and images:
                 self._sandbox_bg[sid] = dict(images)  # gleicher Stand wie der kopierte Grundriss
             await self._async_save_sandbox()
             if source == "current" and images:
                 await self._async_save_backgrounds()
         return sid
+
+    async def async_sandbox_update(self, house: str, demo: bool | None = None, name: str | None = None) -> None:
+        """Demo-Modus und/oder Name eines weiteren Hauses ändern (Grundriss und Revision bleiben)."""
+        async with self._lock:
+            h = self.sandbox_house(house)
+            if demo is not None:
+                h["demo"] = demo is True
+            if name is not None:
+                h["name"] = name
+            await self._async_save_sandbox()
 
     async def async_sandbox_delete(self, house: str) -> None:
         async with self._lock:

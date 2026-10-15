@@ -15,7 +15,7 @@ const de = (v, d = 2) => v.toLocaleString("de-DE", { minimumFractionDigits: d, m
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const WALL_GAP = 0.06; // Abstand Rohrmitte zur Wandoberfläche
 
-export const PIPE_HINT = "Leitung: Punkte antippen – rastet an Wänden und Ecken ein, außerdem an Verteilern, Leitungen und Geräten (Ring; an Leitungen als Abzweig, auch mit Zwischenpunkten; an Möbeln und platzierten Geräten als Anschluss, der beim Verschieben mitgeht; am Finger mit größerem Fangkreis). Höhe rechts wählen – Strom und Netzwerk liegen standardmäßig an der Decke, Wasser am Boden; ein Wechsel geht an der Wand senkrecht. „Fertig“ beendet. Gewählte Leitung: Punkte ziehen, Strecke antippen fügt einen Punkt ein.";
+export const PIPE_HINT = "Punkte antippen: rastet an Wänden, Verteilern, Leitungen und Geräten ein. Höhe rechts wählen, „Fertig“ beendet.";
 const JUNCTION_PX = 14; // Fangradius für Abzweige (Bildschirm; am Finger größer)
 
 export const PipeMethods = {

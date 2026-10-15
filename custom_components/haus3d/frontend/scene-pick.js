@@ -34,6 +34,23 @@ export function hiddenBehind(camera, point, walls, gap = 0.05) {
   return ray.intersectObjects(walls, false).length > 0;
 }
 
+/**
+ * Treffer von HouseScene.pick um `info: true` ergänzen, wenn die Entität zu einem im Schrank eingebauten Gerät gehört
+ * (scene.infoTap): Antippen öffnet dann die Infos, geschaltet wird dort (Schutz vor versehentlichem Ausschalten eines Servers).
+ */
+export function withInfo(scene, hit) {
+  return hit?.entity_id && scene.infoTap?.has(hit.entity_id) ? { ...hit, info: true } : hit;
+}
+
+/**
+ * Öffnung (Tür, Fenster, Tor samt Rollladen) zum Antippen kennzeichnen: jedes Teil trägt userData.opening = {floorId, id}.
+ * Antippbar ist sie nur, wenn die Szene es erlaubt (HouseScene.tapOpenings, im Demo-Haus); sonst bleibt alles wie vorher.
+ */
+export function markOpening(group, floorId, id) {
+  const tag = { floorId, id };
+  group.traverse((o) => (o.userData.opening = tag));
+}
+
 /** Gehört das Mesh zum Garten (Gartengruppe einer Etage: Gelände, Möbel und Geräte außerhalb der Räume)? */
 export function inGarden(obj) {
   for (let p = obj.parent; p; p = p.parent) if (p.userData.layer === "garden") return true;

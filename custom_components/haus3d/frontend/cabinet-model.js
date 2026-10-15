@@ -1,11 +1,15 @@
 // Netzwerk- und Serverschrank (network_cabinet, server_rack): Sockel mit Füßen, Deckel, Seitenwände, Rückwand, vordere Rahmenpfosten,
-// 19-Zoll-Schienen mit Teilstrichen (jede dritte HE) und eine getönte Glastür, durch die man eingebaute Geräte sieht. Die Platzhalter-
+// 19-Zoll-Schienen mit Teilstrichen (jede dritte HE) und eine getönte Glastür (Gruppe "door", mit item.open === true offen), durch die
+// man eingebaute Geräte sieht. Die Platzhalter-
 // Einschübe mit LEDs (Aussehen älterer Häuser) kommen nur, wenn nichts eingebaut ist (item.rack_used fehlt); eingebaute Geräte sind
 // eigene Möbelstücke (siehe rack.js, follow-rack.js).
 
 import * as THREE from "./vendor/three.module.min.js";
 import { box, cyl } from "./model-parts.js";
 import { HE, cabinetLayout } from "./rack.js";
+
+/** Öffnungswinkel der Tür (Bogenmaß, 100°). */
+export const DOOR_OPEN = (100 * Math.PI) / 180;
 
 // getöntes Glas je Material-Satz (an M gebunden)
 const smoked = new WeakMap();
@@ -58,13 +62,26 @@ export function buildCabinet(type, w, d, h, M, g, item = {}) {
     }
   }
 
-  // Glastür: dünner Rahmen, getönte Scheibe, Griff
+  // Glastür in einer Gruppe "door" (Scheibe, Rahmen, Griff), drehbar am linken Rahmen vorn (von vorn gesehen); mit item.open === true
+  // schwenkt sie um 100° nach außen. Alle Teile noPick: im Editor-3D und im Panel trifft der Zeiger durch die Tür das eingebaute
+  // Gerät dahinter (bzw. den Schrank), nicht die Tür.
   const dh = inner + 0.02;
   const dw = w - 0.03;
-  // (noPick: im Editor-3D trifft der Zeiger durch die Scheibe das eingebaute Gerät dahinter, nicht die Tür)
-  box(g, smokedGlass(M), dw - 0.02, dh - 0.04, 0.006, 0, base - 0.01 + 0.02, d / 2 - 0.003).userData.noPick = true;
-  for (const sx of [-1, 1]) box(g, M.dark, 0.02, dh, 0.012, sx * (dw / 2 - 0.01), base - 0.01, d / 2 - 0.006);
-  for (const y of [base - 0.01, base + inner - 0.01]) box(g, M.dark, dw, 0.02, 0.012, 0, y, d / 2 - 0.006);
-  box(g, M.metal, 0.02, Math.min(0.3, inner * 0.25), 0.02, w / 2 - 0.06, base + inner * 0.5 - 0.1, d / 2 - 0.008);
+  const hinge = { x: -w / 2 + 0.015, z: d / 2 };
+  const door = new THREE.Group();
+  door.name = "door";
+  door.position.set(hinge.x, 0, hinge.z);
+  // Teile in Schrankkoordinaten angeben; die Gruppe sitzt am Drehpunkt, also wird dieser abgezogen
+  const dbox = (mat, bw, bh, bd, x, y, z) => box(door, mat, bw, bh, bd, x - hinge.x, y, z - hinge.z);
+  dbox(smokedGlass(M), dw - 0.02, dh - 0.04, 0.006, 0, base - 0.01 + 0.02, d / 2 - 0.003);
+  for (const sx of [-1, 1]) dbox(M.dark, 0.02, dh, 0.012, sx * (dw / 2 - 0.01), base - 0.01, d / 2 - 0.006);
+  for (const y of [base - 0.01, base + inner - 0.01]) dbox(M.dark, dw, 0.02, 0.012, 0, y, d / 2 - 0.006);
+  dbox(M.metal, 0.02, Math.min(0.3, inner * 0.25), 0.02, w / 2 - 0.06, base + inner * 0.5 - 0.1, d / 2 - 0.008);
+  door.traverse((o) => {
+    if (o.isMesh) o.userData.noPick = true;
+  });
+  if (item?.open === true) door.rotation.y = -DOOR_OPEN;
+  g.add(door);
+  g.userData.door = door;
   return g;
 }

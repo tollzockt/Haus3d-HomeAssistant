@@ -15,25 +15,24 @@ const ver = await E(() => window.panel.shadowRoot.querySelector(".admin .admin-f
 t.check(ver === `Haus 3D · Version ${manifest.version}${/\d(a|b|rc)\d+$/.test(manifest.version) ? " · Vorabversion" : ""}`, `Version: ${ver}`);
 await t.shot(pg, "o1-admin-version.png");
 
-// --- leeres Testhaus
-await E(async () => {
-  window.devInstance = true;
-  window.panel._devLoaded = false;
-  window.panel._dev = undefined;
-  await window.panel._loadDev();
-});
+// --- leeres Testhaus (Admin → Häuser, Demo-Kästchen aus)
 await E(() => window.panel._closeDialog());
-await unlock(pg, "admin", { cat: "dev" });
-await pg.waitForSelector("haus3d-panel .testhaus .thnew");
-await pg.locator("haus3d-panel .testhaus .thname").fill("Leer");
-await pg.locator("haus3d-panel .testhaus .thsrc").selectOption("empty");
-await pg.locator('haus3d-panel .testhaus [data-th="new"]').click();
+await unlock(pg, "admin", { cat: "houses" });
+await pg.waitForSelector("haus3d-panel .houses .thnew");
+await pg.locator("haus3d-panel .houses .thname").fill("Leer");
+await pg.locator("haus3d-panel .houses .thsrc").selectOption("empty");
+await pg.locator("haus3d-panel .houses .thdemonew").uncheck();
+await pg.locator('haus3d-panel .houses [data-th="new"]').click();
 await pg.waitForFunction(() => window.panel._house?.name === "Leer", null, { timeout: 5000 });
 await pg.waitForTimeout(600);
 const msg = await E(() => window.panel.shadowRoot.querySelector(".msg")?.textContent ?? "");
-t.check(/Bearbeiten → Grundriss/.test(msg), `Hinweis bei leerem Haus: ${msg}`);
+t.check(/^Noch kein Grundriss./.test(msg) && /Grundriss anlegen/.test(msg) && /Importieren/.test(msg), `Hinweis bei leerem Haus: ${msg}`);
+t.check(await E(() => window.panel.shadowRoot.querySelector(".msg button")?.textContent === "Grundriss anlegen"), "Knopf Grundriss anlegen im leeren Haus");
+await t.shot(pg, "o1-leeres-haus.png");
+// der Knopf im leeren Haus öffnet den Editor (Admin-Freigabe gilt als Bearbeiten-Freigabe: keine PIN-Abfrage) mit den Grundeinstellungen
 const opened = await E(async () => {
-  await window.panel._openEditor();
+  window.panel.shadowRoot.querySelector(".msg button").click();
+  for (let i = 0; i < 100 && !(window.panel._editor && window.panel.shadowRoot.querySelector(".ed-setup")); i++) await new Promise((r) => setTimeout(r, 50));
   const e = window.panel._editor;
   return { ok: !!e, shells: window.panel.shadowRoot.querySelectorAll(".ed").length, floors: e?.b.floors.map((f) => f.id), dirty: e?.dirty, setup: !!window.panel.shadowRoot.querySelector(".ed-setup") };
 });

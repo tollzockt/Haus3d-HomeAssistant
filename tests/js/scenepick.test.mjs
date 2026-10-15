@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "../../custom_components/haus3d/frontend/vendor/three.module.min.js";
-import { hiddenBehind, inGarden, wallBlockers } from "../../custom_components/haus3d/frontend/scene-pick.js";
+import { hiddenBehind, inGarden, wallBlockers, withInfo } from "../../custom_components/haus3d/frontend/scene-pick.js";
 import { stopThumbs, thumbsBusy } from "../../custom_components/haus3d/frontend/thumbs.js";
 
 /** Wand: Quader 6 m × 2,5 m × 0,3 m um z = 0, als Wand-Mesh der Ebene „walls“. */
@@ -64,6 +64,18 @@ test("inGarden: nur Meshes unter einer Gartengruppe", () => {
   assert.equal(inGarden(tub), true);
   assert.equal(inGarden(lamp), false);
   assert.equal(inGarden(garden), false);
+});
+
+test("withInfo: Treffer auf ein eingebautes Gerät (infoTap) tragen info, alles andere bleibt unverändert", () => {
+  const scene = { infoTap: new Set(["switch.test_server"]) };
+  assert.deepEqual(withInfo(scene, { entity_id: "switch.test_server" }), { entity_id: "switch.test_server", info: true });
+  const lamp = { entity_id: "light.test_lampe" };
+  assert.equal(withInfo(scene, lamp), lamp, "Lampe schaltet wie bisher");
+  const room = { floorId: "eg", roomId: "flur" };
+  assert.equal(withInfo(scene, room), room);
+  assert.equal(withInfo(scene, null), null);
+  assert.deepEqual(withInfo({ infoTap: new Set() }, { entity_id: "switch.test_server" }), { entity_id: "switch.test_server" });
+  assert.deepEqual(withInfo({}, { entity_id: "switch.test_server" }), { entity_id: "switch.test_server" }, "Szene ohne infoTap");
 });
 
 test("stopThumbs: ohne laufenden Durchgang nichts zu tun", () => {

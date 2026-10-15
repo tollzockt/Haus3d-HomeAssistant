@@ -19,19 +19,20 @@ export const MediaMethods = {
     const st = this._hass?.states[entityId];
     const name = st?.attributes?.friendly_name ?? entityId;
     const admin = this._editing();
+    const demo = !!this._isDemo?.(); // Demo-Haus: kein Kamerabild und kein HA-Dialog („Live“)
     const bell = this._building?.settings?.doorbell ?? {};
     const el = document.createElement("div");
     el.className = "dialog-backdrop";
     el.innerHTML = `<div class="dialog camdlg${ring ? " ring" : ""}" role="dialog" aria-label="${esc(name)}">
       <div class="dialog-head"><span>${ring ? "🔔 Es klingelt – " : ""}${esc(name)}</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-      <div class="cam"><img alt=""><div class="camoff" hidden>Kein Bild</div></div>
-      <div class="btns"><button data-act="live"><ha-icon icon="mdi:video"></ha-icon> Live</button>${admin ? `<button data-act="bell" class="${bell.camera === entityId ? "sel" : ""}" title="Diese Kamera öffnet sich, wenn es klingelt"><ha-icon icon="mdi:doorbell"></ha-icon> ${bell.camera === entityId ? "Klingel-Kamera" : "Als Klingel-Kamera"}</button>` : ""}</div>
+      <div class="cam"><img alt=""><div class="camoff" hidden>${demo ? "Demo – kein Kamerabild" : "Kein Bild"}</div></div>
+      <div class="btns">${demo ? "" : `<button data-act="live"><ha-icon icon="mdi:video"></ha-icon> Live</button>`}${admin ? `<button data-act="bell" class="${bell.camera === entityId ? "sel" : ""}" title="Diese Kamera öffnet sich, wenn es klingelt"><ha-icon icon="mdi:doorbell"></ha-icon> ${bell.camera === entityId ? "Klingel-Kamera" : "Als Klingel-Kamera"}</button>` : ""}</div>
       ${admin && bell.camera === entityId ? `<label class="bellrow">Klingel-Auslöser<input data-bell list="dl_bell" placeholder="event.… oder binary_sensor.…" value="${esc(bell.trigger ?? "")}"><datalist id="dl_bell">${Object.keys(this._hass.states).filter((e) => ["event", "binary_sensor", "input_button", "button"].includes(domainOf(e))).sort().map((e) => `<option value="${esc(e)}"></option>`).join("")}</datalist></label>` : ""}
     </div>`;
     const img = el.querySelector("img");
     const off = el.querySelector(".camoff");
     const load = () => {
-      const src = cameraSrc(this._hass?.states[entityId], Date.now());
+      const src = demo ? null : cameraSrc(this._hass?.states[entityId], Date.now());
       off.hidden = !!src;
       img.hidden = !src;
       if (src) img.src = src;
@@ -48,7 +49,7 @@ export const MediaMethods = {
     };
     el.querySelector(".close").addEventListener("click", close);
     el.addEventListener("click", (ev) => ev.target === el && close());
-    el.querySelector('[data-act="live"]').addEventListener("click", () => {
+    el.querySelector('[data-act="live"]')?.addEventListener("click", () => {
       close();
       this._moreInfo(entityId);
     });
@@ -94,7 +95,7 @@ export const MediaMethods = {
         <div class="mrow"><button data-k="start"><ha-icon icon="mdi:play"></ha-icon><span>Saugen</span></button><button data-k="pause"><ha-icon icon="mdi:pause"></ha-icon><span>Pause</span></button><button data-k="home"><ha-icon icon="mdi:home-import-outline"></ha-icon><span>Zur Station</span></button>${b("locate", "mdi:map-marker-question", "Wo bist du?")}</div></div>`).join("") +
       cams.map((id) => `<button class="camthumb" data-id="${esc(id)}" title="Kamera öffnen"><img alt=""><span></span></button>`).join("");
     box.hidden = !box.innerHTML;
-    const call = (c) => c && this._hass.callService(c[0], c[1], c[2]).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+    const call = (c) => c && this._hass.callService(c[0], c[1], c[2]).catch((err) => this._toast(`Ausführen fehlgeschlagen: ${err.message ?? err}`));
     box.querySelectorAll(".mp").forEach((el) => {
       const info = () => mediaInfo(this._hass.states[el.dataset.id]);
       el.querySelectorAll("button[data-k]").forEach((x) => x.addEventListener("click", () => call(mediaCall(info(), x.dataset.k))));
@@ -147,7 +148,7 @@ export const MediaMethods = {
     box.querySelectorAll(".camthumb").forEach((el) => {
       const st = hass.states[el.dataset.id];
       el.querySelector("span").textContent = st?.attributes?.friendly_name ?? el.dataset.id;
-      const src = cameraSrc(st, fresh ? now : 0);
+      const src = this._isDemo?.() ? null : cameraSrc(st, fresh ? now : 0); // Demo-Haus: nie ein Kamerabild
       const img = el.querySelector("img");
       img.hidden = !src;
       if (src && (fresh || !img.src)) img.src = src;
@@ -170,7 +171,7 @@ export const MediaMethods = {
     if (!r) return this._moreInfo(entityId);
     this._closePopup?.();
     this._closeDialog();
-    const admin = this._editing();
+    const admin = this._editing() && !this._isDemo?.(); // Demo-Haus: keine Wege in Home Assistant (Ablauf, Bearbeiten)
     const auto = domainOf(entityId) === "automation";
     const name = st.attributes?.friendly_name ?? entityId;
     const el = document.createElement("div");
@@ -190,10 +191,11 @@ export const MediaMethods = {
       </div></div>`;
     const go = (path) => {
       this._closeDialog();
+      if (this._isDemo?.()) return;
       history.pushState(null, "", path);
       window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
     };
-    const svc = (domain, service) => this._hass.callService(domain, service, { entity_id: entityId }).then(() => this._closeDialog()).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+    const svc = (domain, service) => this._hass.callService(domain, service, { entity_id: entityId }).then(() => this._closeDialog()).catch((err) => this._toast(`Ausführen fehlgeschlagen: ${err.message ?? err}`));
     el.querySelector(".close").addEventListener("click", () => this._closeDialog());
     el.addEventListener("click", (ev) => ev.target === el && this._closeDialog());
     el.querySelector('[data-r="run"]').addEventListener("click", () => {
