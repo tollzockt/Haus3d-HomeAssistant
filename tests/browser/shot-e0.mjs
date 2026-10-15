@@ -19,6 +19,7 @@ await pg.evaluate(() => window.panel._setSim(false));
 await pg.waitForTimeout(500);
 await unlock(pg);
 await pg.locator("haus3d-panel .edit").click();
+await pg.waitForFunction(() => window.panel._editor, null, { timeout: 20000 }); // der Editor lädt beim ersten Mal nach
 await pg.waitForTimeout(500);
 const running = await pg.evaluate(() => window.panel._scene._running);
 await pg.locator("haus3d-panel .ed-bar button[data-act=cancel]").click();

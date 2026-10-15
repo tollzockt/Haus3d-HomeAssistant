@@ -4,10 +4,10 @@
 // - Admin-Fenster: Kategorien; antippen zeigt die Einstellungen dieses Bereichs.
 // - Karten als Tabs (Energie, eigene Karten, „+“), unten „Entfernen“ bzw. „Ausblenden“.
 
-import { ADMIN_KEYS, canAdmin, canEdit, newPinError, withToken } from "./access.js";
+import { ADMIN_KEYS, canAdmin, newPinError } from "./access.js";
 import { MAX_CARDS, normalizeCards } from "./hud.js";
 import { QUALITY_CHOICES } from "./perf.js";
-import { ENERGY_CORE, LAYERS, energyRowList, esc } from "./panel-util.js";
+import { LAYERS, energyRowList, esc } from "./panel-util.js";
 
 /** Anzeige-Kacheln im Zahnrad (Ebenen) – alles andere unter Admin → Anzeige. */
 const QUICK_LAYERS = [

@@ -8,9 +8,7 @@
 // Danach melden sich die Zuhörer von onModelsChange("loaded"): die Szene zeichnet neu.
 
 import * as THREE from "./vendor/three.module.min.js";
-import { GLTFLoader } from "./vendor/GLTFLoader.js";
-import { OBJLoader } from "./vendor/OBJLoader.js";
-import { STLLoader } from "./vendor/STLLoader.js";
+import { loadOnce } from "./lazy.js";
 import { currentToken, touchAccess, withToken } from "./access.js";
 import { MODEL_MAX_BYTES, MODEL_URL, defaultUp, fitScale, formatBytes, glbJson, gltfProblem, isModelId, modelExt, unitFactor, uploadMessage } from "./model-fit.js";
 
@@ -115,9 +113,17 @@ export async function deleteModel(id) {
 const PLAIN = new THREE.MeshStandardMaterial({ color: 0xe8e2d6, roughness: 0.7 }); // Ersatz, bis die Szene ihren Stoff einsetzt
 PLAIN.userData.keep = true;
 
+// Die Loader (GLTF 108 KB, OBJ, STL) erst laden, wenn wirklich eine Modelldatei gelesen wird
+const loaders = {
+  gltf: () => loadOnce("loader-gltf", () => import("./vendor/GLTFLoader.js")),
+  obj: () => loadOnce("loader-obj", () => import("./vendor/OBJLoader.js")),
+  stl: () => loadOnce("loader-stl", () => import("./vendor/STLLoader.js")),
+};
+
 /** Rohdaten lesen: {object, plain} – plain = ohne eigene Farben (STL, OBJ), die Szene setzt den Stoff ein. */
 export async function parseModel(buffer, ext) {
   if (ext === "glb" || ext === "gltf") {
+    const { GLTFLoader } = await loaders.gltf();
     const gltf = await new GLTFLoader().parseAsync(buffer, "");
     const object = gltf.scene ?? gltf.scenes?.[0];
     if (!object) throw new Error("Das Modell enthält keine Szene.");
@@ -127,6 +133,7 @@ export async function parseModel(buffer, ext) {
     return { object, plain: false };
   }
   if (ext === "obj") {
+    const { OBJLoader } = await loaders.obj();
     const group = new OBJLoader().parse(new TextDecoder().decode(buffer));
     const drop = [];
     group.traverse((o) => (o.isLine || o.isPoints) && drop.push(o));
@@ -134,6 +141,7 @@ export async function parseModel(buffer, ext) {
     return { object: group, plain: true };
   }
   if (ext === "stl") {
+    const { STLLoader } = await loaders.stl();
     const geometry = new STLLoader().parse(buffer);
     geometry.deleteAttribute("normal");
     geometry.computeVertexNormals(); // Flächennormalen aus den Dreiecken (die gespeicherten sind oft 0)

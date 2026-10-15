@@ -32,8 +32,8 @@ await pg.waitForFunction(() => window.panel._house?.name === "Leer", null, { tim
 await pg.waitForTimeout(600);
 const msg = await E(() => window.panel.shadowRoot.querySelector(".msg")?.textContent ?? "");
 t.check(/Bearbeiten → Grundriss/.test(msg), `Hinweis bei leerem Haus: ${msg}`);
-const opened = await E(() => {
-  window.panel._openEditor();
+const opened = await E(async () => {
+  await window.panel._openEditor();
   const e = window.panel._editor;
   return { ok: !!e, shells: window.panel.shadowRoot.querySelectorAll(".ed").length, floors: e?.b.floors.map((f) => f.id), dirty: e?.dirty, setup: !!window.panel.shadowRoot.querySelector(".ed-setup") };
 });
@@ -114,8 +114,8 @@ t.check(!esc.setup && esc.editor, `Esc: ${JSON.stringify(esc)}`);
 
 // --- Tablet: Assistent als Blatt von unten
 const tab = await t.page("o1-tablet", "", { width: 800, height: 1280, touch: true });
-await tab.evaluate(() => {
-  window.panel._openEditor();
+await tab.evaluate(async () => {
+  await window.panel._openEditor();
   window.panel._editor.openSetup(1);
 });
 await tab.waitForTimeout(300);

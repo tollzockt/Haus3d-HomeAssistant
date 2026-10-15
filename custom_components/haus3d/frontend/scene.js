@@ -15,7 +15,7 @@ import { ambientInterval, lodState, resolveQuality, shouldRender } from "./perf.
 import { atticKnee, findPvShed, freeEdges, roofModel, scatter, seeded } from "./exterior.js";
 import { atticModels, roofUnits } from "./roofunits.js";
 import { atticGables, atticOpenings, atticTop, gableFaces } from "./gable.js";
-import { centroid, computeWalls, flushFootprint, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
+import { centroid, computeWalls, labelPoint, pointInPolygon } from "./walls.js";
 import { SceneFx } from "./scene-fx.js";
 import { SceneWalk } from "./scene-walk.js";
 import { ScenePipes } from "./scene-pipes.js";
@@ -24,6 +24,9 @@ import { SceneRoof } from "./scene-roof.js";
 import { SceneRoofParts } from "./scene-roofparts.js";
 import { onModelsChange } from "./models.js";
 import { addAreaKerb, buildKerbArea } from "./scene-kerb.js";
+import { SceneWalls } from "./wallmesh.js";
+import { hiddenBehind, inGarden, wallBlockers } from "./scene-pick.js";
+import { floorPrisms } from "./wallcull.js";
 
 const OUTDOOR = {
   lawn: { color: 0x6aa84f, y: -0.035, h: 0 },
@@ -45,65 +48,6 @@ const WARM = new THREE.Color(0xffb347);
 // Grund-Deckkraft des Licht-Glühens je Stil (nie mats.glow.opacity lesen: Blitze verändern es)
 const STYLE_GLOW = { night: 0.32, cyber: 0.22, standard: 0.16 };
 const ALERT = 0xe53935;
-
-/** Sammelt Prismen (Wandstücke) in einem einzigen BufferGeometry. */
-class PrismBuilder {
-  constructor() {
-    this.buckets = new Map(); // Textur-Schlüssel ("" = glatt) -> {pos, nor, col}
-  }
-
-  quad(a, b, c, d, outward, color) {
-    const ab = new THREE.Vector3().subVectors(b, a);
-    const ac = new THREE.Vector3().subVectors(c, a);
-    const n = new THREE.Vector3().crossVectors(ab, ac);
-    if (n.lengthSq() < 1e-12) return;
-    if (n.dot(outward) < 0) {
-      [b, d] = [d, b];
-      n.negate();
-    }
-    n.normalize();
-    // Farbe trägt optional ihre Textur (color.tex)
-    const key = color.tex ?? "";
-    if (!this.buckets.has(key)) this.buckets.set(key, { pos: [], nor: [], col: [] });
-    const bk = this.buckets.get(key);
-    for (const v of [a, b, c, a, c, d]) {
-      bk.pos.push(v.x, v.y, v.z);
-      bk.nor.push(n.x, n.y, n.z);
-      bk.col.push(color.r, color.g, color.b);
-    }
-  }
-
-  prism(foot, y0, y1, side, cap) {
-    const bottom = foot.map(([x, z]) => new THREE.Vector3(x, y0, z));
-    const top = foot.map(([x, z]) => new THREE.Vector3(x, y1, z));
-    const center = new THREE.Vector3();
-    for (const v of [...bottom, ...top]) center.add(v);
-    center.multiplyScalar(1 / 8);
-    for (let i = 0; i < 4; i++) {
-      const j = (i + 1) % 4;
-      const mid = new THREE.Vector3().addVectors(bottom[i], top[j]).multiplyScalar(0.5);
-      // side: eine Farbe oder je Fläche [Anfang, rechts, Ende, links] (Fußabdruck l0, r0, r1, l1)
-      this.quad(bottom[i], bottom[j], top[j], top[i], mid.sub(center), Array.isArray(side) ? side[i] : side);
-    }
-    this.quad(top[0], top[1], top[2], top[3], new THREE.Vector3(0, 1, 0), cap);
-    this.quad(bottom[0], bottom[1], bottom[2], bottom[3], new THREE.Vector3(0, -1, 0), Array.isArray(side) ? side[0] : side);
-  }
-
-  /** Je Textur ein BufferGeometry (mit UVs in Metern). */
-  geometries() {
-    const out = [];
-    for (const [key, bk] of this.buckets) {
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.Float32BufferAttribute(bk.pos, 3));
-      geo.setAttribute("normal", new THREE.Float32BufferAttribute(bk.nor, 3));
-      geo.setAttribute("color", new THREE.Float32BufferAttribute(bk.col, 3));
-      if (key) planarUVs(geo);
-      geo.computeBoundingSphere();
-      out.push({ key, geo });
-    }
-    return out;
-  }
-}
 
 function solarTexture() {
   const c = document.createElement("canvas");
@@ -132,7 +76,7 @@ function solarTexture() {
 }
 
 export class HouseScene {
-  constructor(container, { dark = false, onCameraChange = () => {} } = {}) {
+  constructor(container, { dark = false, onCameraChange = () => {}, onContextLost = () => {}, onContextRestored = () => {} } = {}) {
     this.container = container;
     this.onCameraChange = onCameraChange;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -143,6 +87,22 @@ export class HouseScene {
     this.renderer.domElement.style.width = "100%";
     this.renderer.domElement.style.height = "100%";
     this.renderer.domElement.style.touchAction = "none";
+    // Verliert der Browser den WebGL-Kontext (zu viele offene Kontexte, Grafiktreiber-Reset, Energiesparen): nicht
+    // aufgeben. preventDefault erlaubt die Wiederherstellung; Three.js legt seinen Zustand dann selbst neu an und
+    // lädt Geometrien und Texturen beim nächsten Bild wieder hoch – hier genügt es, neu zu zeichnen.
+    this.contextLost = false;
+    this._onContextLost = (ev) => {
+      ev.preventDefault();
+      this.contextLost = true;
+      onContextLost();
+    };
+    this._onContextRestored = () => {
+      this.contextLost = false;
+      this.invalidate();
+      onContextRestored();
+    };
+    this.renderer.domElement.addEventListener("webglcontextlost", this._onContextLost, false);
+    this.renderer.domElement.addEventListener("webglcontextrestored", this._onContextRestored, false);
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
@@ -346,6 +306,11 @@ export class HouseScene {
           rain: new THREE.LineBasicMaterial({ color: this.style === "night" ? 0x8fa6d8 : 0x7f97ad, transparent: true, opacity: 0.5 }),
           snow: new THREE.PointsMaterial({ color: 0xffffff, size: 0.08, transparent: true, opacity: 0.95, depthWrite: false }),
         };
+    // Die Dachfläche liegt genau auf der Oberkante der Außenwände (Traufe) und der Giebel: bei gleicher Tiefe gewinnt
+    // das Dach, sonst blitzen die Wandkanten als feine Linie durch (gilt auch für Kopien mit Farbe oder Textur). Nicht im
+    // Cyberpunk-Stil: auf Linien wirkt polygonOffset nicht, das Dach zöge sich vor seine deckungsgleichen Neonkanten (roofEdge)
+    if (!this.mats.roofEdge) Object.assign(this.mats.roof, { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    Object.assign(this.mats.wall, { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     const garden = cyber
       ? { lawn: 0x062a24, terrace: 0x2a1450, path: 0x1a1030, driveway: 0x140c26, pool: 0x1b0f33, bed: 0x3a0f3a, hedge: 0x0b4f3f, fence: 0x4a148c, balcony: 0x2a1450, gravel: 0x2a2440, paving: 0x221a3a, rockery: 0x2a1f3f }
       : Object.fromEntries(Object.entries(OUTDOOR).map(([k, v]) => [k, v.color]));
@@ -400,12 +365,16 @@ export class HouseScene {
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    // setSize leert die Zeichenfläche: sofort neu zeichnen, sonst flackert es bis zum nächsten Frame
-    if (this._running) {
+    // setSize leert die Zeichenfläche: sofort neu zeichnen, sonst flackert es bis zum nächsten Frame. Dieses Bild
+    // ersetzt ein ohnehin anstehendes (_dirty zurück); nur Overlays und Detailstufen brauchen danach noch einen Durchlauf.
+    const drawn = this._running && !this.contextLost;
+    if (drawn) {
       this.renderer.render(this.scene, this.camera);
       this._dirty = false;
     }
-    this._cameraMoved();
+    this._camDirty = true;
+    if (!drawn) this._dirty = true; // ruht die Ansicht, wird beim nächsten Start gezeichnet
+    this._kick();
   }
 
   // ------------------------------------------------------------------ Aufbau
@@ -438,6 +407,7 @@ export class HouseScene {
     // Giebelflächen über dem Dachgeschoss (gable.js): _buildFloor trägt Löcher für Fenster und Türen ein, das Dach schneidet sie aus
     this._gables = this._attic ? gableFaces(this._attic) : [];
     for (const floor of building.floors ?? []) this._buildFloor(floor, building.settings ?? {}, footing(building.floors, floor));
+    this._finishWalls();
     this._buildRoof(building, house, units);
     this._buildEnergy(building);
     if (this._weather) this.setWeather(this._weather, { force: true });
@@ -622,24 +592,29 @@ export class HouseScene {
     this.devicesGroup.traverse((o) => o.isMesh && targets.push(o));
     for (const entry of this.floors.values()) {
       if (!this.isFloorVisible(entry.floor.id)) continue; // Etagen darunter nur zur Ansicht
-      entry.group.traverse((o) => o.isMesh && (o.userData.entity || o.userData.room || (furniture && o.userData.furniture)) && targets.push(o));
-      if (furniture) entry.garden.traverse((o) => o.isMesh && o.userData.furniture && targets.push(o));
+      // noPick: durchsichtige Teile (Glastür des Schranks) lassen den Zeiger durch zu dem, was dahinter steht
+      entry.group.traverse((o) => o.isMesh && !o.userData.noPick && (o.userData.entity || o.userData.room || (furniture && o.userData.furniture)) && targets.push(o));
+      // Möbel außerhalb der Räume (Whirlpool auf dem Rasen, Außensteckdose oder Klingel an der Fassade): mit Entität immer antippbar, im Editor alle
+      entry.garden.traverse((o) => o.isMesh && !o.userData.noPick && (furniture ? o.userData.furniture : o.userData.entity) && targets.push(o));
     }
     for (const f of this.pvFields?.values() ?? []) if (this.roofKeyShown(f.roofKey)) targets.push(f.mesh);
     if (this._roofShown()) targets.push(...this.roofMeshes);
     // Dächer der Einheiten (eigene Dächer, Dachteile, auch nach „Umwandeln“) halten Antippen auf wie das Hausdach
     for (const { key, mesh } of this.roofUnitMeshes ?? []) if (this.roofKeyShown(key)) targets.push(mesh);
+    // Wände ebenso: was dahinter liegt (Whirlpool hinter dem Haus), lässt sich nicht durch die Fassade antippen
+    const walls = furniture ? [] : wallBlockers(this).filter(visible);
+    targets.push(...walls);
     const hits = this.raycaster.intersectObjects(targets.filter(visible), false);
     for (const hit of hits) {
       if (hit.object.userData.pvField) return { pvField: hit.object.userData.pvField };
       if (hit.object.userData.roof || hit.object.userData.roofUnit) return null;
       if (furniture && hit.object.userData.furniture) return { furniture: hit.object.userData.furniture };
       if (hit.object.userData.entity) return { entity_id: hit.object.userData.entity };
-      if (hit.object.userData.room) break;
+      if (hit.object.userData.room || hit.object.userData.layer === "walls") break; // der Raum dahinter bleibt unten wählbar
     }
     // knapp daneben: nächstes Gerät (3D-Gerät, Lampe, Heizkörper …) im Umkreis von fingerPx
     if (!furniture) {
-      const near = this.nearestEntity(clientX, clientY, targets.filter(visible));
+      const near = this.nearestEntity(clientX, clientY, targets.filter(visible), undefined, walls);
       if (near) return { entity_id: near };
       // Leitung oder Verteiler (Netz-Details)
       const pipe = this.pickPipe?.(clientX, clientY);
@@ -649,21 +624,26 @@ export class HouseScene {
     return room ? { ...room.object.userData.room } : null;
   }
 
-  /** Gerät mit Entität, dessen Mitte auf dem Bildschirm am nächsten am Zeiger liegt (oder null). */
-  nearestEntity(clientX, clientY, targets, maxPx = this.fingerPx ?? 30) {
+  /**
+   * Gerät mit Entität, dessen Mitte auf dem Bildschirm am nächsten am Zeiger liegt (oder null). Geräte im Garten zählen
+   * nur, wenn ihre Mitte nicht hinter einer der Wände (walls) liegt.
+   */
+  nearestEntity(clientX, clientY, targets, maxPx = this.fingerPx ?? 30, walls = []) {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const seen = new Map();
     const box = new THREE.Box3();
     const c = new THREE.Vector3();
+    const mid = new THREE.Vector3();
     for (const o of targets) {
       const id = o.userData.entity;
       if (!id || o.userData.room) continue;
       box.setFromObject(o);
       if (box.isEmpty()) continue;
-      box.getCenter(c).project(this.camera);
+      box.getCenter(mid);
+      c.copy(mid).project(this.camera);
       if (c.z > 1) continue; // hinter der Kamera
       const d = Math.hypot(((c.x + 1) / 2) * rect.width + rect.left - clientX, ((1 - c.y) / 2) * rect.height + rect.top - clientY);
-      if (d <= maxPx && (!seen.has(id) || d < seen.get(id))) seen.set(id, d);
+      if (d <= maxPx && (!seen.has(id) || d < seen.get(id)) && !(walls.length && inGarden(o) && hiddenBehind(this.camera, mid, walls))) seen.set(id, d);
     }
     let best = null;
     for (const [id, d] of seen) if (!best || d < best[1]) best = [id, d];
@@ -781,7 +761,6 @@ export class HouseScene {
     const height = floor.height ?? 2.5;
     const attic = this._attics?.get(floor.id) ?? null; // Liste der Dach-Modelle über diesem Dachgeschoss
     const knee = attic ? atticKnee(floor) : height;
-    const prisms = new PrismBuilder();
     const dark = this.dark;
     const cyber = this.style === "cyber";
     const colors = cyber
@@ -813,7 +792,7 @@ export class HouseScene {
       return e === undefined ? null : roomById.get(roomId)?.edge_styles?.[e] ?? null;
     };
     const styled = (base, color, texture) => (color || texture ? Object.assign(custom(color, base).clone(), { tex: texture ? (cyber ? null : textureFor("wall", texture)) : base.tex }) : base);
-    for (const seg of segments) {
+    const paint = (seg) => {
       const extRoom = seg.roomLeft ?? seg.roomRight;
       const extStyle = seg.kind === "exterior" ? edgeStyle(seg, extRoom) : null;
       const outside = styled(extCols.get(extRoom) ?? extCol, extStyle?.exterior_color, extStyle?.exterior_texture);
@@ -822,46 +801,20 @@ export class HouseScene {
         const st = edgeStyle(seg, roomId);
         return styled(roomCols.get(roomId) ?? intCol, st?.color, st?.texture);
       };
-      const h = seg.height ?? height;
       const end = seg.kind === "exterior" ? outside : intCol;
       const fw = seg.kind === "free" ? (floor.walls ?? []).find((w) => w.id === seg.freeId) : null;
       const freeCol = fw ? tex(custom(fw.color, intCol), fw.texture, wt.interior) : null;
-      const sides = seg.kind === "free" ? freeCol : [end, face(seg.roomRight), end, face(seg.roomLeft)];
-      // Wandfuß unter dem Boden: schließt die Fuge zur Etage darunter (Deckenstärke)
-      prisms.prism(pieceFootprint(seg, 0, seg.length), elev - base, elev, sides, colors.cap);
-      const slope = attic && seg.height == null ? atticTop(attic, seg, elev, height, knee) : null;
-      const flushCol = seg.flush ? face(seg.roomLeft ?? seg.roomRight) : null; // bündiger Streifen in Raumfarbe (walls.js)
-      const put = (s0, s1, y0, y1) => {
-        prisms.prism(pieceFootprint(seg, s0, s1), elev + y0, elev + y1, sides, colors.cap);
-        if (flushCol) prisms.prism(flushFootprint(seg, s0, s1), elev + y0, elev + y1, flushCol, colors.cap);
-      };
-      for (const piece of wallPieces(seg, lim?.openings ?? openings, slope ? height : h)) {
-        if (!slope) {
-          put(piece.s0, piece.s1, piece.y0, piece.y1);
-          continue;
-        }
-        // in Stufen unter der Dachschräge (Außenwände enden am Kniestock bzw. unter Flachdach auf Raumhöhe)
-        for (const [s0, s1, top] of slope) {
-          const a = Math.max(s0, piece.s0);
-          const b = Math.min(s1, piece.s1);
-          const y1 = Math.min(piece.y1, top);
-          if (b - a > 1e-4 && y1 - piece.y0 > 1e-3) put(a, b, piece.y0, y1);
-        }
-      }
-    }
-    const wallMeshes = prisms.geometries().map(({ key, geo }) => {
-      const m = new THREE.Mesh(geo, this._texMat(this.mats.wall, key, "wall"));
-      m.userData.layer = "walls";
-      group.add(m);
-      return m;
-    });
+      const side = seg.kind === "free" ? freeCol : [end, face(seg.roomRight), end, face(seg.roomLeft)];
+      // bündiger Streifen in Raumfarbe (walls.js)
+      return { side, cap: colors.cap, flush: seg.flush ? face(seg.roomLeft ?? seg.roomRight) : null };
+    };
+    // Wandstücke (wallcull.js); Dachgeschoss: in Stufen unter der Dachschräge (Außenwände enden am Kniestock bzw.
+    // unter Flachdach auf Raumhöhe). Meshes baut _finishWalls (wallmesh.js), wenn alle Etagen da sind: verdeckte
+    // Flächen fallen weg, auch zur Etage darüber und darunter
+    const steps = (seg) => (attic && seg.height == null ? atticTop(attic, seg, elev, height, knee) : null);
+    entry.walls = floorPrisms(segments, lim?.openings ?? openings, { elev, base, height, steps, paint });
     if (cyber) {
-      // Neonkanten an allen Wandkanten, Raumumrisse in Magenta knapp über dem Boden
-      for (const walls of wallMeshes) {
-        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(walls.geometry, 25), this.mats.edge);
-        edges.userData.layer = "walls";
-        group.add(edges);
-      }
+      // Raumumrisse in Magenta knapp über dem Boden (Neonkanten der Wände: _finishWalls)
       for (const room of floor.rooms ?? []) {
         const line = outline(room.points, elev + 0.015, this.mats.outline);
         line.userData.layer = "floors";
@@ -898,7 +851,6 @@ export class HouseScene {
     group.add(furn);
     entry.furn = furn; // Möbel innen (werden bei Draufsicht mit Dach ausgeblendet)
     garden.add(gardenFurn);
-    entry.occluders.push(...wallMeshes);
 
     // Öffnungen
     const segById = new Map(segments.map((s) => [s.id, s]));
@@ -1466,6 +1418,8 @@ export class HouseScene {
     // gewählte Etage und alle darunter (Außenwände bleiben stehen, man schaut nur von oben hinein)
     const elev = this.floors.get(this.filter)?.floor.elevation ?? Infinity;
     for (const [id, entry] of this.floors) entry.group.visible = this.filter === "all" || this.filter === id || (entry.floor.elevation ?? 0) < elev;
+    // Deckflächen unter dem Wandfuß der Etage darüber: nur, wenn diese ausgeblendet ist (sonst liegen sie in der Fuge)
+    for (const entry of this.floors.values()) if (entry.lid) entry.lid.wrap.visible = !this.floors.get(entry.lid.above)?.group.visible;
     // Dach nur in der Gesamtansicht; mit Etagenwahl schaut man hinein (auch Raumdächer dieser Etage)
     if (this.roofHolder) this.roofHolder.visible = this.filter === "all";
     for (const [id, entry] of this.floors) for (const w of entry.roofWrappers ?? []) w.visible = this.filter !== id;
@@ -1644,13 +1598,19 @@ export class HouseScene {
 
   // ------------------------------------------------------------------ Overlays
 
-  /** Bildschirmposition eines Weltpunkts (oder null, wenn hinter der Kamera). */
-  project(v) {
+  /** Maße der Zeichenfläche (CSS-Pixel). Beim Positionieren vieler Beschriftungen einmal lesen und an project() übergeben. */
+  viewSize() {
+    return { w: this.container.clientWidth, h: this.container.clientHeight };
+  }
+
+  /**
+   * Bildschirmposition eines Weltpunkts (oder null, wenn hinter der Kamera). size = viewSize() einmal je Durchlauf:
+   * Wer zwischen den Aufrufen Styles schreibt, würde sonst bei jedem Lesen der Maße ein Layout erzwingen.
+   */
+  project(v, size = this.viewSize()) {
     const p = v.clone().project(this.camera);
     if (p.z > 1) return null;
-    const w = this.container.clientWidth;
-    const h = this.container.clientHeight;
-    return { x: (p.x * 0.5 + 0.5) * w, y: (-p.y * 0.5 + 0.5) * h };
+    return { x: (p.x * 0.5 + 0.5) * size.w, y: (-p.y * 0.5 + 0.5) * size.h };
   }
 
   /** Liegt zwischen Kamera und Punkt Geometrie einer anderen sichtbaren Etage (z. B. EG über KG)? */
@@ -1965,7 +1925,12 @@ export class HouseScene {
     this.controls.dispose();
     for (const child of [...this.root.children]) this._dispose(child);
     this._disposeMats();
+    this.renderer.domElement.removeEventListener("webglcontextlost", this._onContextLost, false);
+    this.renderer.domElement.removeEventListener("webglcontextrestored", this._onContextRestored, false);
     this.renderer.dispose();
+    // dispose() allein gibt den WebGL-Kontext nicht frei: Er bliebe samt Grafikspeicher (~60 MB je Editor-Ansicht)
+    // bis zur Speicherbereinigung bestehen, und beim ~17. Kontext verlöre die Hauptansicht den ihren.
+    this.renderer.forceContextLoss();
     this.renderer.domElement.remove();
   }
 }
@@ -1981,7 +1946,6 @@ function footing(floors, floor) {
   const gap = floor.elevation - (below.elevation + (below.height ?? 2.5));
   return gap > 0 && gap <= 1 ? Math.max(SLAB, gap) : SLAB;
 }
-
 
 /** Fläche mit Höhe je Eckpunkt (relativ), trianguliert; Plan [x, z] -> Welt (x, y, z). */
 function slopedSurface(points, heights) {
@@ -2014,4 +1978,4 @@ function outline(points, y, material, heights = null) {
   return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), material);
 }
 
-Object.assign(HouseScene.prototype, SceneFx, SceneWalk, ScenePipes, SceneRoof, SceneRoofParts);
+Object.assign(HouseScene.prototype, SceneFx, SceneWalk, ScenePipes, SceneRoof, SceneRoofParts, SceneWalls);

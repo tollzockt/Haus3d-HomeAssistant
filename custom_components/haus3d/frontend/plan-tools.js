@@ -2,6 +2,7 @@
 // Kopieren/Einfügen/Vorlagen mehrerer Teile und das Bauplan-Foto unter dem Grundriss.
 
 import { moveOutdoor, newId, shiftRoomRoof } from "./edit-ops.js";
+import { cabinetLayout, isCabinet } from "./rack.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const ENTITY = /^[a-z_]+\.[a-z0-9_]+$/;
@@ -128,12 +129,16 @@ export function removeRefs(floor, refs) {
 
 /**
  * Kopie der gewählten Teile, Koordinaten relativ zum Mittelpunkt (für Zwischenablage und Vorlagen).
- * Fenster/Türen der kopierten Räume und Wände kommen mit.
+ * Fenster/Türen der kopierten Räume und Wände kommen mit, ebenso die Geräte, die in einem kopierten Schrank sitzen (in_rack).
  */
 export function copyRefs(floor, refs) {
   const list = resolveRefs(floor, refs);
   const b = refsBounds(floor, refs);
   if (!b) return null;
+  // Schrank samt Inhalt: eingebaute Geräte, die nicht ohnehin gewählt sind, kommen dazu
+  const taken = new Set(list.filter((r) => r.kind === "furniture").map((r) => r.id));
+  const cabs = new Set(list.filter((r) => r.kind === "furniture" && isCabinet(r.item)).map((r) => r.id));
+  if (cabs.size) for (const m of floor.furniture ?? []) if (m.in_rack != null && cabs.has(m.in_rack) && !taken.has(m.id)) list.push({ kind: "furniture", id: m.id, item: m });
   const cx = r3((b.x0 + b.x1) / 2);
   const cz = r3((b.z0 + b.z1) / 2);
   const clip = { rooms: [], furniture: [], outdoor: [], walls: [], openings: [], size: [r3(b.x1 - b.x0), r3(b.z1 - b.z0)] };
@@ -158,11 +163,13 @@ export function pasteClip(floor, clip, at, taken) {
   };
   const out = { ...floor };
   const added = [];
+  const furn = []; // eingefügte Möbel (für die Schrank-Bezüge, siehe unten)
   for (const kind of MULTI_KINDS) {
     const key = LIST[kind];
     const items = (clip[key] ?? []).map((x) => {
       const y = shiftItem(kind, structuredClone(x), at[0], at[1]);
       y.id = fresh(x.id, { room: "room", furniture: "m", outdoor: "aussen", wall: "wand" }[kind]);
+      if (kind === "furniture") furn.push(y);
       // Platzierte Geräte und HA-Bereich nicht doppelt verknüpfen
       if (kind === "room") y.area_id = null;
       if (kind === "furniture" && y.entity) y.entity = null;
@@ -180,6 +187,8 @@ export function pasteClip(floor, clip, at, taken) {
     });
     if (items.length) out[key] = [...(floor[key] ?? []), ...items];
   }
+  // Geräte im kopierten Schrank gehören zur Kopie des Schranks, nicht zum Original
+  for (const y of furn) if (y.in_rack != null && map.has(y.in_rack)) y.in_rack = map.get(y.in_rack);
   const ops = (clip.openings ?? [])
     .filter((o) => map.has(o.room_id) || map.has(o.wall))
     .map((o) => {
@@ -193,6 +202,19 @@ export function pasteClip(floor, clip, at, taken) {
     });
   if (ops.length) out.openings = [...(floor.openings ?? []), ...ops];
   return { floor: out, added };
+}
+
+/**
+ * Versatz [dx, dz] einer Kopie beim Duplizieren: sonst 0,5 m schräg; ein Schrank (samt seinen Geräten) kommt rechts
+ * daneben, um seine Breite plus 10 cm – dort überlappt er das Original nicht (Drehung eingerechnet).
+ */
+export function duplicateOffset(floor, refs) {
+  const list = resolveRefs(floor, refs);
+  const cab = list.find((r) => r.kind === "furniture" && isCabinet(r.item));
+  if (!cab || !list.every((r) => r.kind === "furniture" && (isCabinet(r.item) || r.item.in_rack != null))) return [0.5, 0.5];
+  const { w, d } = cabinetLayout(cab.item);
+  const a = ((Number(cab.item.rotation) || 0) * Math.PI) / 180;
+  return [r3(Math.abs(w * Math.cos(a)) + Math.abs(d * Math.sin(a)) + 0.1), 0];
 }
 
 /** Kurze Beschreibung einer Auswahl/Vorlage („2 Räume, 3 Möbel“). */

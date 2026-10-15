@@ -44,9 +44,16 @@ export const HoloMethods = {
       const top = floor.elevation + furnitureTopY(m, fh); // Oberkante des Modells (geneigt: höchste Ecke)
       const el = document.createElement("div");
       el.className = "holo";
-      el.innerHTML = `<div class="holocard" role="group" aria-label="${esc(holoTitle(m))}"><div class="holohead">${esc(holoTitle(m))}</div>${holoRows(m, this._hass)
-        .map((r) => `<button class="hololine" data-entity="${esc(r.entity)}"><span>${esc(r.name)}</span><b>${esc(r.value)}</b></button>`)
-        .join("")}</div>`;
+      // Schrank: die Geräte darin stehen mit in der Tafel, je Gerät eine Zwischenzeile
+      let group = null;
+      const lines = holoRows(m, this._hass, floor)
+        .map((r) => {
+          const sub = r.group && r.group !== group ? `<div class="holosub">${esc(r.group)}</div>` : "";
+          group = r.group ?? null;
+          return `${sub}<button class="hololine" data-entity="${esc(r.entity)}"><span>${esc(r.name)}</span><b>${esc(r.value)}</b></button>`;
+        })
+        .join("");
+      el.innerHTML = `<div class="holocard" role="group" aria-label="${esc(holoTitle(m))}"><div class="holohead">${esc(holoTitle(m))}</div>${lines}</div>`;
       el.addEventListener("pointerdown", (ev) => ev.stopPropagation());
       el.addEventListener("click", (ev) => {
         const b = ev.target.closest("[data-entity]");
@@ -67,7 +74,7 @@ export const HoloMethods = {
       const ov = this._overlays.get(`holo:${floor.id}:${m.id}`);
       if (!ov) continue;
       const lines = ov.el.querySelectorAll(".hololine b");
-      holoRows(m, this._hass).forEach((r, i) => lines[i] && setText(lines[i], r.value));
+      holoRows(m, this._hass, floor).forEach((r, i) => lines[i] && setText(lines[i], r.value));
     }
   },
 
@@ -87,7 +94,7 @@ export const HoloMethods = {
     const h = this._holo;
     if (!h) return [];
     const floor = this._building?.floors.find((f) => f.id === h.floorId);
-    return (floor?.furniture ?? []).filter((m) => h.ids.includes(m.id)).flatMap((m) => (m.info ?? []).map((r) => r?.entity).filter(Boolean));
+    return (floor?.furniture ?? []).filter((m) => h.ids.includes(m.id)).flatMap((m) => holoRows(m, null, floor).map((r) => r.entity));
   },
 
   /** Kamera weitergezogen oder Begehen? Dann ausblenden. */
@@ -109,6 +116,7 @@ export const HOLO_STYLE = `
   text-shadow: 0 0 6px rgba(120, 230, 255, .6); font-size: 12px; animation: holo-in .35s ease-out; transform-origin: 50% 100%; }
 .holo::after { content: ""; position: absolute; left: -1px; bottom: 0; width: 2px; height: 18px; background: linear-gradient(0deg, rgba(110, 230, 255, 0), rgba(110, 230, 255, .9)); box-shadow: 0 0 6px rgba(110, 230, 255, .8); }
 .holohead { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; font-size: 11px; color: #9ff1ff; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.holosub { margin-top: 5px; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: #9ff1ff; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hololine { display: flex; gap: 10px; justify-content: space-between; align-items: baseline; width: 100%; padding: 2px 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-height: 22px; }
 .hololine span { opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hololine b { font-variant-numeric: tabular-nums; white-space: nowrap; color: #fff; }

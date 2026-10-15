@@ -119,6 +119,7 @@ for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close(); /
 const ed = await shot("editor", "", { width: 1280, height: 800 });
 await unlock(ed);
 await ed.locator("haus3d-panel .edit").click();
+await ed.waitForFunction(() => window.panel._editor, null, { timeout: 20000 }); // der Editor lädt beim ersten Mal nach
 await ed.waitForTimeout(500);
 await ed.locator("haus3d-panel .floorsel").selectOption("eg");
 await ed.waitForTimeout(300);
@@ -250,6 +251,7 @@ const e3 = await shot("etappe3", "?roof=gable&lhaus&garden", { width: 1280, heig
 await e3.screenshot({ path: `${out}/l-dach.png` });
 await unlock(e3);
 await e3.locator("haus3d-panel .edit").click();
+await e3.waitForFunction(() => window.panel._editor, null, { timeout: 20000 });
 await e3.waitForTimeout(400);
 await e3.locator("haus3d-panel .floorsel").selectOption("eg");
 await e3.locator("haus3d-panel .ed-bar button[data-view='split']").click();
@@ -482,6 +484,7 @@ await rf.screenshot({ path: `${out}/etage-eg-mit-kg.png` });
 await rf.locator("haus3d-panel .floorbar button[data-floor='all']").click();
 await unlock(rf);
 await rf.locator("haus3d-panel .edit").click();
+await rf.waitForFunction(() => window.panel._editor, null, { timeout: 20000 });
 await rf.waitForTimeout(400);
 await rf.locator("haus3d-panel .floorsel").selectOption("__roof");
 await rf.locator("haus3d-panel .ed-bar button[data-view='split']").click();

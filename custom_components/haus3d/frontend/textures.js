@@ -23,15 +23,39 @@ function canvas() {
   return [c, c.getContext("2d")];
 }
 
-/** Grauwert-Rauschen (Körnung) über die ganze Fläche. */
+/**
+ * Grauwert-Rauschen (Körnung) über die ganze Fläche: Grund in base, darauf n Körner (Quadrate der Kantenlänge size
+ * an zufälligen Teilpixel-Stellen, Grauwert base ± amount). Die Körner werden direkt in die Pixel geschrieben, mit
+ * derselben anteiligen Deckung wie beim Zeichnen mit Kantenglättung – aber ohne je Korn ein fillRect samt eigenem
+ * fillStyle (bis zu 20.000 Zeichenbefehle, auf schwachen Geräten ein Vielfaches an Zeit). Reihenfolge der
+ * Zufallszahlen und Ergebnis (auf einen Grauwert genau) bleiben wie vorher.
+ */
 function grain(g, rnd, amount = 14, base = 236, n = 2600, size = 2) {
-  g.fillStyle = `rgb(${base},${base},${base})`;
-  g.fillRect(0, 0, N, N);
+  const grey = new Uint8ClampedArray(N * N).fill(base); // rundet und begrenzt auf 0 … 255 wie ein Zeichenvorgang
   for (let i = 0; i < n; i++) {
-    const v = base + (rnd() - 0.5) * 2 * amount;
-    g.fillStyle = `rgb(${v | 0},${v | 0},${v | 0})`;
-    g.fillRect(rnd() * N, rnd() * N, size, size);
+    const v = (base + (rnd() - 0.5) * 2 * amount) | 0;
+    const x0 = rnd() * N;
+    const y0 = rnd() * N;
+    const x1 = x0 + size;
+    const y1 = y0 + size;
+    const xa = Math.max(0, Math.floor(x0));
+    const xb = Math.min(N, Math.ceil(x1));
+    for (let y = Math.max(0, Math.floor(y0)); y < Math.min(N, Math.ceil(y1)); y++) {
+      const cy = Math.min(y + 1, y1) - Math.max(y, y0); // Anteil der Pixelzeile, den das Korn deckt
+      for (let x = xa; x < xb; x++) {
+        const c = cy * (Math.min(x + 1, x1) - Math.max(x, x0));
+        const k = y * N + x;
+        grey[k] = grey[k] + (v - grey[k]) * c;
+      }
+    }
   }
+  const img = g.createImageData(N, N);
+  const px = img.data;
+  for (let k = 0, o = 0; k < grey.length; k++, o += 4) {
+    px[o] = px[o + 1] = px[o + 2] = grey[k];
+    px[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
 }
 
 const shade = (g, v, a = 1) => (g.fillStyle = `rgba(${v | 0},${v | 0},${v | 0},${a})`);
@@ -374,8 +398,12 @@ function tilesGrid(g, rnd, joint) {
 }
 
 function grain_overlay(g, rnd, alpha) {
+  const dark = `rgba(120,120,120,${alpha})`;
+  const light = `rgba(255,255,255,${alpha})`;
+  let cur = null;
   for (let i = 0; i < 5000; i++) {
-    shade(g, rnd() < 0.5 ? 120 : 255, alpha);
+    const c = rnd() < 0.5 ? dark : light;
+    if (c !== cur) g.fillStyle = cur = c; // fillStyle nur bei Wechsel setzen (gleiches Bild, halb so viele Zuweisungen)
     g.fillRect(rnd() * N, rnd() * N, 1.5, 1.5);
   }
 }

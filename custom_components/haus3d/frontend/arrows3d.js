@@ -75,7 +75,7 @@ export function axisFacing(dir, view) {
 /**
  * Anker der Pfeile an der Auswahl: Lage x/z, Mitte y (über dem Boden der Etage), Unterkante base, größte Höhe
  * max (Verteiler: Decke minus Gehäuse, mit building wie bei den Leitungen unter Platte bzw. Dachschräge) und die
- * ziehbaren Achsen ("xyz" bzw. "xz" für Flaches, Säulen bis zur Decke und Durchführungen).
+ * ziehbaren Achsen ("xyz" bzw. "xz" für Flaches, Säulen bis zur Decke und Durchführungen; "" für Geräte im Schrank).
  * @returns {{x: number, z: number, y: number, base: number, max: number, axes: string}|null}
  */
 export function arrowAnchor(floor, sel, building = null) {
@@ -91,7 +91,9 @@ export function arrowAnchor(floor, sel, building = null) {
     const base = Number.isFinite(b) ? b : 0;
     // geneigt/gekippt: Mitte der Hülle (die Mitte der Grundfläche bleibt bei x/z)
     const ph = hasPose(m) ? furniturePose(m, Number(m.w) || def[1], Number(m.d) || def[2], h, rawH ? null : fh).h : h;
-    return { x: m.x, z: m.z, y: base + ph / 2, base, max: 20, axes: FLAT.has(m.type) || !rawH ? "xz" : "xyz" };
+    // eingebaut (in_rack): Lage und Höhe kommen vom Schrank (follow-rack.js) – keine Pfeile, nur der Anker bleibt
+    const axes = m.in_rack != null ? "" : FLAT.has(m.type) || !rawH ? "xz" : "xyz";
+    return { x: m.x, z: m.z, y: base + ph / 2, base, max: 20, axes };
   }
   if (sel.kind === "pnode") {
     const n = (floor.nodes ?? []).find((q) => q.id === sel.id);

@@ -2,49 +2,8 @@
 
 // Haus 3D – Panel für die Home-Assistant-Seitenleiste.
 
-import * as THREE from "./vendor/three.module.min.js";
-import {
-  displayKind,
-  roomEntities,
-  coverClosedFraction,
-  domainOf,
-  energyValues,
-  entitiesByArea,
-  buildingIcons,
-  buildingLinks,
-  iconKind,
-  isOpen,
-  placesOf,
-  roomClimate,
-  roomLit,
-  roomHeating,
-  roomPower,
-  VIEW_MODES,
-  viewColor,
-  dewPoint,
-  ventAdvice,
-  agoText,
-  persons,
-  roomPresence,
-  groupRoomEntities,
-  roomActions,
-  stepTarget,
-  temperatureColor,
-  watchedEntities,
-} from "./devices.js";
-import { ROOF_TYPES, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
-import { exportFile, normalize, parseImport } from "./model.js";
+import { isOpen } from "./devices.js";
 import { energyRowSpecs } from "./energymodel.js";
-import { SIM_WEATHER, Simulator } from "./sim.js";
-import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
-import { entityAction } from "./actions.js";
-import { entityPlaces, houseStatus, statusChips } from "./status.js";
-import { ALERT_DEFAULTS, evaluateAlerts, exteriorOpenings, normalizeAlerts, visibleAlerts } from "./alerts.js";
-import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
-import { HouseScene } from "./scene.js";
-import { closeGaps } from "./walls.js";
-import { EDITOR_STYLE, FloorEditor } from "./editor.js";
-import { PANEL_STYLE } from "./panel-style.js";
 
 export const LONG_PRESS_MS = 550;
 /**

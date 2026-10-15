@@ -48,7 +48,23 @@ export const CatalogMethods = {
       return `<button class="tile${t === this.furnType ? " sel" : ""}" data-furn="${t}" title="${esc(FURNITURE[t][0])}">${img ? `<img alt="" src="${img}">` : `<span class="ph" data-thumb="${t}"></span>`}<span>${esc(FURNITURE[t][0])}</span></button>`;
     };
     const head = (cls, key, name, n, isOpen) => `<button class="${cls}" data-${cls}="${esc(key)}" aria-expanded="${isOpen}"><ha-icon icon="${isOpen ? "mdi:chevron-down" : "mdi:chevron-right"}"></ha-icon><span>${esc(name)}</span><small>${n}</small></button>`;
+    // Vorschaubilder nur für das, was gerade zu sehen ist (aufgeklappte Kategorien, Suchtreffer): jeder Aufbau fordert
+    // die sichtbaren Platzhalter an, weitere kommen beim Aufklappen dazu. Ist nichts mehr zu sehen (Kategorie wieder
+    // zugeklappt, Suche ohne Treffer), geht trotzdem eine leere Liste hin: der laufende Durchgang endet und gibt seinen
+    // WebGL-Kontext frei.
+    const onThumb = (type, url) => {
+      if (!cats.isConnected) return; // Katalog inzwischen ersetzt
+      for (const ph of cats.querySelectorAll(`[data-thumb="${type}"]`)) ph.outerHTML = `<img alt="" src="${url}">`;
+    };
+    const wantThumbs = () => {
+      const types = [...cats.querySelectorAll("[data-thumb]")].map((p) => p.dataset.thumb);
+      renderThumbs(onThumb, style, types);
+    };
     const draw = () => {
+      paint();
+      wantThumbs();
+    };
+    const paint = () => {
       const q = this.furnSearch.trim().toLowerCase();
       if (q) {
         // Suche: alle Treffer aufgeklappt, Gruppen und Merkzustand bleiben unberührt
@@ -91,11 +107,6 @@ export const CatalogMethods = {
       this.furnModel = null;
       cats.querySelectorAll(".tile").forEach((t) => t.classList.toggle("sel", t === b));
     });
-    // Vorschaubilder nach und nach einsetzen (auch in später aufgeklappten Kategorien)
-    renderThumbs((type, url) => {
-      const ph = cats.querySelector(`[data-thumb="${type}"]`);
-      if (ph) ph.outerHTML = `<img alt="" src="${url}">`;
-    }, style);
   },
   ...ModelCatalogMethods,
 };

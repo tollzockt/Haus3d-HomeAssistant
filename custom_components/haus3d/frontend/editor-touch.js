@@ -149,7 +149,7 @@ export const TouchMethods = {
     const sel = this.sel;
     const items = [];
     if (this.props.querySelector('[data-act="dup"]')) items.push(["dup", "Duplizieren"]);
-    if (sel.kind === "furniture" || (sel.kind === "pnode" && this._nodeTurnable())) items.push(["rot", "Drehen 90°"], ["wall", "An die Wand stellen"]);
+    if ((sel.kind === "furniture" && !this._selRacked()) || (sel.kind === "pnode" && this._nodeTurnable())) items.push(["rot", "Drehen 90°"], ["wall", "An die Wand stellen"]);
     items.push(["del", "Löschen"], ["props", "Eigenschaften"]);
     const el = document.createElement("div");
     el.className = "ed-ctx";

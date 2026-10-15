@@ -134,7 +134,7 @@ const failed = await E(async () => {
   } catch (e) {
     code = e.code;
   }
-  p._openEditor();
+  await p._openEditor();
   const editor = !!p._editor;
   await p._switchHouse(h); // wieder ins Testhaus
   return { code, editor, realSaves: (window.realSaves ?? 0) - before, back: p._house?.id === h.id };

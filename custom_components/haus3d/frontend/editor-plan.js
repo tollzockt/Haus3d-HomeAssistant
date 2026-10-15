@@ -11,6 +11,7 @@ import {
   clipSummary,
   copyRefs,
   defaultBackground,
+  duplicateOffset,
   fitSize,
   moveRefs,
   pasteClip,
@@ -343,13 +344,16 @@ export const PlanMethods = {
     // eingefügte Räume können unter das Hausdach fallen
     const msg = `Eingefügt: ${clipSummary(clip)} – ziehen zum Verschieben.`;
     if (!this._houseGuard(h0, msg)) this._toast(msg);
+    return added;
   },
 
+  /** Auswahl duplizieren (Strg+D, Knopf „Duplizieren“); gibt die neuen Teile zurück. Ein Schrank kommt samt Geräten daneben. */
   _duplicate() {
     const refs = this._selRefs();
     const b = refsBounds(this.floor, refs);
     if (!b) return;
-    this._paste(copyRefs(this.floor, refs), [(b.x0 + b.x1) / 2 + 0.5, (b.z0 + b.z1) / 2 + 0.5]);
+    const [dx, dz] = duplicateOffset(this.floor, refs);
+    return this._paste(copyRefs(this.floor, refs), [(b.x0 + b.x1) / 2 + dx, (b.z0 + b.z1) / 2 + dz]);
   },
 
   _deleteMulti() {

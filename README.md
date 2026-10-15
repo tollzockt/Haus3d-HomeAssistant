@@ -262,7 +262,9 @@ im Etagen-Feld. Norden lässt sich nur mit der Admin-PIN ändern.
   unterste freie Höheneinheit ein (Netzwerkschrank 22 HE, Serverschrank 42 HE; zu tiefe Geräte nur in den
   Serverschrank). Verschiebt oder dreht man den Schrank, gehen sie mit; herausziehen oder „Ausbauen“ baut aus.
   Am Gerät „Höheneinheit (unten)“ und „In Schrank einbauen“, am Schrank „Belegt: x von y HE“ mit der Liste der
-  Geräte (antippen wählt das Gerät). Im Plan erscheinen eingebaute Geräte nur, wenn sie gewählt sind.
+  Geräte (antippen wählt das Gerät). Im Plan erscheinen eingebaute Geräte nur, wenn sie gewählt sind; einen
+  Schrank duplizieren oder kopieren („Duplizieren“, Strg+D) nimmt seine Geräte mit, ihre Info-Werte stehen in
+  der Tafel des Schranks.
 - **Erweiterungsakkus**: Am Balkonspeicher stapelt „Erweiterungsakkus darunter“ (0–5) Akkus unter dem Gerät;
   die Kapazität für die Energie stellt man in den Energie-Einstellungen ein.
 - **Eigene 3D-Modelle**: „Modell hochladen …“ im Katalog nimmt .glb und .gltf (mit Farben und Texturen; .gltf
@@ -441,7 +443,7 @@ Einrichtung unter Admin-Einstellungen → **Energie**:
 - **Erweiterungen**: beliebig viele PV-Anlagen, Balkonkraftwerke und AC-Speicher, auch PV mit eigenem Speicher
   (Hybrid-Anlage, Balkonspeicher); alles wird zusammengerechnet, kW und Wh werden umgerechnet.
 - **Gerätevorlagen** (Auswahl „Gerät“) gibt es für über 20 gängige Wechselrichter-, Speicher- und
-  Balkonkraftwerk-Integrationen, z. B. für Anlagen von Fronius, SMA oder Huawei. Haus 3D schlägt passende
+  Balkonkraftwerk-Integrationen (Liste im Feld „Gerät“). Haus 3D schlägt passende
   Sensoren vor und setzt beim Speicher Vorzeichen und Kapazität – bitte prüfen.
 
 Die **Energie-Karte** oben rechts zeigt Verbrauch, Netz, Erzeugung, Speicher mit Restzeit („reicht bis ca. …“)

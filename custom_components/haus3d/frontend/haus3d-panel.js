@@ -5,7 +5,6 @@ import {
   displayKind,
   roomEntities,
   coverClosedFraction,
-  domainOf,
   energyValues,
   entitiesByArea,
   buildingIcons,
@@ -28,23 +27,25 @@ import {
   groupRoomEntities,
   roomActions,
   stepTarget,
-  temperatureColor,
-  watchedEntities, cameraCones, conePolygon, areaOf } from "./devices.js";
-import { ROOF_TYPES, compass16, fieldInfo, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
+  watchedEntities,
+  cameraCones,
+  conePolygon,
+  areaOf,
+} from "./devices.js";
+import { compass16, fieldInfo, weatherEntity, weatherKind } from "./exterior.js";
 import { roofItemsAll } from "./roofunits.js";
-import { exportFile, normalize, parseImport } from "./model.js";
+import { normalize } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
-import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions, pointerAngle, rotateWheel, wheelFling, wheelLayout, wheelPlusAngle, wheelPositions } from "./hud.js";
+import { LEGACY_FUNCTION_KEYS, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions } from "./hud.js";
 import { entityAction } from "./actions.js";
 import { entityPlaces, houseStatus, openState, statusChips } from "./status.js";
-import { ALERT_DEFAULTS, evaluateAlerts, exteriorOpenings, normalizeAlerts, visibleAlerts } from "./alerts.js";
-import { QUALITY_CHOICES, adaptDpr, idleState, inTimeRange, normalizeIdle, resolveQuality } from "./perf.js";
+import { evaluateAlerts, exteriorOpenings, visibleAlerts } from "./alerts.js";
+import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
 import { batteryState, batteryText, ema, fieldPower, formatPower, gridState, gridText, surplus } from "./energy.js";
 import { sunFromHass } from "./sun.js";
 import { lightLook, roomLight } from "./light.js";
 import { HouseScene } from "./scene.js";
-import { closeGaps } from "./walls.js";
-import { EDITOR_STYLE, FloorEditor } from "./editor.js";
+import { loadEditor, whenIdle } from "./lazy.js";
 import { PANEL_STYLE } from "./panel-style.js";
 import { EnergyMethods } from "./panel-energy.js";
 import { TabletMethods } from "./panel-tablet.js";
@@ -58,15 +59,15 @@ import { SMART_STYLE, SmartMethods } from "./panel-smart.js";
 import { TIMELINE_STYLE, TimelineMethods } from "./panel-timeline.js";
 import { SCENES_STYLE, SceneMethods } from "./panel-scenes.js";
 import { HOLO_STYLE, HoloMethods } from "./panel-holo.js";
-import { HOUSE_KEY, doorGuard, houseGuard, loadHouse } from "./access.js";
+import { HOUSE_KEY, canEdit, doorGuard, houseGuard, loadHouse } from "./access.js";
 import { ENERGYCFG_STYLE, EnergyCfgMethods } from "./panel-energycfg.js";
 import { energyEntities, energyTotals } from "./energymodel.js";
 import { USER_STYLE, UserMethods } from "./panel-user.js";
 import { ACCESS_STYLE, AccessMethods } from "./panel-access.js";
 import { ADMIN_STYLE, AdminMethods } from "./panel-admin.js";
-import { VIEW_PRESETS, normalizeViews, poseInBox } from "./camera.js";
+import { poseInBox } from "./camera.js";
 
-import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive, touchScroll } from "./panel-util.js";
+import { LONG_PRESS_MS, esc, energyRows, loadSettings, fmt, fmtPower, setText, iconFor, isActive, touchScroll } from "./panel-util.js";
 import { DialogMethods } from "./panel-dialogs.js";
 import { setModelHass } from "./models.js";
 
@@ -393,7 +394,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${SUPPORT_STYLE}${PIPENET_STYLE}${SMART_STYLE}${TIMELINE_STYLE}${SCENES_STYLE}${HOLO_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${SUPPORT_STYLE}${PIPENET_STYLE}${SMART_STYLE}${TIMELINE_STYLE}${SCENES_STYLE}${HOLO_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -490,6 +491,10 @@ class Haus3DPanel extends HTMLElement {
           clearTimeout(this._viewTimer);
           this._viewTimer = setTimeout(() => this._rememberView(), 800);
         },
+        // Der Browser kann den WebGL-Kontext entziehen (Grafikspeicher knapp, Treiber-Reset): kurz Bescheid geben;
+        // nach der Wiederherstellung zeichnet die Szene von selbst neu
+        onContextLost: () => this._toast("Die 3D-Ansicht wurde vom Browser angehalten und wird wiederhergestellt …"),
+        onContextRestored: () => this._toast("3D-Ansicht wiederhergestellt."),
       });
       this._scene.setLayers(this._settings.layers);
       this._applyQuality();
@@ -571,6 +576,7 @@ class Haus3DPanel extends HTMLElement {
       this._applySun();
       if (this._scene.warnings.length) console.warn("Haus 3D:", this._scene.warnings);
       if (!this._editor) this._scene.start();
+      this._preloadEditor();
       this._weatherRef = undefined;
       this._applyWeather();
     }
@@ -1483,8 +1489,61 @@ class Haus3DPanel extends HTMLElement {
 
   // ------------------------------------------------------------------ Editor
 
-  _openEditor() {
-    if (this._editor || !this._building || this._switching || this._buildingHouse !== (this._house?.id ?? null)) return;
+  /** Kann der Editor jetzt geöffnet werden (nicht schon offen, Haus geladen, kein Hauswechsel)? */
+  _editorOpenable() {
+    return !this._editor && !!this._building && !this._switching && this._buildingHouse === (this._house?.id ?? null);
+  }
+
+  /**
+   * Editor im Leerlauf vorladen (einmal), damit „Bearbeiten“ ohne Wartezeit öffnet – aber nur, wo bearbeitet wird: mit
+   * gültiger Freigabe (Bearbeiten- oder Admin-Modus) und nicht am Wandtablet. Wer nicht bearbeitet, lädt die rund 460 KB
+   * Code und Styles nie; wer „Bearbeiten“ antippt, bekommt den Editor schon während der PIN-Eingabe (_startEdit).
+   */
+  _preloadEditor() {
+    if (this._editorPreload || this.hasAttribute("kiosk") || this._kioskUrl || !canEdit()) return;
+    this._editorPreload = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => whenIdle(() => loadEditor().catch(() => {}))));
+  }
+
+  /** Meldung zum Laden des Editors; das Element wird gemerkt, damit sie nach einem späteren Erfolg nicht über dem offenen Editor stehen bleibt. */
+  _editorToast(text) {
+    this._toast(text);
+    this._editorToastEl = this._toastEl;
+  }
+
+  /**
+   * Editor öffnen (asynchron: lädt beim ersten Mal den Editor-Code nach). Der Rückgabewert ist fertig, wenn der Editor
+   * offen ist (oder nicht geöffnet werden konnte).
+   */
+  async _openEditor() {
+    if (this._editorOpening || !this._editorOpenable()) return;
+    this._editorOpening = true;
+    let mod;
+    let hint = null;
+    try {
+      hint = setTimeout(() => this._editorToast("Editor wird geladen …"), 300); // nur, wenn es dauert
+      mod = await loadEditor();
+    } catch (err) {
+      console.error("Haus 3D: Editor laden", err);
+      this._editorToast(`Der Editor ließ sich nicht laden (${err?.message ?? err}). Bitte die Seite neu laden.`);
+      return;
+    } finally {
+      clearTimeout(hint);
+      this._editorOpening = false;
+    }
+    this._editorToastEl?.remove(); // Lade-Hinweis bzw. Fehlermeldung eines früheren Versuchs: erledigt, der Editor kommt
+    this._editorToastEl = null;
+    if (!this._editorOpenable()) return; // währenddessen Haus gewechselt (oder schon offen)
+    if (!this._editorStyle) {
+      // Styles des Editors erst jetzt einhängen (hinter den Panel-Styles, wie vorher in einem Block)
+      this._editorStyle = document.createElement("style");
+      this._editorStyle.textContent = mod.EDITOR_STYLE;
+      this.shadowRoot.querySelector("style").after(this._editorStyle);
+    }
+    this._buildEditor(mod.FloorEditor);
+  }
+
+  _buildEditor(FloorEditor) {
     const houseId = this._house?.id ?? null; // der Editor gehört zu diesem Haus …
     const simAtOpen = !!this._sim; // … und zu echt bzw. Simulation
     this._closePopup();
@@ -2115,9 +2174,10 @@ class Haus3DPanel extends HTMLElement {
   _positionOverlays() {
     if (!this._scene) return;
     this._holoCheck();
+    const size = this._scene.viewSize(); // einmal lesen: die Style-Schreibzugriffe unten würden sonst bei jedem Lesen ein Layout erzwingen
     for (const ov of this._overlays.values()) {
       const visible = ov.roof ? this._scene.roofKeyShown(ov.roofKey) && this._settings.layers.solar !== false && this._settings.layers.labels !== false : this._scene.isFloorVisible(ov.floorId);
-      const p = visible ? this._scene.project(ov.position) : null;
+      const p = visible ? this._scene.project(ov.position, size) : null;
       if (!p) {
         ov.el.style.display = "none";
         continue;

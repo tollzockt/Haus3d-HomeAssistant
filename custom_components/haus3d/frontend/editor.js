@@ -21,22 +21,18 @@ import {
   pushOutOfWalls,
   rectRoom,
   removeRoom,
-  removeVertex,
   removeWall,
-  retypeFurniture,
   snapPoint,
   snapWallEnd,
   snapToWall,
   validPolygon,
   wallFaces,
 } from "./edit-ops.js";
-import { FURNITURE, FURNITURE_CATEGORIES, furniturePlanSize } from "./furniture.js";
-import { noPose, setPoseKey } from "./pose.js";
-import { COLOR_SWATCHES, FLOOR_MATERIALS, floorColor } from "./model.js";
-import { autoHeights, isPvShed, roofFloor, roofSettings } from "./exterior.js";
+import { FURNITURE, furniturePlanSize } from "./furniture.js";
+import { floorColor } from "./model.js";
+import { roofFloor, roofSettings } from "./exterior.js";
 import { newFloor } from "./setup.js";
-import { isCubeShelf } from "./catalog-extra.js";
-import { ROOF_HINTS, ROOF_TOOLS, roofDeleteSel, roofMoveDrag, roofNudgeItem, roofNudgePart, roofProps, roofStartDrag, roofSvg, textureField, bindTexRot } from "./editor-roof.js";
+import { ROOF_HINTS, ROOF_TOOLS, roofDeleteSel, roofMoveDrag, roofNudgeItem, roofNudgePart, roofProps, roofStartDrag, roofSvg, textureField } from "./editor-roof.js";
 import { EDITOR3D_STYLE, Editor3dMethods } from "./editor-3d.js";
 import { GRID_CHOICES, TOUCH_STYLE, TouchMethods } from "./editor-touch.js";
 import { MEASURE_STYLE, MeasureMethods } from "./editor-measure.js";
@@ -48,49 +44,21 @@ import { AtticMethods } from "./editor-attic.js";
 import { RoofUnitMethods } from "./editor-roofunits.js";
 import { ROOF_STYLE, RoofPartMethods } from "./editor-roofparts.js";
 import { houseRoomIds, removeRoomRoof } from "./roofunits.js";
-import { arrowAnchor } from "./arrows3d.js";
 import { PLAN_HINTS, PLAN_STYLE, PlanMethods } from "./editor-plan.js";
 import { CATALOG_STYLE, CatalogMethods } from "./editor-catalog.js";
+import { stopThumbs } from "./thumbs.js";
 import { ITEMS_STYLE, ItemMethods } from "./editor-items.js";
 import { MoreFieldMethods } from "./editor-more.js";
 import { followMoves } from "./follow.js";
 import { SETUP_STYLE, SetupMethods } from "./editor-setup.js";
 import { WallMethods } from "./editor-walls.js";
+import { propsUi } from "./props-ui.js";
+import { ItemPropsMethods } from "./editor-props-items.js";
+import { OUTDOOR_TYPES, OutdoorPropsMethods } from "./editor-props-outdoor.js";
+import { RoomPropsMethods } from "./editor-props-room.js";
 import { closeGaps, computeWalls, labelPoint, planFootprints, signedArea } from "./walls.js";
 
 const SVGNS = "http://www.w3.org/2000/svg";
-const OUTDOOR_TYPES = [
-  ["lawn", "Rasen", "#6aa84f"],
-  ["terrace", "Terrasse", "#c2b39b"],
-  ["path", "Weg", "#bcb4a6"],
-  ["driveway", "Einfahrt", "#8c8c8c"],
-  ["pool", "Pool", "#2f9fe0"],
-  ["bed", "Beet", "#6b4a2f"],
-  ["hedge", "Hecke", "#2f6b2a"],
-  ["fence", "Zaun", "#8a6f52"],
-  ["balcony", "Balkon", "#b5ada3"],
-  ["gravel", "Kies", "#c4beb2"],
-  ["paving", "Pflaster", "#a39a8e"],
-  ["rockery", "Steingarten", "#8a8378"],
-  ["kerb", "Randstein", "#b9b9b4"],
-];
-const RAILINGS = [
-  ["", "Standard (Balkon: Glas, sonst keins)"],
-  ["none", "kein Geländer"],
-  ["glass", "Glas"],
-  ["bars", "Stäbe"],
-  ["wood", "Holzzaun"],
-];
-const STYLES = [
-  ["", "automatisch"],
-  ["interior", "Zimmertür"],
-  ["front", "Haustür"],
-  ["front_glass", "Haustür mit Glas"],
-  ["glass", "Glastür"],
-  ["sliding", "Schiebetür"],
-  ["passage", "Durchgang (offen)"],
-  ["standard", "Fenster normal"],
-];
 const TOOLS = [
   ["select", "mdi:cursor-default-outline", "Auswählen"],
   ["rect", "mdi:vector-square", "Raum (Rechteck)"],
@@ -288,6 +256,7 @@ export class FloorEditor {
     window.removeEventListener("keydown", this._keys);
     this._resizeObs?.disconnect();
     this._destroy3d();
+    stopThumbs(); // laufende Katalog-Vorschaubilder: nichts mehr zu sehen, der WebGL-Kontext wird frei
     this.root.remove();
   }
 
@@ -424,10 +393,18 @@ export class FloorEditor {
     }
   }
 
+  /** Ist das gewählte Möbelstück in einen Schrank eingebaut? Dann kommen Lage und Drehung vom Schrank (follow-rack.js). */
+  _selRacked() {
+    const sel = this.sel;
+    const m = sel?.kind === "furniture" ? (this.floor?.furniture ?? []).find((x) => x.id === sel.id) : null;
+    return m?.in_rack != null;
+  }
+
   /** Auswahl um (dx, dz) Meter schieben; schnelle Folgen ergeben einen Rückgängig-Schritt. */
   nudge(dx, dz) {
     const sel = this.sel;
     if (!sel) return;
+    if (this._selRacked()) return this._toast("Das Gerät sitzt im Schrank und folgt ihm – erst „Ausbauen“, dann lässt es sich schieben.");
     const merge = performance.now() - (this._lastNudge ?? 0) < 700 && this._nudgeSel === `${sel.kind}:${sel.unit ?? ""}:${sel.id}`;
     this._lastNudge = performance.now();
     this._nudgeSel = `${sel.kind}:${sel.unit ?? ""}:${sel.id}`;
@@ -472,6 +449,7 @@ export class FloorEditor {
   rotateSel(deg) {
     if (this.sel?.kind === "pnode") return this._rotateNode(deg);
     if (this.sel?.kind !== "furniture") return;
+    if (this._selRacked()) return this._toast("Das Gerät sitzt im Schrank und dreht mit ihm – erst „Ausbauen“, dann lässt es sich drehen.");
     const id = this.sel.id;
     this.change((fl) => {
       const m = fl.furniture.find((x) => x.id === id);
@@ -484,7 +462,7 @@ export class FloorEditor {
   snapSelToWall() {
     if (this.sel?.kind === "pnode") return this._nodeToWall();
     const m = this.sel?.kind === "furniture" ? this.floor.furniture.find((x) => x.id === this.sel.id) : null;
-    if (!m) return;
+    if (!m || m.in_rack != null) return; // eingebaute Geräte stehen im Schrank, nicht an der Wand
     const s = snapToWall({ ...m, type: "wardrobe" }, this._faces(), { tol: 1.2 });
     if (!s) return this._toast("Keine Wand in der Nähe (bis 1,2 m).");
     this.change((fl) => {
@@ -750,6 +728,14 @@ export class FloorEditor {
       const sel = this.sel?.kind === "outdoor" && this.sel.id === o.id;
       parts.push(`<polygon data-kind="outdoor" data-id="${esc(o.id)}" points="${o.points.map(P).join(" ")}" fill="${col}" fill-opacity=".35" stroke="${sel ? "#03a9f4" : col}" stroke-width="${px(sel ? 3 : 1)}"/>`);
     }
+    // Linien (Randstein, Zaun, Hecke, Weg): ist das Band schmaler als 10 px (am Finger 22 px), trifft man es kaum – eine
+    // unsichtbare Mittellinie in dieser Breite macht es anwählbar; über allen Gartenflächen, unter Räumen und Möbeln
+    for (const o of f.outdoor ?? []) {
+      const pts = o.line?.points;
+      const hit = px(this.coarse ? 22 : 10);
+      if (!Array.isArray(pts) || pts.length < 2 || !((Number(o.line.width) || 0) < hit)) continue;
+      parts.push(`<polyline data-kind="outdoor" data-id="${esc(o.id)}" data-linehit points="${pts.map(P).join(" ")}" fill="none" stroke="transparent" stroke-width="${r3(hit)}" stroke-linecap="round" stroke-linejoin="round" pointer-events="stroke"/>`);
+    }
     // Räume
     for (const r of f.rooms) {
       const sel = this.sel?.kind === "room" && this.sel.id === r.id;
@@ -821,8 +807,8 @@ export class FloorEditor {
           (s * Math.min(fw, fd) > 26 ? `<text x="0" y="${px(4)}" text-anchor="middle" font-size="${px(10)}" fill="currentColor">${esc(name)}</text>` : "") +
           `</g>`,
       );
-      if (sel) {
-        // Drehgriff vor der Vorderseite: lokales +z zeigt bei Drehung r nach (-sin r, cos r)
+      if (sel && m.in_rack == null) {
+        // Drehgriff vor der Vorderseite (nicht an eingebauten Geräten – sie drehen mit dem Schrank): lokales +z zeigt bei Drehung r nach (-sin r, cos r)
         const a = ((m.rotation || 0) * Math.PI) / 180;
         const off = fd / 2 + px(22);
         const dirX = -Math.sin(a);
@@ -1487,63 +1473,9 @@ export class FloorEditor {
     if (!f && !this.roofMode) return void (el.innerHTML = `<p class="muted">Keine Etage gewählt.</p>`);
     const sel = this.sel;
     const hass = this.hass;
-    const areas = Object.values(hass.areas ?? {}).sort((a, b) => a.name.localeCompare(b.name, "de"));
-    const areaOptions = (current) =>
-      `<option value="">– kein Bereich –</option>` + areas.map((a) => `<option value="${esc(a.area_id)}"${a.area_id === current ? " selected" : ""}>${esc(a.name)}</option>`).join("");
-    const entityList = (id, domains, filter = () => true) =>
-      `<datalist id="${id}">${Object.keys(hass.states)
-        .filter((e) => domains.includes(e.split(".")[0]) && filter(hass.states[e]))
-        .sort()
-        .map((e) => `<option value="${esc(e)}">${esc(hass.states[e].attributes.friendly_name ?? "")}</option>`)
-        .join("")}</datalist>`;
-    const num = (key, label, value, step = 0.05) => `<div><label>${label}</label><input type="number" step="${step}" data-num="${key}" value="${value ?? ""}"></div>`;
-    // Farbfeld: Vorschläge, eigene Farbe, zurück auf Standard
-    const colorField = (key, label, value) => {
-      const v = /^#[0-9a-f]{6}$/i.test(value ?? "") ? value.toLowerCase() : "";
-      return `<label>${label}</label><div class="colorrow"><input type="color" data-color="${key}" value="${v || "#cccccc"}"><button data-color-reset="${key}">Standard</button><span class="muted">${v ? esc(v) : "Standard"}</span></div>
-        <div class="swatches">${COLOR_SWATCHES.map((c) => `<button data-swatch="${key}" data-c="${c}" style="background:${c}" class="${c === v ? "sel" : ""}" title="${c}"></button>`).join("")}</div>`;
-    };
-    const bindColors = (apply) => {
-      const set = (key, v) => {
-        this.change((fl) => apply(fl, key, v));
-        this.renderProps();
-      };
-      el.querySelectorAll("[data-color]").forEach((inp) => inp.addEventListener("change", () => set(inp.dataset.color, inp.value)));
-      el.querySelectorAll("[data-color-reset]").forEach((b) => b.addEventListener("click", () => set(b.dataset.colorReset, null)));
-      el.querySelectorAll("[data-swatch]").forEach((b) => b.addEventListener("click", () => set(b.dataset.swatch, b.dataset.c)));
-    };
-    // Steuerkreuz (Tablet): schieben, Schrittweite, drehen
-    const pad = (rotate = false) => `<div class="pad">
-        <span></span><button data-nudge="0,-1" title="hoch">▲</button><span></span>
-        <select data-step title="Schrittweite">${[[0.01, "1 cm"], [0.05, "5 cm"], [0.1, "10 cm"], [0.5, "50 cm"]].map(([v, n]) => `<option value="${v}"${v === this.nudgeStep ? " selected" : ""}>${n}</option>`).join("")}</select>
-        <button data-nudge="-1,0" title="links">◀</button><button data-nudge="0,1" title="runter">▼</button><button data-nudge="1,0" title="rechts">▶</button>
-        ${rotate ? `<span class="rot"><button data-rot="-15" title="15° zurück">⟲</button><button data-rot="90" title="90° drehen">⟳</button><button data-act="wall" title="An die nächste Wand stellen"><ha-icon icon="mdi:wall"></ha-icon></button></span>` : ""}
-      </div>`;
-    const bindPad = () => {
-      el.querySelectorAll("[data-nudge]").forEach((b) =>
-        b.addEventListener("click", () => {
-          const [x, z] = b.dataset.nudge.split(",").map(Number);
-          this.nudge(x * this.nudgeStep, z * this.nudgeStep);
-        }),
-      );
-      el.querySelector("[data-step]")?.addEventListener("change", (ev) => (this.nudgeStep = Number(ev.target.value)));
-      el.querySelectorAll("[data-rot]").forEach((b) => b.addEventListener("click", () => this.rotateSel(Number(b.dataset.rot))));
-      el.querySelector("[data-act=wall]")?.addEventListener("click", () => this.snapSelToWall());
-    };
+    const ui = propsUi(this, el);
+    const { num, colorField, pad, bindPad, bindColors, bindTextures, bindNums, bindDelete } = ui;
     if (this.roofMode) return roofProps(this, el, pad, bindPad);
-    // Textur-Auswahl neben den Farben (Wert "" = Standard, "none" = glatt); „Textur drehen“ mit 0 = Feld weg
-    const bindTextures = (apply) => {
-      el.querySelectorAll("[data-tex]").forEach((inp) =>
-        inp.addEventListener("change", () => {
-          this.change((fl) => apply(fl, inp.dataset.tex, inp.value || null));
-          this.renderProps();
-        }),
-      );
-      bindTexRot(el, (key, v) => {
-        this.change((fl) => apply(fl, key, v || null));
-        this.renderProps();
-      });
-    };
 
     if (this.tool === "line") return this._lineToolProps(el);
     if (this.tool === "pipe") return this._pipeToolProps(el);
@@ -1648,264 +1580,9 @@ export class FloorEditor {
       return;
     }
 
-    const bindNums = (apply) =>
-      el.querySelectorAll("[data-num]").forEach((inp) =>
-        inp.addEventListener("change", () => {
-          const v = inp.value === "" ? null : Number(inp.value);
-          if (v !== null && !Number.isFinite(v)) return;
-          this.change((fl) => apply(fl, inp.dataset.num, v));
-          this.renderProps();
-        }),
-      );
-    const bindDelete = () => el.querySelector("[data-act=del]")?.addEventListener("click", () => this.deleteSelection());
-
-    if (sel.kind === "room") {
-      const r = f.rooms.find((x) => x.id === sel.id);
-      if (!r) return this._clearSel();
-      const ei = Number.isInteger(sel.edge) && sel.edge < r.points.length ? sel.edge : null;
-      const est = ei !== null ? r.edge_styles?.[ei] ?? {} : null;
-      const isExt = ei !== null && computeWalls(f, this.b.settings ?? {}).segments.some((sg) => sg.kind === "exterior" && sg.sources?.some((x) => x.room_id === r.id && x.edge === ei));
-      const edgeBox = ei === null
-        ? `<p class="muted">Tipp: eine blaue Wand antippen (nicht ziehen), um nur diese Wand anders zu gestalten, z. B. Fachwerk.</p>`
-        : `<div class="edgebox"><h3>Wand ${ei + 1} von ${r.points.length}</h3>
-          ${this._edgeLengthField(r, ei)}
-          ${colorField("edge_color", "Farbe innen (nur diese Wand)", est.color)}
-          ${textureField("edge_texture", "Textur innen (nur diese Wand)", est.texture, "w")}
-          ${isExt ? colorField("edge_exterior_color", "Farbe außen (nur diese Wand)", est.exterior_color) + textureField("edge_exterior_texture", "Textur außen (nur diese Wand)", est.exterior_texture, "w") : ""}
-          <div class="btns"><button data-act="edgereset">Wie der Raum</button><button data-act="edgeclose">Fertig</button></div></div>`;
-      el.innerHTML = `${edgeBox}<h3>Raum</h3>
-        <label>Name</label><input data-room="name" value="${esc(r.name)}">
-        ${this._rectFields(r)}
-        ${this._linkField()}
-        <label>Bereich in Home Assistant</label><select data-room="area_id">${areaOptions(r.area_id)}</select>
-        <label>Bodenbelag</label><select data-room="floor_material">${FLOOR_MATERIALS.map(([k, n]) => `<option value="${k}"${k === r.floor_material ? " selected" : ""}>${n}</option>`).join("")}</select>
-        ${textureField("floor_texture", "Boden: Textur (Standard nach Belag)", r.floor_texture, "f", ["floor_texture_rotation", r.floor_texture_rotation])}
-        ${colorField("floor_color", "Bodenfarbe (statt Belag)", r.floor_color)}
-        ${colorField("wall_color", "Wandfarbe innen", r.wall_color)}
-        ${textureField("wall_texture", "Wand innen: Textur", r.wall_texture, "w")}
-        ${colorField("exterior_color", "Wandfarbe außen (z. B. Holzschuppen)", r.exterior_color)}
-        ${textureField("exterior_texture", "Wand außen: Textur", r.exterior_texture, "w")}
-        ${this._roomRoofField(f, r)}
-        <label>Energie</label><select data-room="energy_role"><option value="none"${isPvShed(r) ? "" : " selected"}>–</option><option value="balkonkraftwerk"${isPvShed(r) ? " selected" : ""}>Balkonkraftwerk (Module, Energiefluss)</option></select>
-        ${isPvShed(r) ? `<label>Solarmodule auf dem Dach (Anzahl)</label><input type="number" min="0" max="12" step="1" data-solar value="${r.solar_panels ?? 4}">` : ""}
-        <p class="muted">${Math.abs(signedArea(r.points)).toFixed(2)} m² · ${r.points.length} Ecken. Ecken ziehen, „+“ fügt eine Ecke ein, Entf löscht den Raum.</p>
-        ${pad()}
-        <div class="btns"><button data-act="delvertex">Letzte gewählte Ecke löschen</button><button data-act="del" class="danger">Raum löschen</button></div>`;
-      this._bindMeasureFields(el, r, ei);
-      this._bindLinkField(el);
-      // Schlüssel edge_*: Aussehen der gewählten Wand (room.edge_styles[Kante])
-      const setEdge = (room, key, v) => {
-        const k = key.slice(5);
-        const styles = { ...(room.edge_styles ?? {}) };
-        const st = { ...(styles[ei] ?? {}) };
-        if (v) st[k] = v;
-        else delete st[k];
-        if (Object.keys(st).length) styles[ei] = st;
-        else delete styles[ei];
-        if (Object.keys(styles).length) room.edge_styles = styles;
-        else delete room.edge_styles;
-      };
-      el.querySelector("[data-act=edgereset]")?.addEventListener("click", () => {
-        this.change((fl) => {
-          const room = fl.rooms.find((x) => x.id === r.id);
-          for (const k of ["edge_color", "edge_texture", "edge_exterior_color", "edge_exterior_texture"]) setEdge(room, k, null);
-        });
-        this.renderProps();
-      });
-      el.querySelector("[data-act=edgeclose]")?.addEventListener("click", () => {
-        this.sel = { kind: "room", id: r.id };
-        this.render();
-        this.renderProps();
-      });
-      bindColors((fl, key, v) => {
-        const room = fl.rooms.find((x) => x.id === r.id);
-        if (key.startsWith("edge_")) return setEdge(room, key, v);
-        if (v) room[key] = v;
-        else delete room[key];
-      });
-      bindTextures((fl, key, v) => {
-        const room = fl.rooms.find((x) => x.id === r.id);
-        if (key.startsWith("edge_")) return setEdge(room, key, v);
-        if (v) room[key] = v;
-        else delete room[key];
-      });
-      this._bindRoomRoofField(el, r);
-      el.querySelector("[data-solar]")?.addEventListener("change", (ev) =>
-        this.change((fl) => {
-          fl.rooms.find((x) => x.id === r.id).solar_panels = Math.max(0, Math.round(Number(ev.target.value) || 0));
-        }),
-      );
-      bindPad();
-      el.querySelectorAll("[data-room]").forEach((inp) =>
-        inp.addEventListener("change", () => {
-          // Name bzw. Energie (Gartenhaus, Balkonkraftwerk) entscheiden mit, welche Räume das Hausdach deckt
-          const h0 = this._house0();
-          this.change((fl) => {
-            const room = fl.rooms.find((x) => x.id === r.id);
-            room[inp.dataset.room] = inp.value || (inp.dataset.room === "area_id" ? null : room[inp.dataset.room]);
-            if (inp.dataset.room === "area_id" && inp.value && /^Raum \d+$/.test(room.name)) room.name = hass.areas?.[inp.value]?.name ?? room.name;
-            this.renderProps();
-          });
-          this._houseGuard(h0);
-        }),
-      );
-      el.querySelector("[data-act=delvertex]").addEventListener("click", () => {
-        const i = this._lastVertex ?? r.points.length - 1;
-        const h0 = this._house0();
-        this.change((fl) => {
-          return removeVertex(fl, r.id, Math.min(i, r.points.length - 1));
-        });
-        this._houseGuard(h0);
-        this.renderProps();
-      });
-      bindDelete();
-      return;
-    }
-    if (sel.kind === "opening") {
-      const o = f.openings.find((x) => x.id === sel.id);
-      if (!o) return this._clearSel();
-      const typeName = { window: "Fenster", door: "Tür", garage: "Garagentor" }[o.type];
-      const linkField = (key, label, domains, filter, auto = true) => {
-        const v = o[key];
-        const mode = v === "none" ? "none" : typeof v === "string" ? "fix" : auto ? "auto" : "none";
-        return `<label>${label}</label><select data-linkmode="${key}">${auto ? `<option value="auto"${mode === "auto" ? " selected" : ""}>automatisch (Bereich)</option>` : ""}<option value="none"${mode === "none" ? " selected" : ""}>keiner</option><option value="fix"${mode === "fix" ? " selected" : ""}>bestimmter …</option></select>
-          ${mode === "fix" ? `<input data-link="${key}" list="dl_${key}" value="${esc(v)}" placeholder="Entität">${entityList(`dl_${key}`, domains, filter)}` : ""}`;
-      };
-      el.innerHTML = `<h3>${typeName}</h3>
-        <label>Art</label><select data-o="type">${[["window", "Fenster"], ["door", "Tür"], ["garage", "Garagentor"]].map(([k, n]) => `<option value="${k}"${k === o.type ? " selected" : ""}>${n}</option>`).join("")}</select>
-        ${o.type === "door" ? `<label>Aussehen</label><select data-o="style">${STYLES.map(([k, n]) => `<option value="${k}"${(o.style ?? "") === k ? " selected" : ""}>${n}</option>`).join("")}</select>` : ""}
-        <div class="row3">${num("width", "Breite", o.width)}${num("height", "Höhe", o.height)}${num("sill", "Brüstung", o.sill)}</div>
-        ${num("offset", "Mitte ab Kantenanfang (m)", o.offset)}
-        ${o.type !== "garage" ? `<div class="row3">
-          <div><label>Anschlag</label><select data-o="hinge"><option value="left"${o.hinge !== "right" ? " selected" : ""}>links</option><option value="right"${o.hinge === "right" ? " selected" : ""}>rechts</option></select></div>
-          <div><label>Öffnet</label><select data-o="swing"><option value="in"${o.swing !== "out" ? " selected" : ""}>nach innen</option><option value="out"${o.swing === "out" ? " selected" : ""}>nach außen</option></select></div>
-          <div><label>Flügel</label><select data-o="leaves"><option value="1"${o.leaves !== 2 ? " selected" : ""}>1</option><option value="2"${o.leaves === 2 ? " selected" : ""}>2</option></select></div></div>` : ""}
-        ${linkField("contact", "Kontakt (offen/zu)", ["binary_sensor", "sensor"], (s) => ["window", "door", "opening", "garage_door", undefined].includes(s.attributes.device_class))}
-        ${linkField("cover", o.type === "garage" ? "Tor-Antrieb" : "Rollladen", ["cover"])}
-        ${o.type === "window" ? linkField("tilt", "Kippsensor (optional)", ["binary_sensor", "sensor"], undefined, false) : ""}
-        ${o.type !== "garage" && o.style !== "passage" ? colorField("frame_color", "Rahmenfarbe", o.frame_color) : ""}
-        ${this._wellFields(o)}${this._atticOpeningHint(o)}
-        <p class="muted">Im Plan entlang der Wand ziehen oder mit den Pfeilen schieben.</p>
-        ${pad()}
-        <div class="btns"><button data-act="del" class="danger">Löschen</button></div>`;
-      bindPad();
-      el.querySelectorAll("[data-o]").forEach((inp) =>
-        inp.addEventListener("change", () => {
-          this.change((fl) => {
-            const x = fl.openings.find((y) => y.id === o.id);
-            const k = inp.dataset.o;
-            x[k] = k === "leaves" ? Number(inp.value) : k === "style" ? inp.value || null : inp.value;
-            if (k === "type") {
-              const wall = x.wall;
-              Object.assign(x, newOpening(inp.value, { room: fl.rooms.find((r) => r.id === x.room_id) ?? { id: x.room_id }, edge: x.edge, offset: x.offset, len: openingGeometry(fl, x)?.len ?? 2 }, x.id), { contact: x.contact, cover: x.cover, frame_color: x.frame_color ?? null });
-              if (wall) x.wall = wall;
-            }
-          });
-          this.renderProps();
-        }),
-      );
-      el.querySelectorAll("[data-linkmode]").forEach((inp) =>
-        inp.addEventListener("change", () => {
-          const k = inp.dataset.linkmode;
-          this.change((fl) => {
-            fl.openings.find((y) => y.id === o.id)[k] = inp.value === "auto" ? null : inp.value === "none" ? "none" : o[k] && o[k] !== "none" ? o[k] : "";
-          });
-          this.renderProps();
-        }),
-      );
-      el.querySelectorAll("[data-link]").forEach((inp) =>
-        inp.addEventListener("change", () => this.change((fl) => {
-          fl.openings.find((y) => y.id === o.id)[inp.dataset.link] = inp.value.trim() || null;
-        })),
-      );
-      bindColors((fl, key, v) => {
-        fl.openings.find((y) => y.id === o.id)[key] = v || null;
-      });
-      this._bindWellFields(el, o);
-      bindNums((fl, k, v) => {
-        const x = fl.openings.find((y) => y.id === o.id);
-        if (v === null) return;
-        x[k] = k === "offset" ? clampOffset(v, x.width, openingGeometry(fl, x)?.len ?? v * 2) : v;
-      });
-      bindDelete();
-      return;
-    }
-    if (sel.kind === "furniture") {
-      const m = (f.furniture ?? []).find((x) => x.id === sel.id);
-      if (!m) return this._clearSel();
-      const lamp = m.type.startsWith("lamp_") || m.type.startsWith("led_");
-      const custom = m.type.startsWith("custom_");
-      el.innerHTML = `<h3>${esc(m.name || (FURNITURE[m.type]?.[0] ?? m.type))}</h3>
-        <label>Typ</label><select data-m="type">${FURNITURE_CATEGORIES.map(([cat, types]) => `<optgroup label="${esc(cat)}">${types.map((k) => `<option value="${k}"${k === m.type ? " selected" : ""}>${esc(FURNITURE[k][0])}</option>`).join("")}</optgroup>`).join("")}</select>
-        <label>Name ${custom ? "" : "(optional)"}</label><input data-m="name" value="${esc(m.name ?? "")}" placeholder="${esc(FURNITURE[m.type]?.[0] ?? "")}">
-        <div class="row3">${num("w", custom && m.type === "custom_cylinder" ? "Ø Breite" : "Breite", m.w)}${num("d", custom && m.type === "custom_cylinder" ? "Ø Tiefe" : "Tiefe", m.d)}${num("h", ["column", "pillar"].includes(m.type) ? "Höhe (0 = Decke)" : "Höhe", m.h)}</div>
-        <div class="row2">${num("rotation", "Drehung (°)", m.rotation, 15)}${num("mount_y", "Höhe über Boden", m.mount_y ?? "", 0.05)}</div>
-        ${noPose(m) ? "" : `<div class="row2" title="Neigung + = Oberseite nach hinten, Kippen + = nach rechts (von vorn gesehen); die tiefste Ecke bleibt auf der Höhe über Boden">${num("tilt", "Neigung (°)", m.tilt ?? 0, 15)}${num("roll", "Kippen (°)", m.roll ?? 0, 15)}</div>`}
-        ${this._stairFields(m)}
-        ${this._itemFields(m)}
-        ${this._moreFields(m)}
-        ${colorField("color", custom ? "Farbe" : "Farbe (statt Standard)", m.color)}
-        ${pad(true)}
-        <label>${lamp ? "Licht (Entität)" : "Verknüpfte Entität (optional)"}</label><input data-m="entity" list="dl_furn" value="${esc(m.entity && m.entity !== "none" ? m.entity : "")}" placeholder="${lamp ? "light.…" : "z. B. media_player.…"}">${entityList("dl_furn", lamp ? ["light", "switch"] : ["light", "switch", "cover", "input_boolean", "binary_sensor", "media_player", "fan", "climate", "vacuum", "sensor"])}
-        <p class="muted">Ziehen verschiebt (Magnet: rastet an Wänden ein), der orange Punkt dreht (Umschalt = frei). Pfeiltasten schieben, R dreht. ${arrowAnchor(f, sel)?.axes.includes("y") ? "In 3D: Pfeile ziehen, grün = Höhe." : "In 3D: rote und blaue Pfeile verschieben."}</p>
-        <div class="btns"><button data-act="dup">Duplizieren</button><button data-act="del" class="danger">Löschen</button></div>`;
-      el.querySelector("[data-m=type]").addEventListener("change", (ev) => {
-        this.change((fl) => {
-          const x = fl.furniture.find((y) => y.id === m.id);
-          retypeFurniture(x, ev.target.value, FURNITURE[ev.target.value]); // edit-ops.js: typfremde Felder fallen weg
-        });
-        this.renderProps(); // erst nach change(): vorher zeigt this.floor noch den alten Typ
-      });
-      el.querySelector("[data-m=entity]").addEventListener("change", (ev) =>
-        this.change((fl) => {
-          fl.furniture.find((y) => y.id === m.id).entity = ev.target.value.trim() || null;
-        }),
-      );
-      el.querySelector("[data-m=name]").addEventListener("change", (ev) => {
-        this.change((fl) => {
-          const x = fl.furniture.find((y) => y.id === m.id);
-          if (ev.target.value.trim()) x.name = ev.target.value.trim();
-          else delete x.name;
-        });
-        this.renderProps();
-      });
-      bindColors((fl, key, v) => {
-        const x = fl.furniture.find((y) => y.id === m.id);
-        if (v) x.color = v;
-        else delete x.color;
-      });
-      bindPad();
-      this._bindStairFields(el, m);
-      this._bindItemFields(el, m);
-      this._bindMoreFields(el, m);
-      bindNums((fl, k, v) => {
-        const x = fl.furniture.find((y) => y.id === m.id);
-        if (k === "tilt" || k === "roll") return setPoseKey(x, k, v);
-        x[k] = k === "mount_y" ? v : v ?? 0;
-        this._stairDims(x, k);
-        if (["w", "d", "h"].includes(k)) {
-          if (isCubeShelf(x.type)) {
-            // Würfelregal: Breite/Höhe ergeben die Würfelzahl (0,35 m je Fach plus Rahmen), Tiefe ändert nichts
-            const n = Math.max(1, Math.min(8, Math.round(((v ?? 0) - 0.07) / 0.35)));
-            if (k === "w") x.cols = n;
-            else if (k === "h") x.rows = n;
-          } else {
-            delete x.cols; // eigene Maße: Raster folgt wieder den Maßen
-            delete x.rows;
-          }
-        }
-      });
-      el.querySelector("[data-act=dup]").addEventListener("click", () => {
-        const copy = { ...structuredClone(m), id: newId("m", allIds(this.b)), x: r3(m.x + 0.3), z: r3(m.z + 0.3) };
-        this.change((fl) => {
-          fl.furniture.push(copy);
-        });
-        this.sel = { kind: "furniture", id: copy.id };
-        this.renderProps();
-      });
-      bindDelete();
-      return;
-    }
+    if (sel.kind === "room") return this._roomProps(el, sel, ui);
+    if (sel.kind === "opening") return this._openingProps(el, sel, ui);
+    if (sel.kind === "furniture") return this._furnitureProps(el, sel, ui);
     if (sel.kind === "wall") {
       const w = (f.walls ?? []).find((x) => x.id === sel.id);
       if (!w) return this._clearSel();
@@ -1957,74 +1634,7 @@ export class FloorEditor {
       bindDelete();
       return;
     }
-    if (sel.kind === "outdoor") {
-      const o = (f.outdoor ?? []).find((x) => x.id === sel.id);
-      if (!o) return this._clearSel();
-      el.innerHTML = `<h3>Gartenfläche</h3>
-        <label>Name</label><input data-g="name" value="${esc(o.name ?? "")}">
-        <label>Art</label><select data-g="type">${OUTDOOR_TYPES.map(([k, n]) => `<option value="${k}"${k === o.type ? " selected" : ""}>${n}</option>`).join("")}</select>
-        ${this._lineAreaFields(o)}
-        ${textureField("texture", "Textur", o.texture, "g", ["texture_rotation", o.texture_rotation])}
-        <label>Bereich (für Gartenlicht, Sensoren)</label><select data-g="area_id">${areaOptions(o.area_id)}</select>
-        <label>Geländer / Zaun am Rand (nicht an Hauswänden)</label><select data-g="railing">${RAILINGS.map(([k, n]) => `<option value="${k}"${k === (o.railing ?? "") ? " selected" : ""}>${n}</option>`).join("")}</select>
-        <label>Geländerhöhe (m)</label><input data-g="railing_height" type="number" step="0.05" min="0.3" max="2.5" value="${o.railing_height ?? ""}" placeholder="1,0">
-        ${this._kerbFields(o)}
-        ${o.type === "kerb" ? "" : `<label>Hang: Höhe je Ecke (m über der Etage ${esc(f.name)})</label>
-        ${Array.isArray(o.heights) ? `<div class="row3">${o.points.map((_, i) => `<div><label>Ecke ${i + 1}</label><input type="number" step="0.05" data-h="${i}" value="${Number(o.heights[i]) || 0}"></div>`).join("")}</div>` : `<p class="muted">Eben. „Höhen automatisch“ verbindet die Fläche mit den Gartenflächen anderer Etagen (z. B. Böschung von unten nach oben).</p>`}
-        <div class="btns"><button data-act="autoh">Höhen automatisch</button>${Array.isArray(o.heights) ? `<button data-act="flat">Eben machen</button>` : `<button data-act="hmanual">Höhen von Hand</button>`}</div>`}
-        ${pad()}
-        <div class="btns"><button data-act="del" class="danger">Löschen</button></div>`;
-      bindPad();
-      this._bindLineArea(el, o);
-      this._bindKerbFields(el, o);
-      bindTextures((fl, key, v) => {
-        const x = fl.outdoor.find((y) => y.id === o.id);
-        if (v) x[key] = v;
-        else delete x[key];
-      });
-      el.querySelectorAll("[data-h]").forEach((inp) =>
-        inp.addEventListener("change", () => {
-          this.change((fl) => {
-            const x = fl.outdoor.find((y) => y.id === o.id);
-            const hs = [...(x.heights ?? x.points.map(() => 0))];
-            hs[Number(inp.dataset.h)] = r3(Number(inp.value) || 0);
-            x.heights = hs;
-          });
-        }),
-      );
-      el.querySelector("[data-act=autoh]")?.addEventListener("click", () => {
-        const hs = autoHeights(this.b, this.floorId, o.id);
-        if (!hs) return this._toast("Keine Gartenfläche einer anderen Etage in der Nähe (bis 50 cm). Ecken an die obere Fläche ziehen oder Höhen von Hand eintragen.");
-        this.change((fl) => {
-          fl.outdoor.find((y) => y.id === o.id).heights = hs;
-        });
-        this._toast(`Hang gesetzt: ${hs.map((h) => h.toFixed(2)).join(" / ")} m`);
-        this.renderProps();
-      });
-      el.querySelector("[data-act=flat]")?.addEventListener("click", () => {
-        this.change((fl) => {
-          delete fl.outdoor.find((y) => y.id === o.id).heights;
-        });
-        this.renderProps();
-      });
-      el.querySelector("[data-act=hmanual]")?.addEventListener("click", () => {
-        this.change((fl) => {
-          const x = fl.outdoor.find((y) => y.id === o.id);
-          x.heights = x.points.map(() => 0);
-        });
-        this.renderProps();
-      });
-      el.querySelectorAll("[data-g]").forEach((inp) =>
-        inp.addEventListener("change", () => this.change((fl) => {
-          const x = fl.outdoor.find((y) => y.id === o.id);
-          let v = inp.value || null;
-          if (v !== null && inp.type === "number") v = Number(v);
-          if (v === null || Number.isNaN(v)) delete x[inp.dataset.g];
-          else x[inp.dataset.g] = v;
-        })),
-      );
-      bindDelete();
-    }
+    if (sel.kind === "outdoor") return this._outdoorProps(el, sel, ui);
   }
 
   _clearSel() {
@@ -2034,4 +1644,4 @@ export class FloorEditor {
 }
 
 // Tablet: Schalter, Zeichen-Leiste, Langdruck, Entwurf sichern (editor-touch.js)
-Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, StairMethods, LineMethods, PlanMethods, PipeMethods, NodeMethods, AtticMethods, CatalogMethods, ItemMethods, MoreFieldMethods, SetupMethods, Editor3dMethods, WallMethods, RoofUnitMethods, RoofPartMethods);
+Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, StairMethods, LineMethods, PlanMethods, PipeMethods, NodeMethods, AtticMethods, CatalogMethods, ItemMethods, MoreFieldMethods, SetupMethods, Editor3dMethods, WallMethods, RoofUnitMethods, RoofPartMethods, RoomPropsMethods, ItemPropsMethods, OutdoorPropsMethods);

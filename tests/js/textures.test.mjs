@@ -9,7 +9,8 @@ import { HouseScene } from "../../custom_components/haus3d/frontend/scene.js";
 
 const NEW = ["concrete_polished", "concrete_formwork", "screed", "epoxy_chips", "concrete_slabs"];
 
-/** Canvas-Ersatz für node: jede Zeichen-Methode wird mitgeschrieben (Name und Zahlen, gerundet). */
+/** Canvas-Ersatz für node: jede Zeichen-Methode wird mitgeschrieben (Name und Zahlen, gerundet). Mit putImageData
+ * geschriebene Pixel stehen als Fingerabdruck im Protokoll und als Rohdaten in log.images. */
 function fakeDocument(log) {
   const grad = { addColorStop: (...a) => log.push(["stop", ...a]) };
   const ctx = new Proxy(
@@ -17,6 +18,8 @@ function fakeDocument(log) {
     {
       get(t, k) {
         if (k in t) return t[k];
+        if (k === "createImageData") return (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) });
+        if (k === "putImageData") return (img, x, y) => (log.images?.push(img), log.push([k, x, y, img.width, img.height, fnv(Array.from(img.data).join(","))]));
         if (k === "createLinearGradient" || k === "createRadialGradient") return (...a) => (log.push([k, ...a.map((v) => Math.round(v * 100))]), grad);
         return (...a) => log.push([k, ...a.map((v) => (typeof v === "number" ? Math.round(v * 100) : v))]);
       },
@@ -53,10 +56,47 @@ function fnv(s) {
 test("Die bisherige Betontextur zeichnet unverändert (alte Häuser)", () => {
   const log = [];
   withDocument(log, () => getTexture("concrete"));
-  assert.ok(log.length > 1000);
+  assert.ok(log.some(([k]) => k === "putImageData")); // Körnung als Pixel, Fugen und Löcher als Zeichenschritte
+  assert.ok(log.length > 10);
   assert.equal(fnv(JSON.stringify(log)), CONCRETE_PRINT);
 });
-const CONCRETE_PRINT = "825ada35"; // Zeichenschritte von DRAW.concrete (Stand vor den neuen Betontexturen)
+// Zeichenschritte von DRAW.concrete mit der Körnung als Pixeldaten (vorher 9.000 fillRect; im Browser verglichen: im
+// Mittel 0,3 Grauwerte Abstand, gleiche Helligkeit). Ändert sich das Bild der Betontextur, ändert sich dieser Wert.
+const CONCRETE_PRINT = "fc3a8dd2";
+
+test("Körnung: Pixel statt tausender Zeichenbefehle, gleiche Verteilung, deterministisch", async () => {
+  // plaster = reine Körnung: Grund 238, ± 12, 9.000 Körner zu 1,5 Pixeln
+  const grab = async (tag) => {
+    const log = [];
+    log.images = [];
+    const mod = await import(`../../custom_components/haus3d/frontend/textures.js?${tag}`);
+    withDocument(log, () => mod.getTexture("plaster"));
+    return log;
+  };
+  const a = await grab("a");
+  const b = await grab("b");
+  assert.equal(a.images.length, 1);
+  assert.equal(a.filter(([k]) => k === "fillRect").length, 0, "Körner einzeln gezeichnet");
+  assert.deepEqual(a, b); // gleiche Zufallszahlen, gleiches Bild
+  const img = a.images[0];
+  assert.equal(img.width * img.height * 4, img.data.length);
+  let sum = 0;
+  let lo = 255;
+  let hi = 0;
+  const distinct = new Set();
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = img.data[i];
+    assert.ok(v === img.data[i + 1] && v === img.data[i + 2] && img.data[i + 3] === 255, "grau und deckend");
+    sum += v;
+    lo = Math.min(lo, v);
+    hi = Math.max(hi, v);
+    distinct.add(v);
+  }
+  const mean = sum / (img.data.length / 4);
+  assert.ok(Math.abs(mean - 238) < 1.5, `Mittelwert ${mean}`); // Helligkeit wie bisher (Grund 238)
+  assert.ok(lo >= 238 - 12 - 1 && hi <= 238 + 12 + 1, `Spanne ${lo} … ${hi}`);
+  assert.ok(lo < 230 && hi > 246 && distinct.size > 15, "Körnung sichtbar");
+});
 
 test("Jede Textur der Listen lässt sich zeichnen, neue Betontexturen eingeschlossen", () => {
   const keys = TEXTURES.map(([k]) => k);

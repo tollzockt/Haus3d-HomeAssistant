@@ -3,6 +3,7 @@
 // nichts aus; nur die richtige öffnet. Freigabe gilt bis „Beenden“/Fenster zu, längstens 10 min Ruhe.
 
 import { DEFAULT_TITLE, esc, houseTitle } from "./panel-util.js";
+import { loadEditor } from "./lazy.js";
 import { HOUSE_TYPES, accessScope, canAdmin, canEdit, clearAccess, currentToken, pinKey, setAccess, touchAccess, withToken } from "./access.js";
 
 const CHECK_DELAY = 450; // ms nach der letzten Ziffer, dann still prüfen
@@ -136,6 +137,7 @@ export const AccessMethods = {
 
   async _startEdit() {
     if (this._editing()) return true;
+    loadEditor().catch(() => {}); // während der PIN-Eingabe schon den Editor holen (falls das Vorladen noch nicht durch ist)
     if (!(await this._pinPad("edit"))) return false;
     this._editMode = true;
     this._watchAccess();
@@ -156,6 +158,7 @@ export const AccessMethods = {
     this._adminMode = true;
     this._watchAccess();
     this._renderModes();
+    this._preloadEditor?.(); // Freigabe da: der Editor ist ab jetzt ohne PIN erreichbar
   },
 
   _endAdmin() {

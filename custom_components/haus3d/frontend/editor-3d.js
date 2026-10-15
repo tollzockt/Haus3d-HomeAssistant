@@ -5,7 +5,7 @@
 
 import { HouseScene } from "./scene.js";
 import { normalize } from "./model.js";
-import { AxisArrows, targetObject, liveTarget, moveLive } from "./scene-arrows.js";
+import { AxisArrows, targetObject, liveTarget, liveRestore, moveLive } from "./scene-arrows.js";
 import { AXIS_DIR, AXIS_LABEL, applyAxis, arrowAnchor, axisParam, axisValue, hint3d, orbitButtons, viewOnly } from "./arrows3d.js";
 
 /** Grenze für das Ziehen über den Boden (m), knapp innerhalb der Koordinaten-Grenze des Schemas. */
@@ -185,16 +185,25 @@ export const Editor3dMethods = {
 
   // ---------------------------------------------------------------- Ziehen über den Boden
 
+  /** Zugdaten für ein Teil (Möbel oder Verteiler) unter dem Zeiger bei ev; null ohne Anker. */
+  _grab3d(ev, sel) {
+    const a = arrowAnchor(this.floor, sel, this.b);
+    if (!a) return null;
+    const y0 = (this.floor.elevation ?? 0) + a.base;
+    const p = this.scene3d.planPoint(ev.clientX, ev.clientY, y0) ?? [a.x, a.z];
+    return { mode: sel.kind === "pnode" ? "pnode" : "furniture", id: sel.id, sel, off: [p[0] - a.x, p[1] - a.z], y0, first: true, faces: this._faces() };
+  },
+
   _floorDown(ev) {
     const sc = this.scene3d;
     const hit = this._pick3d(ev.clientX, ev.clientY);
     const drag = (this._drag3d = { x: ev.clientX, y: ev.clientY, id: ev.pointerId, hit, moved: false });
     const sel = hit?.pnode ? { kind: "pnode", id: hit.pnode } : hit?.furniture ? { kind: "furniture", id: hit.furniture } : null;
-    const a = sel ? arrowAnchor(this.floor, sel, this.b) : null;
-    if (!a) return;
-    const y0 = (this.floor.elevation ?? 0) + a.base;
-    const p = sc.planPoint(ev.clientX, ev.clientY, y0) ?? [a.x, a.z];
-    drag.furn = { mode: sel.kind === "pnode" ? "pnode" : "furniture", id: sel.id, sel, off: [p[0] - a.x, p[1] - a.z], y0, first: true, faces: this._faces() };
+    drag.furn = sel ? this._grab3d(ev, sel) : null;
+    if (!drag.furn) return;
+    // eingebautes Gerät hinter der Glastür: Antippen wählt das Gerät, Ziehen nimmt den Schrank mit (nicht das Gerät heraus)
+    const cabId = sel.kind === "furniture" ? (this.floor.furniture ?? []).find((m) => m.id === sel.id)?.in_rack : null;
+    if (cabId != null && (this.floor.furniture ?? []).some((m) => m.id === cabId)) drag.cab = this._grab3d(ev, { kind: "furniture", id: cabId });
     sc.controls.enabled = false;
     sc.renderer.domElement.setPointerCapture?.(ev.pointerId);
     this.sel = sel;
@@ -206,6 +215,14 @@ export const Editor3dMethods = {
     const drag = this._drag3d;
     if (ev.pointerId !== drag.id) return;
     if (Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) > 4) drag.moved = true;
+    if (drag.moved && drag.cab) {
+      // der Zug beginnt: statt des Geräts den Schrank greifen (Auswahl wechselt mit)
+      drag.furn = drag.cab;
+      drag.cab = null;
+      this.sel = drag.furn.sel;
+      this.renderProps();
+      this.render();
+    }
     const f = drag.furn;
     if (!f || !drag.moved) return;
     const q = this.scene3d.planPoint(ev.clientX, ev.clientY, f.y0);
@@ -339,7 +356,8 @@ export const Editor3dMethods = {
     const a0 = arrowAnchor(this.floor, sel, this.b);
     if (!a0) return;
     clearTimeout(this._3dTimer);
-    this._live3d = { sel: { ...sel }, a0, ...liveTarget(this.scene3d, sel) };
+    // mit der Etage: eingebaute Geräte ziehen mit, Rohre angeschlossener Leitungen sind während des Zugs ausgeblendet
+    this._live3d = { sel: { ...sel }, a0, ...liveTarget(this.scene3d, sel, this.floor) };
   },
 
   _preview3d() {
@@ -357,9 +375,11 @@ export const Editor3dMethods = {
   },
 
   _liveEnd() {
-    if (!this._live3d) return;
+    const L = this._live3d;
+    if (!L) return;
     this._live3d = null;
     if (this._3dPending) this._sync3d();
+    else liveRestore(L); // kein Neuaufbau: ausgeblendete Rohre wieder zeigen
   },
 
   // ---------------------------------------------------------------- Nur Ansicht, Hinweis, Aufräumen

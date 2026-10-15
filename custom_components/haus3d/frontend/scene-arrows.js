@@ -206,22 +206,45 @@ export function targetObject(sc, sel) {
   return obj;
 }
 
-/** Startstand der Live-Vorschau: Objekt, Lage und Drehung, Kontaktschatten (scene-fx: userData.blobOf). */
-export function liveTarget(sc, sel) {
+/**
+ * Startstand der Live-Vorschau: Objekt, Lage und Drehung, Kontaktschatten (scene-fx: userData.blobOf).
+ * Mit floor (der Etage des Möbelstücks) ziehen auch die in den Schrank eingebauten Geräte (subs: in_rack === sel.id, samt
+ * Schatten) mit, und die Rohre von Leitungen, die an dem Möbelstück oder seinen Geräten enden (pipe.ends), werden für die
+ * Dauer des Zugs ausgeblendet (hide) – sie stünden sonst bis zum Neuaufbau am alten Platz.
+ */
+export function liveTarget(sc, sel, floor = null) {
   const obj = targetObject(sc, sel);
-  if (!obj) return { obj: null, p0: null, r0: 0, blobs: [] };
+  if (!obj) return { obj: null, p0: null, r0: 0, blobs: [], subs: [], hide: [] };
   const blobs = [];
+  const subs = [];
+  const hide = [];
   if (sel.kind === "furniture") {
+    const ids = new Set([sel.id]);
+    for (const m of floor?.furniture ?? []) {
+      if (m?.in_rack !== sel.id) continue;
+      const o = targetObject(sc, { kind: "furniture", id: m.id });
+      if (!o) continue;
+      ids.add(m.id);
+      subs.push({ o, p0: o.position.clone(), r0: o.rotation.y });
+    }
+    const pipes = new Set((floor?.pipes ?? []).filter((p) => ids.has(p?.ends?.a?.furniture) || ids.has(p?.ends?.b?.furniture)).map((p) => p.id));
     sc.root?.traverse((o) => {
-      if (o.userData.blobOf === sel.id) blobs.push({ o, p0: o.position.clone(), r0: o.rotation.y });
+      if (ids.has(o.userData.blobOf)) blobs.push({ o, p0: o.position.clone(), r0: o.rotation.y });
+      if (o.isMesh && pipes.has(o.userData.pipe)) hide.push(o);
     });
   }
-  return { obj, p0: obj.position.clone(), r0: obj.rotation.y, blobs };
+  return { obj, p0: obj.position.clone(), r0: obj.rotation.y, blobs, subs, hide };
+}
+
+/** Während des Zugs ausgeblendete Rohre wieder zeigen (nur nötig, wenn danach kein Neuaufbau der Szene folgt). */
+export function liveRestore(live) {
+  for (const o of live?.hide ?? []) o.visible = true;
 }
 
 /**
  * Live-Vorschau: Objekt um d ([dx, dy, dz] ab Start) verschieben, optional auf rotationDeg (Grad wie im Plan)
- * um die Mitte seiner Grundfläche drehen; Schatten bleiben am Boden (nur x/z) und drehen mit. Ohne Ziel nichts (false).
+ * um die Mitte seiner Grundfläche drehen; Schatten bleiben am Boden (nur x/z) und drehen mit. Eingebaute Geräte (subs)
+ * wandern und drehen um dieselbe Mitte mit, Rohre angeschlossener Leitungen (hide) verschwinden. Ohne Ziel nichts (false).
  */
 export function moveLive(sc, live, d, rotationDeg = null) {
   const obj = live?.obj;
@@ -242,13 +265,18 @@ export function moveLive(sc, live, d, rotationDeg = null) {
   const dr = ry - r0;
   const c = Math.cos(dr);
   const s = Math.sin(dr);
-  for (const b of live.blobs ?? []) {
-    const rx = b.p0.x - cx;
-    const rz = b.p0.z - cz;
-    b.o.position.set(cx + dx + rx * c + rz * s, b.p0.y, cz + dz - rx * s + rz * c);
-    b.o.rotation.y = b.r0 + dr;
-  }
+  // Schatten und eingebaute Geräte: um die Mitte drehen, mit verschieben (Schatten bleiben am Boden)
+  const follow = (part, dyPart) => {
+    const rx = part.p0.x - cx;
+    const rz = part.p0.z - cz;
+    part.o.position.set(cx + dx + rx * c + rz * s, part.p0.y + dyPart, cz + dz - rx * s + rz * c);
+    part.o.rotation.y = part.r0 + dr;
+  };
+  for (const b of live.blobs ?? []) follow(b, 0);
+  for (const g of live.subs ?? []) follow(g, dy);
+  for (const o of live.hide ?? []) o.visible = false;
   obj.updateMatrixWorld(true);
+  for (const g of live.subs ?? []) g.o.updateMatrixWorld(true);
   if (sc?._mark && sc._mark.object === obj) sc._mark.update(); // Rahmen der Möbel-Auswahl folgt
   sc?.invalidate?.();
   return true;

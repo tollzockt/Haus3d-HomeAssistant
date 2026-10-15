@@ -1,7 +1,7 @@
 // Dach-Ebene im Editor: die Dächer einer Etage von oben (Hausdach, eigene Dächer von Räumen, freie Dachteile;
 // Flächen, First, Himmelsrichtung), Dinge darauf (Kamin, Dachfenster, PV-Felder, Gauben) setzen und verschieben,
 // Formulare des Hausdachs und der Dinge. Wird von FloorEditor benutzt; Dachteile und eigene Dächer stehen in
-// editor-roofparts.js bzw. editor-roofunits.js.
+// editor-roofparts.js bzw. editor-roofunits.js; die Plätze von Nordpfeil und Hinweisen berechnet editor-roofmarks.js.
 
 import { allIds, newId } from "./edit-ops.js";
 import { DORMER_STYLES, ROOF_ITEMS, ROOF_TYPES, compass16, dormerShape, fieldInfo, legacyPvItems, pvLayout, roofFloor, roofModel, roofObstacles, roofSettings, roofSurfaceAt, roomRoofType } from "./exterior.js";
@@ -9,6 +9,7 @@ import { textureOptions, textureRotation } from "./model.js";
 import { adoptHouseItems, coveredBy, findUnit, floorModels, houseRoomIds, houseToParts, partOver, roofUnits, setAdjust, shiftPart, strayHouseItems, unitAt, unitFaces, unitSpec } from "./roofunits.js";
 import { adjustFieldsHtml, applyRoofKey, bindAdjustFields, bindRoofFields, roofColorField, roofFieldsHtml, roofTexField, setEdge, unitIn } from "./editor-roofunits.js";
 import { roofPartMove, roofPartStart, roofPartSvg } from "./editor-roofparts.js";
+import { around, boxOf, placeMarks, textRect } from "./editor-roofmarks.js";
 
 export const ROOF_TOOLS = [
   ["select", "mdi:cursor-default-outline", "Auswählen"],
@@ -105,6 +106,22 @@ function itemAxis(model, it) {
 // Punkt in einem Rahmen (Dachfläche) aus Längs- und Querabstand zur Mitte
 const frameQ = (fr) => (s, t) => [fr.center[0] + s * fr.u[0] + t * fr.v[0], fr.center[1] + s * fr.u[1] + t * fr.v[1]];
 
+/** Umriss eines Dings auf dem Dach im Grundriss: poly; beim PV-Feld mit der Modulbelegung (lay), bei Gauben mit der Form (g). */
+function itemShape(model, it, ctx) {
+  if (it.type === "pv") {
+    const lay = pvLayout(model, it, ctx);
+    return { lay, poly: rectCorners(lay.center, lay.along, lay.size[0] + 0.1, lay.size[1] + 0.1) };
+  }
+  if (it.type === "dormer") {
+    const g = dormerShape(model, it);
+    return { g, poly: g ? [g.f0, g.f1, g.b1, g.b0] : rectCorners([it.x, it.z], [1, 0], Number(it.w) || 2, 1) };
+  }
+  const def = ROOF_ITEMS[it.type] ?? ROOF_ITEMS.chimney;
+  const w = Number(it.w) || def.w;
+  const d = it.type === "skylight" ? (Number(it.l) || def.l) * Math.cos(Math.atan(roofSurfaceAt(model, [it.x, it.z])?.tan ?? model.tan)) : Number(it.d) || def.d;
+  return { poly: rectCorners([it.x, it.z], itemAxis(model, it), w, d) };
+}
+
 /** SVG-Teile der Dach-Ebene (Maßstab: Meter, px() = Bildschirmpixel). */
 export function roofSvg(ed, px) {
   if (ed.sel?.unit && !findUnit(ed.b, ed.sel.unit)) ed.sel = null; // Einheit weg (z. B. nach Rückgängig)
@@ -147,6 +164,7 @@ export function roofSvg(ed, px) {
   if (tapRoom) parts.push(`<g pointer-events="none" fill="none" stroke="#ff9800" stroke-width="${px(2.5)}">${rooms.map((r) => poly(r.points)).join("")}</g>`);
   // gewählte Fläche (Hausdach, eigenes Dach): Umriss, Maße, Wände der Einheit und Griffe an den vier Kanten
   const su = ed.sel?.kind === "roofpart" ? unitIn(units, ed.sel.unit ?? "house") : null;
+  const blocked = []; // Rechtecke, die Nordpfeil und Hinweise frei lassen (Griffe, Maße, Dinge)
   if (su?.model && su.kind !== "part") {
     const fr = su.model.parts?.[ed.sel.id];
     if (fr) {
@@ -157,51 +175,56 @@ export function roofSvg(ed, px) {
       parts.push(`<g fill="none" stroke="#ffeb3b" stroke-width="${px(2)}" stroke-dasharray="${px(6)} ${px(4)}" pointer-events="none">${(su.rooms ?? []).filter((r) => polyOk(r.points)).map((r) => poly(r.points)).join("")}</g>`);
       for (const [side, q] of [["lo", Q(-L, 0)], ["hi", Q(L, 0)], ["a", Q(0, -W)], ["b", Q(0, W)]]) {
         parts.push(`<circle data-kind="roofhandle" data-unit="${esc(su.key)}" data-side="${side}" cx="${r3(q[0])}" cy="${r3(q[1])}" r="${px(ed.coarse ? 13 : 9)}" fill="#ff9800" stroke="#fff" stroke-width="${px(2)}" style="cursor:grab"/>`);
+        blocked.push(around(q, px(ed.coarse ? 15 : 11)));
       }
-      parts.push(`<text x="${r3(fr.center[0])}" y="${r3(fr.center[1] + px(4))}" text-anchor="middle" font-size="${px(12)}" font-weight="600" fill="#fff" pointer-events="none">${de(fr.length)} × ${de(fr.width)} m</text>`);
+      const dims = `${de(fr.length)} × ${de(fr.width)} m`;
+      parts.push(`<text x="${r3(fr.center[0])}" y="${r3(fr.center[1] + px(4))}" text-anchor="middle" font-size="${px(12)}" font-weight="600" fill="#fff" pointer-events="none">${dims}</text>`);
+      blocked.push(textRect(fr.center[0], fr.center[1] + px(4), dims, px(12), "middle", true));
     } else for (const o of su.model.shape?.outline ?? []) if (polyOk(o)) parts.push(poly(o, ` fill="none" stroke="#03a9f4" stroke-width="${px(3)}" pointer-events="none"`));
   }
   const rp = roofPartSvg(ed, px, units);
   parts.push(rp.handles);
-  // Himmelsrichtung (oben links an allen Dachflächen)
-  const pts = drawn.flatMap((u) => faceMap.get(u).faces.flatMap((f) => f.poly));
-  if (pts.length) {
-    const north = ((Number(ed.b.settings?.north) || 0) * Math.PI) / 180;
-    const nc = [Math.min(...pts.map((p) => p[0])) + 0.3, Math.min(...pts.map((p) => p[1])) + 0.3];
-    const nd = [Math.sin(north), -Math.cos(north)];
-    const tip = [nc[0] + nd[0] * 0.9, nc[1] + nd[1] * 0.9];
-    parts.push(`<g pointer-events="none">${line(nc, tip, `stroke="#e53935" stroke-width="${px(3)}"`)}<circle cx="${r3(tip[0])}" cy="${r3(tip[1])}" r="${px(4)}" fill="#e53935"/><text x="${r3(tip[0] + nd[0] * 0.4)}" y="${r3(tip[1] + nd[1] * 0.4 + px(4))}" text-anchor="middle" font-size="${px(13)}" font-weight="700" fill="#e53935">N${north ? ` ${Math.round((north * 180) / Math.PI)}°` : ""}</text></g>`);
-  }
-  // Dinge auf den Dächern (je Einheit; Module unter einem anderen Dach derselben Etage fallen weg)
+  blocked.push(...rp.boxes);
+  // Dinge auf den Dächern (je Einheit; Module unter einem anderen Dach derselben Etage fallen weg): Umrisse vorab,
+  // damit Nordpfeil und PV-Hinweis freie Plätze finden
+  const things = [];
   for (const u of drawn) {
-    const model = u.model;
-    const others = floorModels(units, u.floorId, u.key);
-    const obstacles = roofObstacles(model, u.items);
+    const ctx = { obstacles: roofObstacles(u.model, u.items), others: floorModels(units, u.floorId, u.key) };
+    for (const it of u.items) if (hasPos(it)) things.push({ u, it, ...itemShape(u.model, it, ctx) });
+  }
+  blocked.push(...things.map((x) => boxOf(x.poly)));
+  const isSel = (it) => ed.sel?.kind === "roofitem" && ed.sel.id === it.id;
+  const pvSel = things.find((x) => x.lay && isSel(x.it));
+  const hint = pvSel && { id: pvSel.it.id, field: boxOf(pvSel.poly), text: `${pvSel.lay.count} von ${pvSel.lay.panels.length} Modulen passen`, size: px(12) };
+  const pts = drawn.flatMap((u) => faceMap.get(u).faces.flatMap((f) => f.poly));
+  // sichtbarer Ausschnitt des Plans in Metern (Nordpfeil und Hinweis bleiben darin)
+  const sc = ed.scale;
+  const view = sc > 0 ? [-ed.tx / sc, -ed.tz / sc, ((ed.svg?.clientWidth || 800) - ed.tx) / sc, ((ed.svg?.clientHeight || 600) - ed.tz) / sc] : null;
+  const marks = placeMarks({ bounds: pts.length ? boxOf(pts) : (hint?.field ?? [0, 0, 0, 0]), north: ((Number(ed.b.settings?.north) || 0) * Math.PI) / 180, px, blocked, hints: hint ? [hint] : [], view });
+  // Himmelsrichtung (oben links an allen Dachflächen; weicht in eine andere Ecke aus, wenn dort etwas liegt)
+  if (pts.length) {
+    const c = marks.compass;
+    parts.push(`<g data-north pointer-events="none">${line(c.nc, c.tip, `stroke="#e53935" stroke-width="${px(3)}"`)}<circle cx="${r3(c.tip[0])}" cy="${r3(c.tip[1])}" r="${px(4)}" fill="#e53935"/><text x="${r3(c.label[0])}" y="${r3(c.label[1])}" text-anchor="middle" font-size="${px(13)}" font-weight="700" fill="#e53935" stroke-width="${px(3)}" style="paint-order:stroke;stroke:var(--card-background-color,#fff);stroke-linejoin:round">${c.text}</text></g>`);
+  }
+  for (const { u, it, lay, g, poly: shape } of things) {
+    const sel = isSel(it);
+    const stroke = sel ? "#03a9f4" : "#fff";
     const unit = `data-unit="${esc(u.key)}"`;
-    for (const it of u.items) {
-      if (!hasPos(it)) continue;
-      const sel = ed.sel?.kind === "roofitem" && ed.sel.id === it.id;
-      const stroke = sel ? "#03a9f4" : "#fff";
-      if (it.type === "pv") {
-        const lay = pvLayout(model, it, { obstacles, others });
-        // rot: passt nicht auf die Fläche (First, Kehle, Rand, anderes Dach); rot schraffiert: von Kamin/Dachfenster verdeckt
-        const cell = lay.panels.map((p, i) => `<polygon${lay.blocked[i] ? ' data-blocked="1"' : ""} points="${rectCorners(p, lay.along, lay.w, lay.l * lay.cos).map(P).join(" ")}" fill="${lay.fits[i] ? "#1c3a6b" : lay.blocked[i] ? "url(#pvblock)" : "#e53935"}" fill-opacity="${lay.fits[i] ? 1 : 0.6}" stroke="${lay.blocked[i] ? "#e53935" : "#8fb3e8"}" stroke-width="${px(0.8)}"/>`).join("");
-        parts.push(`<g data-kind="roofitem" ${unit} data-id="${esc(it.id)}" style="cursor:move">${cell}<polygon points="${rectCorners(lay.center, lay.along, lay.size[0] + 0.1, lay.size[1] + 0.1).map(P).join(" ")}" fill="transparent" stroke="${stroke}" stroke-opacity="${sel ? 1 : 0.5}" stroke-width="${px(sel ? 3 : 1)}"/></g>`);
-        if (sel) parts.push(`<text x="${r3(it.x)}" y="${r3(it.z - lay.size[1] / 2 - px(8))}" text-anchor="middle" font-size="${px(12)}" fill="#03a9f4">${lay.count} von ${lay.panels.length} Modulen passen</text>`);
-      } else if (it.type === "dormer") {
-        const g = dormerShape(model, it);
-        const shape = g ? [g.f0, g.f1, g.b1, g.b0] : rectCorners([it.x, it.z], [1, 0], Number(it.w) || 2, 1);
-        parts.push(poly(shape, ` data-kind="roofitem" ${unit} data-id="${esc(it.id)}" fill="${g ? "#d7ccc8" : "#e53935"}" fill-opacity="${g ? 0.9 : 0.5}" stroke="${stroke}" stroke-width="${px(sel ? 3 : 1.5)}" style="cursor:move"`));
-        if (g) parts.push(line(g.f0, g.f1, `stroke="#5d4037" stroke-width="${px(3)}" pointer-events="none"`));
-      } else {
-        const def = ROOF_ITEMS[it.type] ?? ROOF_ITEMS.chimney;
-        const w = Number(it.w) || def.w;
-        const d = it.type === "skylight" ? (Number(it.l) || def.l) * Math.cos(Math.atan(roofSurfaceAt(model, [it.x, it.z])?.tan ?? model.tan)) : Number(it.d) || def.d;
-        const fill = it.type === "chimney" ? (isHex(it.color) ? it.color : "#9c5a44") : "#9fd3f0";
-        parts.push(poly(rectCorners([it.x, it.z], itemAxis(model, it), w, d), ` data-kind="roofitem" ${unit} data-id="${esc(it.id)}" fill="${fill}" stroke="${stroke}" stroke-width="${px(sel ? 3 : 1.5)}" style="cursor:move"`));
-      }
+    if (lay) {
+      // rot: passt nicht auf die Fläche (First, Kehle, Rand, anderes Dach); rot schraffiert: von Kamin/Dachfenster verdeckt
+      const cell = lay.panels.map((p, i) => `<polygon${lay.blocked[i] ? ' data-blocked="1"' : ""} points="${rectCorners(p, lay.along, lay.w, lay.l * lay.cos).map(P).join(" ")}" fill="${lay.fits[i] ? "#1c3a6b" : lay.blocked[i] ? "url(#pvblock)" : "#e53935"}" fill-opacity="${lay.fits[i] ? 1 : 0.6}" stroke="${lay.blocked[i] ? "#e53935" : "#8fb3e8"}" stroke-width="${px(0.8)}"/>`).join("");
+      parts.push(`<g data-kind="roofitem" ${unit} data-id="${esc(it.id)}" style="cursor:move">${cell}<polygon points="${shape.map(P).join(" ")}" fill="transparent" stroke="${stroke}" stroke-opacity="${sel ? 1 : 0.5}" stroke-width="${px(sel ? 3 : 1)}"/></g>`);
+    } else if (it.type === "dormer") {
+      parts.push(poly(shape, ` data-kind="roofitem" ${unit} data-id="${esc(it.id)}" fill="${g ? "#d7ccc8" : "#e53935"}" fill-opacity="${g ? 0.9 : 0.5}" stroke="${stroke}" stroke-width="${px(sel ? 3 : 1.5)}" style="cursor:move"`));
+      if (g) parts.push(line(g.f0, g.f1, `stroke="#5d4037" stroke-width="${px(3)}" pointer-events="none"`));
+    } else {
+      const fill = it.type === "chimney" ? (isHex(it.color) ? it.color : "#9c5a44") : "#9fd3f0";
+      parts.push(poly(shape, ` data-kind="roofitem" ${unit} data-id="${esc(it.id)}" fill="${fill}" stroke="${stroke}" stroke-width="${px(sel ? 3 : 1.5)}" style="cursor:move"`));
     }
   }
+  // Hinweis zum gewählten PV-Feld ganz oben, damit ihn nichts überdeckt
+  const h = hint && marks.hints.get(hint.id);
+  if (h) parts.push(`<text data-pvhint class="ed-dim" x="${r3(h.x)}" y="${r3(h.z)}" text-anchor="${h.anchor}" font-size="${px(12)}" stroke-width="${px(3)}">${hint.text}</text>`);
   parts.push(rp.draft);
   return parts.join("");
 }

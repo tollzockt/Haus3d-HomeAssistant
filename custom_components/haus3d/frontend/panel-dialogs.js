@@ -3,53 +3,17 @@
 
 // Haus 3D – Panel für die Home-Assistant-Seitenleiste.
 
-import * as THREE from "./vendor/three.module.min.js";
 import { SEASONS } from "./fx.js";
-import {
-  displayKind,
-  roomEntities,
-  coverClosedFraction,
-  domainOf,
-  energyValues,
-  entitiesByArea,
-  buildingIcons,
-  buildingLinks,
-  iconKind,
-  isOpen,
-  placesOf,
-  roomClimate,
-  roomLit,
-  roomHeating,
-  roomPower,
-  VIEW_MODES,
-  viewColor,
-  dewPoint,
-  ventAdvice,
-  agoText,
-  persons,
-  roomPresence,
-  groupRoomEntities,
-  roomActions,
-  stepTarget,
-  temperatureColor,
-  watchedEntities,
-} from "./devices.js";
-import { ROOF_TYPES, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
-import { exportFile, normalize, parseImport } from "./model.js";
-import { SIM_WEATHER, Simulator } from "./sim.js";
-import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
-import { entityAction } from "./actions.js";
-import { entityPlaces, houseStatus, statusChips } from "./status.js";
+import { domainOf, placesOf } from "./devices.js";
+import { ROOF_TYPES, roofSettings } from "./exterior.js";
+import { exportFile, parseImport } from "./model.js";
+import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, WHEEL_VISIBLE, normalizeFunctions } from "./hud.js";
+import { houseStatus } from "./status.js";
 import { allSecure, checklist, checklistCalls, routineCall } from "./security.js";
-import { ALERT_DEFAULTS, evaluateAlerts, exteriorOpenings, normalizeAlerts, visibleAlerts } from "./alerts.js";
-import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
-import { SHORT_CHOICES, SURPLUS_DEFAULTS, batteryState, batteryText, gridState, gridText, suggestEnergy } from "./energy.js";
-import { HouseScene } from "./scene.js";
+import { normalizeAlerts } from "./alerts.js";
 import { closeGaps } from "./walls.js";
-import { EDITOR_STYLE, FloorEditor } from "./editor.js";
-import { PANEL_STYLE } from "./panel-style.js";
 
-import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, ENERGY_GROUPS, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive, touchScroll } from "./panel-util.js";
+import { esc, plural, touchScroll } from "./panel-util.js";
 
 export const DialogMethods = {
   /** Dialog statt „Weitere Infos“: Zustand des Geräts in der Simulation setzen. */

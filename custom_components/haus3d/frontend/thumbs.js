@@ -61,41 +61,71 @@ function studio(style) {
 }
 
 /**
- * Rendert alle noch fehlenden Vorschaubilder. onThumb(type, url) wird je fertigem Bild aufgerufen.
+ * Rendert die noch fehlenden Vorschaubilder der gewünschten Typen (types; ohne Angabe alle – das sind Hunderte und
+ * dauert, darum fordert der Katalog nur an, was gerade zu sehen ist). onThumb(type, url) wird je fertigem Bild aufgerufen.
+ * Läuft schon ein Durchgang, gilt ab jetzt die neue Wunschliste: was noch wartet und nicht mehr gewünscht wird
+ * (zugeklappte Kategorie, geänderte Suche), entfällt; bereits fertige Bilder bleiben im Speicher. Wer etwas anzeigt,
+ * fordert die sichtbaren Typen also bei jeder Änderung erneut an.
+ * @param {(type: string, url: string) => void} [onThumb]
+ * @param {string} [style]
+ * @param {string[] | null} [types]
  * @returns {Promise<void>}
  */
-export function renderThumbs(onThumb = () => {}, style = "standard") {
-  if (job) {
+export function renderThumbs(onThumb = () => {}, style = "standard", types = null) {
+  const todo = (types ?? Object.keys(FURNITURE)).filter((t, i, all) => FURNITURE[t] && all.indexOf(t) === i && !cache.has(`${style}:${t}`)).map((t) => [style, t]);
+  if (job && !job.finished) {
     job.listeners.add(onThumb);
+    job.todo = todo;
     return job.done;
   }
-  const listeners = new Set([onThumb]);
-  const todo = Object.keys(FURNITURE).filter((t) => !cache.has(`${style}:${t}`));
-  const done = new Promise((resolve) => {
-    if (!todo.length) return resolve();
-    const st = studio(style);
-    if (!st) return resolve();
+  if (!todo.length) return Promise.resolve();
+  const j = { listeners: new Set([onThumb]), todo, done: null, finished: false };
+  j.done = new Promise((resolve) => {
+    let st = null;
+    let stStyle = null;
     const step = () => {
       // einige Bilder je Durchgang
-      for (let k = 0; k < 6 && todo.length; k++) {
-        const type = todo.shift();
+      for (let k = 0; k < 6 && j.todo.length; k++) {
+        const [sty, type] = j.todo.shift();
+        if (cache.has(`${sty}:${type}`)) continue;
+        if (!st || stStyle !== sty) {
+          st?.close();
+          st = studio(sty);
+          stStyle = sty;
+          if (!st) {
+            j.todo.length = 0; // ohne WebGL keine Bilder
+            break;
+          }
+        }
         const [, w, d, h] = FURNITURE[type];
         const url = st.shot(buildFurniture({ id: type, type, x: 0, z: 0, rotation: 0, w, d, h, mount_y: 0 }, st.M, 0, h ? Math.max(h + 0.1, 0.5) : 2.5));
-        cache.set(`${style}:${type}`, url);
-        for (const fn of listeners) fn(type, url);
+        cache.set(`${sty}:${type}`, url);
+        for (const fn of j.listeners) fn(type, url);
       }
-      if (todo.length) setTimeout(step, 0);
+      if (j.todo.length) setTimeout(step, 0);
       else {
-        st.close();
+        j.finished = true; // ein Aufruf noch im selben Durchlauf startet einen neuen Durchgang
+        st?.close();
         resolve();
       }
     };
     step();
   }).finally(() => {
-    job = null;
+    if (job === j) job = null;
   });
-  job = { listeners, done };
-  return done;
+  job = j;
+  return j.done;
+}
+
+/** Läuft gerade ein Durchgang (und hält damit einen WebGL-Kontext)? */
+export const thumbsBusy = () => !!job && !job.finished;
+
+/**
+ * Offenen Durchgang beenden (nichts Sichtbares mehr, Editor zu): was noch wartet, entfällt; der Kontext der Vorschau wird
+ * im nächsten Schritt freigegeben. Bereits fertige Bilder bleiben im Speicher.
+ */
+export function stopThumbs() {
+  if (job && !job.finished) job.todo = [];
 }
 
 /**

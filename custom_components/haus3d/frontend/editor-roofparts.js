@@ -7,6 +7,7 @@ import { mainDirection, roofModel, roofSurfaceAt } from "./exterior.js";
 import { ROOF_PART_TYPES, circleOf, circlePoints, newRoofPart, rectInFrame } from "./roofshapes.js";
 import { adoptHouseItems, deletePart, findUnit, houseRoomIds, moveItemToUnit, parseUnitKey, roofUnits, roomRoofToParts, shiftPart, towerRoof, unitAt, unitKey, unitSpec } from "./roofunits.js";
 import { adoptedText, roofItemName, unitIn } from "./editor-roofunits.js";
+import { around, textRect } from "./editor-roofmarks.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000 + 0;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -58,10 +59,11 @@ const MODE_HINTS = {
 };
 const modesFor = (type) => (type === "cone" ? ["circle", "room"] : ["rect", "poly", "room"]);
 
-/** Griffe des gewählten Dachteils (Ecken, „+“, Radius) und der Entwurf beim Zeichnen. → {handles, draft} */
+/** Griffe des gewählten Dachteils (Ecken, „+“, Radius) und der Entwurf beim Zeichnen. → {handles, draft, boxes} (boxes: Rechtecke der Griffe und des Maßes, die der Nordpfeil meidet) */
 export function roofPartSvg(ed, px, units) {
   const P = ([x, z]) => `${r3(x)},${r3(z)}`;
   let handles = "";
+  const boxes = [];
   const s = ed.sel;
   const u = s?.kind === "roofpart" && ed.tool === "select" ? unitIn(units, s.unit ?? "house") : null;
   const pts = u?.kind === "part" ? u.spec?.points : null;
@@ -76,16 +78,20 @@ export function roofPartSvg(ed, px, units) {
       const { center, r } = circleOf(pts);
       handles += `<circle data-kind="rpradius" data-unit="${key}" cx="${r3(center[0] + r)}" cy="${r3(center[1])}" r="${rr}" fill="#ff9800" stroke="#fff" stroke-width="${px(2)}" style="cursor:ew-resize"/>`;
       handles += `<text x="${r3(center[0])}" y="${r3(center[1] + px(4))}" text-anchor="middle" font-size="${px(12)}" font-weight="600" fill="#fff">⌀ ${de(2 * r)} m</text>`;
+      boxes.push(around([center[0] + r, center[1]], rr + px(2)), textRect(center[0], center[1] + px(4), `⌀ ${de(2 * r)} m`, px(12), "middle", true));
     } else {
       pts.forEach((a, i) => {
         const b = pts[(i + 1) % pts.length];
         const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
         handles += `<g data-kind="rpinsert" data-unit="${key}" data-i="${i}" style="cursor:copy"><circle cx="${r3(mid[0])}" cy="${r3(mid[1])}" r="${px(ed.coarse ? 11 : 6)}" fill="#fff" stroke="#03a9f4" stroke-width="${px(1.5)}"/><text x="${r3(mid[0])}" y="${r3(mid[1] + px(3.5))}" text-anchor="middle" font-size="${px(10)}" fill="#03a9f4">+</text></g>`;
       });
+      boxes.push(...pts.map((p) => around(p, rr + px(2))), ...pts.map((a, i) => around([(a[0] + pts[(i + 1) % pts.length][0]) / 2, (a[1] + pts[(i + 1) % pts.length][1]) / 2], px(ed.coarse ? 13 : 8))));
       pts.forEach((p, i) => {
         handles += `<circle data-kind="rpvertex" data-unit="${key}" data-i="${i}" cx="${r3(p[0])}" cy="${r3(p[1])}" r="${rr}" fill="${s.vertex === i ? "#ff9800" : "#03a9f4"}" stroke="#fff" stroke-width="${px(2)}" style="cursor:grab"/>`;
       });
-      handles += `<text x="${r3(c[0])}" y="${r3(c[1] + px(4))}" text-anchor="middle" font-size="${px(12)}" font-weight="600" fill="#fff">${de(Math.max(...xs) - Math.min(...xs))} × ${de(Math.max(...zs) - Math.min(...zs))} m</text>`;
+      const dims = `${de(Math.max(...xs) - Math.min(...xs))} × ${de(Math.max(...zs) - Math.min(...zs))} m`;
+      handles += `<text x="${r3(c[0])}" y="${r3(c[1] + px(4))}" text-anchor="middle" font-size="${px(12)}" font-weight="600" fill="#fff">${dims}</text>`;
+      boxes.push(textRect(c[0], c[1] + px(4), dims, px(12), "middle", true));
     }
   }
   let draft = "";
@@ -103,7 +109,7 @@ export function roofPartSvg(ed, px, units) {
     const line = [...d.points, ...(d.hover ? [d.hover] : [])];
     draft = `<polyline points="${line.map(P).join(" ")}" fill="none" stroke="#03a9f4" stroke-width="${px(2)}" stroke-dasharray="${px(6)} ${px(4)}" pointer-events="none"/>${d.points.map((p, i) => `<circle cx="${r3(p[0])}" cy="${r3(p[1])}" r="${px(i ? 4 : 7)}" fill="#03a9f4" pointer-events="none"/>`).join("")}`;
   }
-  return { handles, draft };
+  return { handles, draft, boxes };
 }
 
 /**

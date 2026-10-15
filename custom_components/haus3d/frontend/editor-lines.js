@@ -160,7 +160,12 @@ export const LineMethods = {
       if (inp.tagName !== "SELECT" && !(v > 0)) return;
       upd((x) => {
         if (k === "width") x.line.width = v;
-        else x[k] = v;
+        else if (k === "edge" && x.type === "kerb" && KERB_KINDS[v]) {
+          // andere Art: Breite der Art als Linie übernehmen, Höhe zurück auf deren Standard (upd berechnet die Fläche neu)
+          x.edge = v;
+          x.line.width = KERB_KINDS[v].w;
+          delete x.edge_h;
+        } else x[k] = v;
       });
     }));
     el.querySelector("[data-act=unline]")?.addEventListener("click", () => upd((x) => delete x.line));

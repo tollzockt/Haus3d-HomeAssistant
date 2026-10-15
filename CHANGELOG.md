@@ -1,5 +1,38 @@
 # Änderungen
 
+## 0.23.0
+
+Stabile Version mit allem aus 0.23.0b1–b4, dazu:
+
+- **Wände ohne Haarlinien**: keine feinen Linien oder Lichtpunkte mehr an Wandstößen, Fenster- und Türseiten, an
+  den Stufen unter der Dachschräge und an der Fuge zwischen den Etagen; Wand- und Giebelkanten blitzen nicht mehr
+  durchs Dach (Sattel-, Walm- und Pultdach), Türschwellen in Innentüren flimmern nicht mehr.
+- **Dach-Ebene**: Der Hinweis „x von y Modulen passen“ weicht dem Nordpfeil, anderen Dingen und Griffen aus; der
+  Nordpfeil wechselt nur bei Bedarf die Ecke und bleibt immer ganz sichtbar (auch bei Norden oben).
+- **Antippen draußen**: Gegenstände mit Entität außerhalb der Räume – Whirlpool auf dem Rasen, Außensteckdose,
+  Klingel an der Fassade – lassen sich in der Hauptansicht antippen; der Raum dahinter wird nicht mehr getroffen.
+- **Server- und Netzwerkschrank**: Eingebaute Geräte bieten keine wirkungslosen Bedienelemente mehr (Drehung,
+  Höhe, Drehgriff, Steuerkreuz, 3D-Pfeile; Pfeiltasten und R zeigen einen Hinweis statt eines leeren
+  Rückgängig-Schritts). Im Editor-3D lassen sie sich durch die Glastür anklicken und ziehen beim Verschieben des
+  Schranks sofort mit. Ihre Info-Werte stehen in der Tafel des Schranks (eine Zwischenzeile je Gerät). Einen Schrank
+  duplizieren oder kopieren („Duplizieren“, Strg+D) nimmt seine Geräte mit; die Kopie steht neben dem Schrank,
+  Entitäten bleiben leer.
+- **Randstein-Linien**: Ein Wechsel der Art übernimmt Breite und Höhe der Art; schmale Linien lassen sich im Plan
+  leichter antippen; wirkungslose Felder (Textur, Geländer) sind ausgeblendet.
+- **Schneller und sparsamer**: Der Editor gab beim Schließen seinen 3D-Speicher nicht frei (rund 60 MB je Öffnen,
+  nach etwa 17 Mal fiel die 3D-Ansicht aus) – behoben, dazu eine Absicherung, falls der Browser die 3D-Darstellung
+  verliert. Editor und Loader für eigene 3D-Modelle werden erst bei Bedarf geladen (der Editor im Bearbeiten-
+  bzw. Admin-Modus vorab im Leerlauf), der Katalog
+  „Einrichten“ rendert Vorschaubilder nur für aufgeklappte Kategorien, Texturen entstehen schneller, Drehen des
+  Tablets zeichnet kein doppeltes Bild mehr.
+- **Antippen nur, was sichtbar ist**: Ein Gerät mit Entität hinter dem Haus (z. B. Whirlpool im Garten) lässt sich
+  nicht mehr durch die Hauswand hindurch antippen (im Cyberpunk-Stil mit durchscheinenden Wänden schon).
+- **Cyberpunk**: Die Neonkanten der Dächer sind wieder vollständig zu sehen.
+- **Editor**: Lädt der Editor beim zweiten Versuch, verschwindet die Fehlermeldung; vorgeladen wird er nur im
+  Bearbeiten- bzw. Admin-Modus und nicht am Wandtablet. Im Editor-3D bewegt Ziehen an einem Gerät im Schrank den
+  Schrank samt Geräten; Antippen wählt das Gerät, ausgebaut wird über „Ausbauen“. Die Vorschaubilder im Katalog
+  hören auf zu rendern, sobald nichts mehr zu sehen ist.
+
 ## 0.23.0b4 (Vorabversion)
 
 - **Eigene 3D-Modelle schneller im Katalog**: Das Vorschaubild entsteht beim Hochladen und wird mitgespeichert;

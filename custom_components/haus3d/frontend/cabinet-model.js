@@ -61,7 +61,8 @@ export function buildCabinet(type, w, d, h, M, g, item = {}) {
   // Glastür: dünner Rahmen, getönte Scheibe, Griff
   const dh = inner + 0.02;
   const dw = w - 0.03;
-  box(g, smokedGlass(M), dw - 0.02, dh - 0.04, 0.006, 0, base - 0.01 + 0.02, d / 2 - 0.003);
+  // (noPick: im Editor-3D trifft der Zeiger durch die Scheibe das eingebaute Gerät dahinter, nicht die Tür)
+  box(g, smokedGlass(M), dw - 0.02, dh - 0.04, 0.006, 0, base - 0.01 + 0.02, d / 2 - 0.003).userData.noPick = true;
   for (const sx of [-1, 1]) box(g, M.dark, 0.02, dh, 0.012, sx * (dw / 2 - 0.01), base - 0.01, d / 2 - 0.006);
   for (const y of [base - 0.01, base + inner - 0.01]) box(g, M.dark, dw, 0.02, 0.012, 0, y, d / 2 - 0.006);
   box(g, M.metal, 0.02, Math.min(0.3, inner * 0.25), 0.02, w / 2 - 0.06, base + inner * 0.5 - 0.1, d / 2 - 0.008);

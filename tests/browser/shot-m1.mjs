@@ -40,7 +40,7 @@ await t.shot(pg, "m1-simulation.png");
 const simEd = await E(async () => {
   const p = window.panel;
   p._editMode = true;
-  p._openEditor();
+  await p._openEditor();
   const opened = !!p._editor;
   const before = window.realSaves ?? 0;
   p._simDialog("light.wohnzimmer_decke");
