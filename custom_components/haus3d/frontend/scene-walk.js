@@ -36,7 +36,7 @@ export const SceneWalk = {
     }
     this._walkLook();
     this._bindWalk();
-    this.invalidate();
+    this._viewMoved();
     return true;
   },
 
@@ -52,15 +52,14 @@ export const SceneWalk = {
     this.camera.updateProjectionMatrix();
     this.controls.enabled = true;
     this.setView(w.saved);
-    this.invalidate();
+    this._viewMoved();
   },
 
   _walkLook() {
     const w = this._walk;
     const dir = new THREE.Vector3(-Math.sin(w.yaw) * Math.cos(w.pitch), Math.sin(w.pitch), -Math.cos(w.yaw) * Math.cos(w.pitch));
     this.camera.lookAt(this.camera.position.clone().add(dir));
-    this._camDirty = true;
-    this.invalidate();
+    this._viewMoved(true); // nur die Kamera: ohne Schattenpass; Begehen bewegt (progressive Auflösung)
   },
 
   /** Linker Joystick/Tasten: forward, strafe in -1..1 (wird bis zum nächsten Aufruf gehalten). */

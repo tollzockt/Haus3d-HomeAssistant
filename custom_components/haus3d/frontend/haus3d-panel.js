@@ -37,7 +37,7 @@ import { LEGACY_FUNCTION_KEYS, nextStyle, migrateView, nextView, normalizeCards,
 import { entityAction } from "./actions.js";
 import { entityPlaces, houseStatus, openState, statusChips } from "./status.js";
 import { exteriorOpenings } from "./alerts.js";
-import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
+import { QUALITY_CHOICES, perfFlags, perfHudText, resolveQuality } from "./perf.js";
 import { batteryState, batteryText, ema, formatPower, gridState, gridText, surplus } from "./energy.js";
 import { sunFromHass } from "./sun.js";
 import { lightLook, roomLight } from "./light.js";
@@ -187,8 +187,8 @@ class Haus3DPanel extends HTMLElement {
   }
 
   /**
-   * Qualitätsstufe anwenden (perf.js). ?quality=… in der Adresse hat Vorrang (z. B. zum Testen).
-   * Bei „auto“ wird die Auflösung alle paar Sekunden an die gemessene Bildrate angepasst.
+   * Qualitätsstufe anwenden (perf.js). ?quality=… in der Adresse hat Vorrang (z. B. zum Testen). Die Bewegungs-Auflösung
+   * passt die Szene selbst an (scene-loop.js).
    */
   _applyQuality() {
     if (!this._scene) return;
@@ -206,20 +206,11 @@ class Haus3DPanel extends HTMLElement {
     } catch {
       /* egal */
     }
-    if (profile.auto) {
-      let saved = NaN;
-      try {
-        saved = Number(localStorage.getItem("haus3d.dpr"));
-      } catch {
-        /* ohne Speicher */
-      }
-      if (saved >= 1) profile.dpr = Math.min(saved, profile.maxDpr);
-    }
     this._quality = profile;
     this._scene.setQuality(profile);
     clearInterval(this._qualityTimer);
     this._qualityTimer = null;
-    if (profile.auto || this._settings.perfHud) this._qualityTimer = setInterval(() => this._qualityTick(), 3000);
+    if (this._settings.perfHud) this._qualityTimer = setInterval(() => this._qualityTick(), 3000);
     this._perfEl?.remove();
     this._perfEl = null;
     if (this._settings.perfHud) {
@@ -227,6 +218,7 @@ class Haus3DPanel extends HTMLElement {
       this._perfEl.className = "perfhud";
       this._els.stage.appendChild(this._perfEl);
       this._perfRenders = this._scene.stats.renders;
+      this._perfShadows = this._scene.stats.shadowRenders;
       this._perfAt = performance.now();
       this._qualityTick();
     }
@@ -236,26 +228,18 @@ class Haus3DPanel extends HTMLElement {
     const sc = this._scene;
     const q = this._quality;
     if (!sc || !q || !this.isConnected) return;
-    if (q.auto && sc.stats.frameMs.length >= 20) {
-      const cur = q.dpr ?? q.maxDpr;
-      const next = adaptDpr(cur, sc.stats.frameMs, { min: 1, max: q.maxDpr });
-      sc.stats.frameMs.length = 0;
-      if (next !== cur) {
-        q.dpr = next;
-        try {
-          localStorage.setItem("haus3d.dpr", String(next));
-        } catch {
-          /* egal */
-        }
-        sc.setQuality(q);
-      }
-    }
     if (this._perfEl) {
+      // Bilder/s · Auflösung ruhend · bewegt · Aufrufe inkl. Schatten · Schattenpässe/s · Stufe (perf.js:perfHudText)
       const now = performance.now();
-      const fps = ((sc.stats.renders - this._perfRenders) * 1000) / Math.max(1, now - this._perfAt);
-      this._perfRenders = sc.stats.renders;
+      const st = sc.stats;
+      const secs = Math.max(1, now - this._perfAt) / 1000;
+      const fps = (st.renders - this._perfRenders) / secs;
+      const shadows = (st.shadowRenders - (this._perfShadows ?? st.shadowRenders)) / secs;
+      this._perfRenders = st.renders;
+      this._perfShadows = st.shadowRenders;
       this._perfAt = now;
-      this._perfEl.textContent = `${fps.toFixed(1)} Bilder/s · Auflösung ${sc.renderer.getPixelRatio().toFixed(2)} · ${QUALITY_CHOICES.find(([k]) => k === q.name)?.[1] ?? q.name}${q.auto ? " (auto)" : ""}`;
+      const label = `${QUALITY_CHOICES.find(([k]) => k === q.name)?.[1] ?? q.name}${q.auto ? " (auto)" : ""}`;
+      this._perfEl.textContent = perfHudText({ fps, still: st.dprStill ?? sc._loop?.still, move: st.dprMove ?? sc._loop?.move, calls: st.calls, shadows, label });
     }
   }
 
@@ -314,6 +298,7 @@ class Haus3DPanel extends HTMLElement {
         // verborgen (anderer Tab, Bildschirm aus): nicht zeichnen
         if (document.hidden) this._scene?.stop();
         else if (!this._editor) this._scene?.start();
+        if (!document.hidden) this._idleShown();
         this._applyKiosk();
         if (!document.hidden && this._staleHidden) {
           this._staleHidden = false;
@@ -338,6 +323,11 @@ class Haus3DPanel extends HTMLElement {
     this._wakeLock = null;
     clearInterval(this._idleTimer);
     this._idleTimer = null;
+    clearTimeout(this._occlusionTimer);
+    this._occlusionStop?.();
+    this._occlusionStop = null;
+    this._moving = false;
+    this._els?.stage?.classList.remove("moving");
   }
 
   // (Beobachter der Ecken bleibt an der Shadow-DOM-Bühne hängen und wird mit ihr entsorgt)
@@ -423,7 +413,7 @@ class Haus3DPanel extends HTMLElement {
     for (const type of ["pointerdown", "keydown", "wheel"]) {
       this.addEventListener(type, () => {
         this._lastInput = Date.now();
-        if (this._idle) this._wake();
+        if (this._idle || this._paused) this._wake();
       }, { capture: true, passive: true });
     }
     // Karten oben rechts und Etagenleiste dürfen sich nicht überdecken (Tablet hochkant/quer)
@@ -438,11 +428,19 @@ class Haus3DPanel extends HTMLElement {
       ev.stopPropagation();
       this._openSettings();
     });
+    // Mess-Schalter aus der Adresse (perf.js:perfFlags) gelten für beide Szenen: Hauptansicht und Editor
+    try {
+      this._perfFlags = perfFlags(location.search);
+    } catch {
+      this._perfFlags = perfFlags("");
+    }
     try {
       this._scene = new HouseScene(this._els.canvas, {
         dark: !!this._hass?.themes?.darkMode,
+        live: false, // Hauptansicht: Aufbau nur bei neuem Grundriss (der Editor bleibt live)
+        flags: this._perfFlags,
         onCameraChange: () => {
-          this._positionOverlays();
+          this._positionOverlays({ moving: true });
           clearTimeout(this._viewTimer);
           this._viewTimer = setTimeout(() => this._rememberView(), 800);
         },
@@ -1295,6 +1293,8 @@ class Haus3DPanel extends HTMLElement {
         sceneStyle: this._appliedStyle === "cyber" ? "cyber" : this._appliedStyle === "night" ? "night" : "standard",
         dark: !!this._hass.themes?.darkMode,
         revision: this._revision,
+        perfFlags: this._perfFlags,
+        quality: this._quality,
         draftKey: this._sim ? "haus3d.editorDraft.sim" : this._house ? `haus3d.editorDraft.${this._house.id}${demoAtOpen ? ".demo" : ""}` : undefined, // Entwurf je Haus, Simulation und Demo getrennt (der Demo-Entwurf trägt Demo-Geräte)
         onSave: async (building, { keepOpen = false } = {}) => {
           if ((this._house?.id ?? null) !== houseId || this._switching || !!this._sim !== simAtOpen) throw new Error("Inzwischen Haus gewechselt oder Simulation umgeschaltet – nicht gespeichert.");
@@ -1318,7 +1318,7 @@ class Haus3DPanel extends HTMLElement {
           if (this._editBand) this._editBand.hidden = false;
           this._els.stage.classList.remove("planning");
           this._els.overlay.hidden = false;
-          this._scene?.start();
+          this._scene?.park(false);
           this._refreshEntities();
         },
         sim: !!this._sim,
@@ -1335,8 +1335,8 @@ class Haus3DPanel extends HTMLElement {
     ed.onHelp = () => this._openHelp({ editor: ed });
     ed.onPrint = () => this._openPrint({ editor: ed });
     this._tourAuto("editor", ed);
-    // Hauptansicht ruht, solange der Editor offen ist (der hat seine eigene 3D-Ansicht)
-    this._scene?.stop();
+    // Hauptansicht ruht geparkt (1×1), solange der Editor sie verdeckt (der hat seine eigene 3D-Ansicht)
+    this._scene?.park(true);
     if (this._editBand) this._editBand.hidden = true;
     this._els.stage.classList.add("planning");
   }
@@ -1924,7 +1924,11 @@ class Haus3DPanel extends HTMLElement {
 
   // ------------------------------------------------------------------ Overlays positionieren
 
-  _positionOverlays() {
+  /**
+   * Beschriftungen an ihre Stelle im Bild. Styles nur bei Änderung schreiben (ov.shown, ov.tf). moving (Kamera bewegt):
+   * Klasse .moving an der Bühne (teure Effekte wie backdrop-filter aus) bis zur Verdeckungsprüfung.
+   */
+  _positionOverlays({ moving = false } = {}) {
     if (!this._scene) return;
     this._holoCheck();
     const size = this._scene.viewSize(); // einmal lesen: die Style-Schreibzugriffe unten würden sonst bei jedem Lesen ein Layout erzwingen
@@ -1932,23 +1936,60 @@ class Haus3DPanel extends HTMLElement {
       const visible = ov.roof ? this._scene.roofKeyShown(ov.roofKey) && this._settings.layers.solar !== false && this._settings.layers.labels !== false : this._scene.isFloorVisible(ov.floorId);
       const p = visible ? this._scene.project(ov.position, size) : null;
       if (!p) {
-        ov.el.style.display = "none";
+        if (ov.shown !== false) ov.el.style.display = "none";
+        ov.shown = false;
         continue;
       }
-      ov.el.style.display = "";
-      ov.el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
+      if (ov.shown !== true) ov.el.style.display = "";
+      ov.shown = true;
+      const tf = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
+      if (ov.tf !== tf) ov.el.style.transform = tf;
+      ov.tf = tf;
     }
-    // Verdeckung teurer: erst prüfen, wenn die Kamera kurz stillsteht
+    if (moving && !this._moving) {
+      this._moving = true;
+      this._els.stage?.classList.add("moving");
+    }
+    // Verdeckung teurer: erst prüfen, wenn die Kamera kurz stillsteht (eine laufende Prüfung bricht ab)
     clearTimeout(this._occlusionTimer);
-    this._occlusionTimer = setTimeout(() => this._checkOcclusion(), 150);
+    this._occlusionStop?.();
+    this._occlusionStop = null;
+    this._occlusionTimer = setTimeout(() => {
+      if (this._moving) {
+        this._moving = false;
+        this._els.stage?.classList.remove("moving");
+      }
+      this._checkOcclusion();
+    }, 250);
   }
 
+  /**
+   * Verdeckung aller sichtbaren Beschriftungen: Zielliste einmal (scene.occludedAll), Prüfung in Häppchen ≤ 4 ms im
+   * Leerlauf. Ohne Leerlauf (Hintergrund-Animation, die den Takt nicht schafft) spätestens nach 150 ms und dann mit vollen
+   * 4 ms: timeRemaining() ist nach Ablauf der Frist 0, sonst prüfte jedes Häppchen nur einen Punkt.
+   */
   _checkOcclusion() {
+    this._occlusionStop?.();
+    this._occlusionStop = null;
     if (!this._scene) return;
-    for (const ov of this._overlays.values()) {
-      if (ov.el.style.display === "none") continue;
-      ov.el.classList.toggle("hidden-behind", this._scene.occluded(ov.position, ov.floorId));
-    }
+    const list = [...this._overlays.values()].filter((ov) => ov.shown !== false);
+    const results = this._scene.occludedAll(list);
+    let i = 0;
+    const step = (deadline) => {
+      const end = performance.now() + (deadline && !deadline.didTimeout ? Math.min(4, deadline.timeRemaining()) : 4);
+      do {
+        const r = results.next();
+        if (r.done) {
+          this._occlusionStop = null;
+          return;
+        }
+        const ov = list[i++];
+        if (ov.behind !== r.value) ov.el.classList.toggle("hidden-behind", r.value);
+        ov.behind = r.value;
+      } while (performance.now() < end);
+      this._occlusionStop = whenIdle(step, { timeout: 150 });
+    };
+    this._occlusionStop = whenIdle(step, { timeout: 150 });
   }
 
   // ------------------------------------------------------------------ Import/Export/Verlauf (Admin)

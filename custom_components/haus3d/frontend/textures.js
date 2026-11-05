@@ -442,6 +442,9 @@ export const TEXTURE_KEYS = Object.keys(DRAW);
 
 const cache = new Map();
 
+/** Alle geteilten Texturen (für scene-release.js: beim Entsorgen einer Szene ihre Renderer-Listener abnehmen). */
+export const sharedTextures = () => [...cache.values()];
+
 /**
  * Textur zu einem Schlüssel (oder null). Wird je Schlüssel einmal erzeugt und geteilt. rotation (Grad, im Plan im
  * Uhrzeigersinn um den Weltursprung): eigene Kopie je Drehung, ebenfalls geteilt; Bild und GPU-Textur bleiben

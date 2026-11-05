@@ -36,9 +36,10 @@ const loaded = (E) => E(() => performance.getEntriesByType("resource").map((r) =
 // --- 1. Start ohne Editor (Laden von editor.js dauert 2 s): Panel steht, zeichnet, nichts vom Editor geladen
 const a = await open("nachladen", { delay: 2000 });
 const start1 = await loaded(a.E);
-t.results.start = { module: start1.length, editor: start1.filter((n) => EDITOR_RE.test(n) && !/edit-ops/.test(n)).length, loader: start1.filter((n) => LOADER_RE.test(n)).length };
+t.results.start = { module: start1.length, editor: start1.filter((n) => EDITOR_RE.test(n)).length, loader: start1.filter((n) => LOADER_RE.test(n)).length };
 t.check(start1.length > 60 && start1.length < 130, `nachladen: ${start1.length} Module beim Start (erwartet 60 bis 130)`);
-t.check(!start1.some((n) => EDITOR_RE.test(n) && !/edit-ops/.test(n)), `nachladen: Editor-Module beim Start geladen: ${start1.filter((n) => EDITOR_RE.test(n)).slice(0, 3).join(", ")}`);
+// auch edit-ops.js nicht (die Szene holt die Wandflächen aus wallfaces.js)
+t.check(!start1.some((n) => EDITOR_RE.test(n)), `nachladen: Editor-Module beim Start geladen: ${start1.filter((n) => EDITOR_RE.test(n)).slice(0, 3).join(", ")}`);
 t.check(!start1.some((n) => LOADER_RE.test(n)), "nachladen: Modell-Loader beim Start geladen");
 const s1 = await a.E(() => ({
   editor: !!window.panel._editor,

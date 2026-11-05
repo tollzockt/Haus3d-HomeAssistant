@@ -85,7 +85,16 @@ Ansehen und Schalten gehen ohne PIN; Knöpfe zum Bearbeiten (Stifte, „+“) gi
   Anwesenheit, Leitungen, Kamera-Sicht und Vollbild. Weitere Ebenen stehen unter Admin-Einstellungen →
   Anzeige.
 - **Qualität**: „Akku“ zeichnet ohne Schatten und Lichtschein; echte Sonnenschatten gibt es mit der Kachel
-  „Schatten“ ab „Ausgewogen“.
+  „Schatten“ ab „Ausgewogen“. Ruhend ist das Bild scharf, beim Drehen und Ziehen wird es kurz weicher und dafür
+  flüssiger (am Tablet mit geringerer Auflösung, auf langsamen Geräten passt sie sich an); kurz nach dem Loslassen
+  ist es wieder scharf. Die Sonnenschatten entstehen nur nach Änderungen neu, nicht beim Drehen. Am Tablet laufen
+  die Hintergrund-Animationen (Energiefluss, Leitungen, Wetter) in „Ausgewogen“ mit 15 Bildern/s, auf langsamen
+  Geräten mit 12. Der Editor folgt der Stufe der Hauptansicht.
+- **Ruhemodus am Tablet**: Auf Touch-Geräten halten die Hintergrund-Animationen nach 10 min ohne Berührung an,
+  auch ohne Wandtablet-Modus. Das Bild bleibt stehen und zeigt weiter aktuelle Werte, die nächste Berührung weckt
+  (Dauer unter Admin-Einstellungen → **Wandtablet** → „Pause nach (min)“, 0 = nie).
+- **Leistungsanzeige** (Admin-Einstellungen → Anzeige): Bilder/s, Auflösung ruhend und in Bewegung,
+  Zeichenaufrufe (mit Schattenpass) und Schattenpässe je Sekunde.
 - **Meine Ansicht**: Stil, Qualität und Ebenen gelten für deinen HA-Benutzer auf allen Geräten – außer im
   Kiosk (`?kiosk`) und mit „Eigene Ansicht“ (siehe [Wandtablet](#wandtablet-und-dienste)).
 - **Wetter, Sonne, Jahreszeit**: Regen, Schnee und Hagel fallen draußen passend zur Wetter-Entität (bei Schnee
@@ -507,7 +516,8 @@ Browser, solange Haus 3D irgendwo offen ist.
 - **Einstellungen für dieses Gerät** unter Admin-Einstellungen → **Wandtablet**: „Name dieses Geräts“ (Ziel
   der Dienste), „Eigene Ansicht“, „Kopfzeile ausblenden“, „Bildschirm anlassen“ (nur über https; sonst die
   Einstellung der HA-App bzw. des Kiosk-Browsers nutzen), „Startetage“, „Ruhe nach (min)“ (im Kiosk
-  Standard 5) und „Dimmen“ von–bis.
+  Standard 5), „Pause nach (min)“ (Hintergrund-Animationen anhalten, auf Touch-Geräten Standard 10, 0 = nie) und
+  „Dimmen“ von–bis.
 - **Aufwecken**: Warnungen, die Klingel und Dienst-Befehle wecken das Tablet.
 
 Die **Dienste** wirken auf alle offenen Haus-3D-Seiten; mit `target` nur auf das Gerät, dessen „Name dieses

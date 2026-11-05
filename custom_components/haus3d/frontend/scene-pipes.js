@@ -10,10 +10,14 @@ import { flowLook } from "./pipenet.js";
 import { NODE_BODY, nodePose, nodeSpan, pipeEndDrops } from "./pipenodes.js";
 import { furnitureSpan, pipeEnds } from "./pipeends.js";
 import { FURNITURE, furnitureBaseY, furnitureTopY } from "./furniture.js";
-import { wallFaces } from "./edit-ops.js";
+import { wallFaces } from "./wallfaces.js";
 
 const RADIUS = 0.035;
 const MAX_DOTS = 60;
+/** Höchste Punktdichte (pipenet.js:flowLook) für den Platz im InstancedMesh einer Leitung. */
+const MAX_PER_M = 4;
+const _m4 = new THREE.Matrix4();
+const _b3 = new THREE.Box3();
 /** Höhenbereich eines Möbelstücks (Montagehöhe wie beim Bauen des Modells) für die Anschlusshöhe an Geräten. */
 const FURN_SPAN = furnitureSpan(furnitureBaseY, FURNITURE, furnitureTopY);
 
@@ -148,14 +152,51 @@ export const ScenePipes = {
   },
 
   /**
+   * Laufende Punkte (Leitungen, PV-Fluss) als ein InstancedMesh: ein Zeichenaufruf statt eines je Punkt. Platz für cap
+   * Punkte (count = jeweilige Anzahl), wirft keinen Schatten (läuft ohne neue Schattenkarte), nie ausgeschnitten (die
+   * Punkte wandern mit jedem Hintergrund-Bild).
+   */
+  _dotMesh(geo, mat, cap) {
+    const m = new THREE.InstancedMesh(geo, mat, Math.max(1, cap));
+    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    m.frustumCulled = false;
+    m.userData.noShadow = true;
+    this._setDots(m, []);
+    return m;
+  },
+
+  /**
+   * Punkte an die Stellen pts (Lage in der Gruppe) setzen. Die Box zählt wie bei einzelnen Punkten alle mit, auch
+   * unsichtbare (Schattenbereich in _applyShadows), in voller Genauigkeit statt aus den Float32-Matrizen.
+   */
+  _setDots(mesh, pts) {
+    const geo = mesh.geometry;
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const box = (mesh.boundingBox ??= new THREE.Box3()).makeEmpty();
+    const n = Math.min(pts.length, mesh.instanceMatrix.count);
+    for (let i = 0; i < n; i++) {
+      const p = pts[i];
+      mesh.setMatrixAt(i, _m4.makeTranslation(p.x, p.y, p.z));
+      box.union(_b3.copy(geo.boundingBox).translate(p));
+    }
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+  },
+
+  /**
    * Fluss setzen: net.edges aus pipenet.computeNet (je Stück pipeId, s0, s1, value, unit, reverse).
-   * Punkte werden je Stück wiederverwendet; nur wenn sich die Anzahl ändert, entstehen neue.
+   * Je Leitung ein InstancedMesh für die Punkte aller ihrer Stücke (ed.n Punkte je Stück), Platz für die höchste Dichte;
+   * neu angelegt nur, wenn neue Stücke mehr Platz brauchen. Gezeichnet wird nur bei geänderter Punktzahl, „aktiv“ oder
+   * Leitungsfarbe, ohne Schattenpass (Punkte und Rohre werfen keinen: noShadow); ein reines Tempo übernimmt die
+   * Hintergrund-Schleife.
    */
   setPipeFlow(net) {
     this._pipeEdges ??= new Map();
     const dotGeo = (this._pDot ??= new THREE.SphereGeometry(RADIUS * 2.2, 10, 6));
     const seen = new Set();
     const activePipes = new Set();
+    let shape = false; // Netzstücke oder Punkte dazu bzw. weg
+    let restyle = false; // „aktiv“ oder Leitungsfarbe geändert
     for (const e of net?.edges ?? []) {
       const p = this._pipes?.get(e.pipeId);
       if (!p) continue;
@@ -166,58 +207,73 @@ export const ScenePipes = {
       const want = look.active ? Math.max(1, Math.min(MAX_DOTS, Math.round(Math.abs(L1 - L0) * look.perMeter))) : 0;
       let ed = this._pipeEdges.get(e.id);
       if (!ed || ed.pipe !== p) {
-        ed?.dots.forEach((d) => d.removeFromParent());
-        ed = { id: e.id, pipe: p, dots: [], phase: Math.random() };
+        ed = { id: e.id, pipe: p, n: 0, phase: Math.random() };
         this._pipeEdges.set(e.id, ed);
+        shape = true;
       }
-      while (ed.dots.length < want) {
-        const d = new THREE.Mesh(dotGeo, p.mats.dot);
-        p.group.add(d);
-        ed.dots.push(d);
-      }
-      while (ed.dots.length > want) ed.dots.pop().removeFromParent();
-      Object.assign(ed, { L0, L1, value: e.value, unit: e.unit, reverse: !!e.reverse, speed: look.speed, active: look.active });
+      if (ed.n !== want) shape = true;
+      if (ed.active !== look.active) restyle = true;
+      Object.assign(ed, { n: want, cap: Math.max(1, Math.min(MAX_DOTS, Math.round(Math.abs(L1 - L0) * MAX_PER_M))), L0, L1, value: e.value, unit: e.unit, reverse: !!e.reverse, speed: look.speed, active: look.active });
       if (look.active) activePipes.add(p.id);
     }
     for (const [id, ed] of this._pipeEdges) {
       if (seen.has(id) && this._pipes?.get(ed.pipe.id) === ed.pipe) continue;
-      ed.dots.forEach((d) => d.removeFromParent());
       this._pipeEdges.delete(id);
+      shape = true;
     }
+    const cap = new Map(); // Leitung → Platz für Punkte
+    for (const ed of this._pipeEdges.values()) cap.set(ed.pipe, (cap.get(ed.pipe) ?? 0) + Math.max(ed.cap, ed.n));
     for (const p of this._pipes?.values() ?? []) {
       p.active = activePipes.has(p.id);
-      p.tube.material = p.active ? p.mats.on : p.mats.idle;
+      const mat = p.active ? p.mats.on : p.mats.idle;
+      if (p.tube.material !== mat) {
+        p.tube.material = mat;
+        restyle = true;
+      }
+      const need = cap.get(p) ?? 0;
+      if (need > (p.dots?.instanceMatrix.count ?? 0)) {
+        p.dots?.removeFromParent();
+        p.dots?.dispose();
+        p.dots = this._dotMesh(dotGeo, p.mats.dot, need);
+        p.group.add(p.dots);
+      }
     }
-    this._syncPipeDots();
     this._stepPipes(0);
-    this.invalidate?.();
+    this._syncPipeDots();
+    if (shape || restyle) this.redraw?.();
   },
 
   /** Punkte nur, solange es fließt und die Ebene „Energiefluss“ an ist. */
   _syncPipeDots() {
     const on = this.layers?.flow !== false;
-    for (const ed of this._pipeEdges?.values() ?? []) for (const d of ed.dots) d.visible = on && ed.active;
+    for (const p of this._pipes?.values() ?? []) if (p.dots) p.dots.visible = on && p.dots.count > 0;
   },
 
+  /** Laufen Punkte? Nur auf sichtbarer Etage, Leitungsgruppe sichtbar und Rohr im Bild (scene-loop.js:_inView). */
   _pipesActive() {
     if (this._frozen || this.layers?.pipes === false || this.layers?.flow === false) return false;
-    for (const ed of this._pipeEdges?.values() ?? []) if (ed.active && ed.dots.length && this.isFloorVisible(ed.pipe.floorId)) return true;
+    for (const ed of this._pipeEdges?.values() ?? []) if (ed.active && ed.n && this.isFloorVisible(ed.pipe.floorId) && this._inView(ed.pipe.tube)) return true;
     return false;
   },
 
+  /** Punkte weiterschieben (dt in s) und je Leitung in ihr InstancedMesh schreiben. */
   _stepPipes(dt) {
+    const pts = new Map(); // Leitung → Stellen der Punkte
     for (const ed of this._pipeEdges?.values() ?? []) {
-      if (!ed.active || !ed.dots.length) continue;
+      if (!ed.active || !ed.n) continue;
       const span = ed.L1 - ed.L0;
       ed.phase = (ed.phase + (dt * ed.speed) / Math.max(0.3, Math.abs(span))) % 1;
-      const n = ed.dots.length;
+      const n = ed.n;
       const len = ed.pipe.len || 1;
-      ed.dots.forEach((d, i) => {
+      let list = pts.get(ed.pipe);
+      if (!list) pts.set(ed.pipe, (list = []));
+      for (let i = 0; i < n; i++) {
         let u = (ed.phase + i / n) % 1;
         if (ed.reverse) u = 1 - u;
-        d.position.copy(ed.pipe.curve.getPointAt(Math.min(1, Math.max(0, (ed.L0 + u * span) / len))));
-      });
+        list.push(ed.pipe.curve.getPointAt(Math.min(1, Math.max(0, (ed.L0 + u * span) / len))));
+      }
     }
+    for (const p of this._pipes?.values() ?? []) if (p.dots && (p.dots.count || pts.has(p))) this._setDots(p.dots, pts.get(p) ?? []);
   },
 
   /**

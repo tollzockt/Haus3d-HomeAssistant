@@ -23,13 +23,38 @@ function contactTexture() {
   return blobTex;
 }
 
+/**
+ * Kontaktschatten einer Elterngruppe als ein InstancedMesh (ein Zeichenaufruf): Matrizen wie bei einzelnen Meshes
+ * (Lage, Drehung um y, Größe), Sortierung und Sichtbarkeit über die eigene Bounding-Sphere.
+ */
+function blobInstances(geo, mat, list) {
+  const im = new THREE.InstancedMesh(geo, mat, list.length);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  list.forEach((b, i) => im.setMatrixAt(i, m.compose(b.position, q.setFromEuler(e.set(0, b.ry, 0)), b.scale)));
+  im.renderOrder = 1;
+  im.userData.blob = true;
+  im.userData.blobIds = list.map((b) => b.id); // je Instanz das Möbelstück
+  im.userData.noShadow = true;
+  im.userData.layer = list[0].layer;
+  im.computeBoundingBox();
+  im.computeBoundingSphere();
+  return im;
+}
+
 export const SceneFx = {
   // ------------------------------------------------------------------ Schatten
 
-  /** Schatten an/aus nach Qualitätsstufe und Ebene „Schatten“; Schattenbereich ums ganze Grundstück. */
+  /**
+   * Schatten an/aus nach Qualitätsstufe und Ebene „Schatten“; Schattenbereich ums ganze Grundstück. Die Schattenkarte
+   * entsteht nur nach Änderungen neu (Schatten-Marke, _draw), mit ?schattenkarte=immer in jedem Bild. noShadow
+   * gilt je Mesh (nicht von der Gruppe geerbt): Punkte, die im Hintergrund laufen, tragen es selbst.
+   */
   _applyShadows() {
     const on = !!this.quality?.shadows && this.layers?.shadows !== false && this.style !== "cyber";
     const r = this.renderer;
+    r.shadowMap.autoUpdate = !!this.flags?.shadowAlways;
     if (r.shadowMap.enabled !== on) {
       r.shadowMap.enabled = on;
       r.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -57,7 +82,6 @@ export const SceneFx = {
       cam.updateProjectionMatrix();
       this.sun.shadow.bias = -0.0004;
       this.sun.shadow.normalBias = 0.03;
-      this.sun.shadow.radius = 3;
     }
     for (const holder of [this.root, this.devicesGroup]) {
       holder.traverse((o) => {
@@ -68,17 +92,24 @@ export const SceneFx = {
         o.receiveShadow = on && !o.userData.noShadow;
       });
     }
+    this._shadowDirty = true;
     this.invalidate?.();
   },
 
   // ------------------------------------------------------------------ Kontaktschatten
 
-  /** Weicher Schatten unter Möbeln und Bäumen (auch ohne Sonnenschatten, kostet fast nichts). */
+  /**
+   * Weicher Schatten unter Möbeln und Bäumen (auch ohne Sonnenschatten, kostet fast nichts). Im Editor (live) ein Mesh je
+   * Möbelstück mit userData.blobOf (die Live-Vorschau zieht es mit, scene-arrows.js); in der Hauptansicht (live: false,
+   * ohne ?instanzen=aus) ein InstancedMesh je Elterngruppe (furn/gardenFurn) mit denselben Matrizen, userData.blobIds
+   * nennt je Instanz das Möbelstück.
+   */
   _contactShadows() {
     if (this.quality?.contact === false || this.style === "cyber") return;
     const tex = contactTexture();
     const mat = (this._blobMat ??= new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 1 }));
     const geo = (this._blobGeo ??= new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
+    const instanced = this.live === false && this.flags?.instances !== false;
     const box = new THREE.Box3();
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
@@ -90,6 +121,7 @@ export const SceneFx = {
           if (o.userData.furniture && o.parent?.userData.furniture !== o.userData.furniture && !o.userData.blob) items.push(o);
         });
       }
+      const byParent = new Map();
       for (const o of items) {
         const ry = o.rotation.y;
         o.rotation.y = 0; // im eigenen Rahmen messen: lange, schräg gestellte Teile (Solarzaun) bekommen keinen quadratischen Fleck
@@ -100,18 +132,32 @@ export const SceneFx = {
         box.getSize(size);
         if (box.min.y - elev > 0.15 || size.y < 0.15) continue;
         box.getCenter(center);
-        const blob = new THREE.Mesh(geo, mat);
-        blob.scale.set(size.x * 1.25 + 0.15, 1, size.z * 1.25 + 0.15);
         const dx = center.x - o.position.x, dz = center.z - o.position.z, c = Math.cos(ry), s = Math.sin(ry);
-        blob.rotation.y = ry;
-        blob.position.set(o.position.x + dx * c + dz * s, box.min.y + 0.012, o.position.z - dx * s + dz * c);
-        blob.renderOrder = 1;
-        blob.userData.blob = true;
-        blob.userData.blobOf = o.userData.furniture; // F: Live-Vorschau zieht den Schatten mit
-        blob.userData.noShadow = true;
-        blob.userData.layer = o.parent?.userData.layer ?? "furniture";
-        (o.parent ?? e.group).add(blob);
+        const blob = {
+          id: o.userData.furniture,
+          layer: o.parent?.userData.layer ?? "furniture",
+          position: new THREE.Vector3(o.position.x + dx * c + dz * s, box.min.y + 0.012, o.position.z - dx * s + dz * c),
+          ry,
+          scale: new THREE.Vector3(size.x * 1.25 + 0.15, 1, size.z * 1.25 + 0.15),
+        };
+        const parent = o.parent ?? e.group;
+        if (instanced) {
+          if (!byParent.has(parent)) byParent.set(parent, []);
+          byParent.get(parent).push(blob);
+          continue;
+        }
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.scale.copy(blob.scale);
+        mesh.rotation.y = ry;
+        mesh.position.copy(blob.position);
+        mesh.renderOrder = 1;
+        mesh.userData.blob = true;
+        mesh.userData.blobOf = blob.id; // F: Live-Vorschau zieht den Schatten mit
+        mesh.userData.noShadow = true;
+        mesh.userData.layer = blob.layer;
+        parent.add(mesh);
       }
+      for (const [parent, list] of byParent) parent.add(blobInstances(geo, mat, list));
     }
   },
 
@@ -136,7 +182,7 @@ export const SceneFx = {
     set(this.furnMats?.leaf, cyber ? null : look.leaf);
     if (this.furnMats?.flower) set(this.furnMats.flower, cyber ? null : look.blossom);
     if (this._snowK) this._snowTint(this._snowK);
-    this.invalidate?.();
+    this.redraw?.(); // nur Farben: ohne Schattenpass
   },
 
   // ------------------------------------------------------------------ Energiefluss im Haus
@@ -197,6 +243,7 @@ export const SceneFx = {
       for (let i = 0; i < it.dots; i++) {
         const d = new THREE.Mesh(dotGeo, dotMat);
         d.userData.floorId = floorId;
+        d.userData.noShadow = true; // läuft im Hintergrund ohne neue Schattenkarte
         group.add(d);
         dots.push(d);
       }

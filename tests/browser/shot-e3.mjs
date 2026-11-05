@@ -67,7 +67,8 @@ t.check(a.dpr === 1 && a.glow === 0, `Akku: ${JSON.stringify(a)}`);
 const na = await renders(akku, 2000);
 t.results.akkuBilder2s = na;
 t.check(na <= 2 * 12 + 3, `Akku: ${na} Bilder in 2 s (erwartet ≤ 27)`);
-// Draufsicht mit Dach: Akku blendet Möbel innen aus → deutlich weniger Zeichenaufrufe als „Schön“
+// Draufsicht mit Dach: Akku blendet Möbel innen aus → weniger Zeichenaufrufe als „Schön“, etwa um die Zeichenobjekte
+// der Möbel innen (inner; die Hauptansicht führt Möbel je Material zusammen und zeichnet Kontaktschatten instanziert)
 const calls = async (q) => {
   const pg2 = await t.page(`e3-${q}`, `?quality=${q}&roof=gable`, { width: 1024, height: 700 });
   return pg2.evaluate(async () => {
@@ -80,13 +81,18 @@ const calls = async (q) => {
     sc.renderer.info.autoReset = true;
     sc.renderer.render(sc.scene, sc.camera);
     const hidden = [...sc.floors.values()].every((e) => !e.furn || e.furn.visible === false);
-    return { calls: sc.renderer.info.render.calls, hidden };
+    let inner = 0;
+    for (const e of sc.floors.values()) {
+      if (!e.furn || !e.group.visible) continue;
+      e.furn.traverseVisible((o) => (o.isMesh || o.isLine) && inner++);
+    }
+    return { calls: sc.renderer.info.render.calls, hidden, inner };
   });
 };
 const ca = await calls("akku");
 const cs = await calls("schoen");
 t.results.zeichenaufrufe = { akku: ca, schoen: cs };
-t.check(ca.hidden && !cs.hidden && ca.calls < 0.7 * cs.calls, `Zeichenaufrufe: ${JSON.stringify(t.results.zeichenaufrufe)}`);
+t.check(ca.hidden && !cs.hidden && cs.inner > 10 && cs.calls - ca.calls >= 0.8 * cs.inner, `Zeichenaufrufe: ${JSON.stringify(t.results.zeichenaufrufe)}`);
 
 // Schnee: texturierter Rasen wird heller
 const snow = async (w) => {

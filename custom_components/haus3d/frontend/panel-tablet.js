@@ -1,5 +1,5 @@
 // Tablet-Bedienung (Mixin für Haus3DPanel): Rad-Menüs mit Finger-Drehen, Ecken ohne Überdeckung,
-// Blickwinkel je Etage, Wandtablet (Kiosk, Bildschirm anlassen), Ruhemodus und Dimmen.
+// Blickwinkel je Etage, Wandtablet (Kiosk, Bildschirm anlassen), Ruhemodus, Pause der Animationen und Dimmen.
 
 import { VIEW_PRESETS, normalizeViews, poseInBox } from "./camera.js";
 import { WHEEL_VISIBLE, labelPlace, pointerAngle, rotateWheel, wheelFling, wheelPlusAngle, wheelPositions } from "./hud.js";
@@ -231,11 +231,12 @@ export const TabletMethods = {
     }
   },
 
-  /** Ruhemodus und Dimmen (Wandtablet): Zeitgeber alle 5 s, nur wenn eingestellt. */
+  /** Ruhemodus und Dimmen (Wandtablet), Pause (Touch-Geräte): Zeitgeber alle 5 s, nur wenn eingestellt. */
   _setupIdle() {
-    this._idleCfg = normalizeIdle(this._settings.kiosk, { kiosk: this.hasAttribute("kiosk") });
+    this._idleCfg = normalizeIdle(this._settings.kiosk, { kiosk: this.hasAttribute("kiosk"), coarse: !!window.matchMedia?.("(pointer: coarse)").matches });
     this._lastInput = this._lastInput ?? Date.now();
-    const on = this._idleCfg.idleMs > 0 || this._idleCfg.dimFrom !== null;
+    this._idleShown(); // (wieder) angezeigt bzw. Einstellung geändert: Pause endet
+    const on = this._idleCfg.idleMs > 0 || this._idleCfg.pauseMs > 0 || this._idleCfg.dimFrom !== null;
     if (on && !this._idleTimer) this._idleTimer = setInterval(() => this._idleTick(), 5000);
     if (!on && this._idleTimer) {
       clearInterval(this._idleTimer);
@@ -248,6 +249,8 @@ export const TabletMethods = {
     const c = this._idleCfg;
     if (!c || !this._building) return;
     if (!this._idle && !this._editor && idleState(this._lastInput, now, c.idleMs) === "idle") this._goIdle();
+    // Pause: seit der letzten Eingabe bzw. seit das Panel wieder zu sehen ist
+    if (!this._paused && !this._editor && idleState(Math.max(this._lastInput, this._shownAt ?? 0), now, c.pauseMs) === "idle") this._pause(true);
     // Dimmen im Zeitraum, sobald eine Minute (bzw. die Ruhezeit) nichts berührt wurde
     const d = new Date(now);
     const quiet = now - this._lastInput >= Math.max(60000, c.idleMs || 0);
@@ -286,11 +289,24 @@ export const TabletMethods = {
     setTimeout(() => this._idle && this._scene?.setPerf({ frozen: true }), 600);
   },
 
+  /** Panel wieder zu sehen (Tab, Bildschirm an): Pause endet, die Zeit bis zur nächsten läuft neu. */
+  _idleShown() {
+    this._shownAt = Date.now();
+    if (this._paused) this._pause(false);
+  },
+
+  /** Pause (ohne Wandtablet-Modus): nur die Hintergrund-Animationen anhalten; Werte und Ansicht bleiben, wie sie sind. */
+  _pause(on) {
+    this._paused = on;
+    if (!this._idle) this._scene?.setPerf({ frozen: on });
+  },
+
   /** Aufwachen: Bild läuft wieder, Dimmen weg. */
   _wake() {
     this._lastInput = Date.now();
-    if (this._idle) {
+    if (this._idle || this._paused) {
       this._idle = false;
+      this._paused = false;
       this._scene?.setPerf({ frozen: false });
     }
     this._dimmer?.remove();

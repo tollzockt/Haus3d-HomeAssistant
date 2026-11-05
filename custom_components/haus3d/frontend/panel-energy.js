@@ -33,7 +33,8 @@ export const EnergyMethods = {
   async _fetchSeries(ids, start, end) {
     const out = new Map();
     if (!ids.length || !this._hass?.callWS) return out;
-    const key = `${ids.join(",")}|${start}|${Math.floor(end / TTL)}`;
+    // Anfang und Ende in 5-min-Stufen: die Mini-Kurven fragen „letzte 24 h bis jetzt“ und träfen sonst nie
+    const key = `${ids.join(",")}|${Math.floor(start / TTL)}|${Math.floor(end / TTL)}`;
     this._seriesCache = this._seriesCache ?? new Map();
     const hit = this._seriesCache.get(key);
     if (hit && Date.now() - hit.at < TTL) return hit.data;

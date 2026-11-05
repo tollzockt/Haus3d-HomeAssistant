@@ -22,8 +22,9 @@ const addFences = (pg) =>
     return x;
   });
 
-// --- 3D: Module als Gruppen, gedrehter, schmaler Kontaktschatten am schrägen Zaun
-const pg = await t.page("solarzaun", "?garden");
+// --- 3D: Module als Gruppen, gedrehter, schmaler Kontaktschatten am schrägen Zaun (Aufbau des Modells: ohne Zusammenführen,
+// sonst vereint die Hauptansicht die Teile je Material, furniture-merge.js; der Kontaktschatten bleibt dabei gleich)
+const pg = await t.page("solarzaun", "?garden&zusammenfuehren=aus");
 const E = (fn, arg) => pg.evaluate(fn, arg);
 const fx = await addFences(pg);
 await pg.waitForTimeout(800);
@@ -35,12 +36,21 @@ const model = await E(async () => {
   sc.scene.traverse((o) => {
     const id = o.userData.furniture;
     if (id?.startsWith?.("m_sz") && o.parent?.userData.furniture !== id && !o.userData.blob) roots[id] = o;
-    if (o.userData.blob && String(o.userData.blobOf ?? "").startsWith("m_sz")) blobs[o.userData.blobOf] = o;
+    // Kontaktschatten: Hauptansicht ein InstancedMesh je Möbelgruppe (userData.blobIds), sonst einzeln (blobOf)
+    if (!o.userData.blob) return;
+    const m = new THREE.Matrix4();
+    const ids = o.isInstancedMesh ? o.userData.blobIds : [o.userData.blobOf];
+    ids.forEach((bid, i) => {
+      if (!String(bid ?? "").startsWith("m_sz")) return;
+      if (o.isInstancedMesh) o.getMatrixAt(i, m);
+      else m.compose(o.position, o.quaternion, o.scale);
+      const e = m.elements;
+      blobs[bid] = { ry: Math.atan2(-e[2], e[0]), sx: Math.hypot(e[0], e[2]), sz: Math.hypot(e[8], e[10]) };
+    });
   });
   const out = {};
   for (const [id, o] of Object.entries(roots)) {
-    const b = blobs[id];
-    out[id] = { modules: o.children.filter((c) => c.isGroup).length, blob: b ? { ry: b.rotation.y, sx: b.scale.x, sz: b.scale.z } : null };
+    out[id] = { modules: o.children.filter((c) => c.isGroup).length, blob: blobs[id] ?? null };
   }
   // Kamera auf die Zäune
   const box = new THREE.Box3();

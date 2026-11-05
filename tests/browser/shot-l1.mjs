@@ -87,7 +87,7 @@ const flow = await E(([zuId, abId]) => {
   const net = window.panel._net;
   const pick = (id) => net.edges.filter((e) => e.pipeId === id).sort((a, b) => a.s0 - b.s0).map((e) => Math.round(e.value));
   const s = window.panel._scene;
-  const dots = [...s._pipeEdges.values()].reduce((n, e) => n + e.dots.filter((d) => d.visible).length, 0);
+  const dots = [...s._pipes.values()].reduce((n, p) => n + (p.dots?.visible ? p.dots.count : 0), 0);
   return { zu: pick(zuId), ab: pick(abId), dots };
 }, [zu.id, ab.id]);
 t.results.fluss = flow;

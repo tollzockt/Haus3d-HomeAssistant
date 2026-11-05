@@ -1,6 +1,8 @@
 // Modellblatt (Entwicklerwerkzeug, kein Test): rendert Möbeltypen als Raster-Bild (mit gestricheltem Sollmaß-Kasten) und meldet gemessene Maße.
 // NODE_PATH="$(npm root -g)" node tests/browser/modellblatt.mjs <out.png> [--types a,b,c | --cat "Kategorie" | --prefix garden_] [--style cyber]
-//   [--item '{"open":true}'] [--cols 4] [--cell 320] [--view front|back|top|side]
+//   [--item '{"open":true}'] [--cols 4] [--cell 320] [--view front|back|top|side] [--zusammenfuehren]
+// --zusammenfuehren: Teile je Material zusammenführen wie in der Hauptansicht (furniture-merge.js); Maße, Meshes und
+// Dreiecke im Bericht gelten dann für das zusammengeführte Modell.
 import { writeFileSync } from "node:fs";
 import { start } from "./lib.mjs";
 
@@ -10,13 +12,15 @@ const opt = (k, d = null) => {
   const i = args.indexOf(`--${k}`);
   return i >= 0 ? args[i + 1] : d;
 };
+const merge = args.includes("--zusammenfuehren");
 const t = await start(".");
 const pg = await t.page("sheet", "?x", { wait: 1500 });
 const res = await pg.evaluate(
-  async ({ types, cat, prefix, style, extra, cols, cell, view }) => {
+  async ({ types, cat, prefix, style, extra, cols, cell, view, merge }) => {
     const base = "/custom_components/haus3d/frontend/";
     const THREE = await import(base + "vendor/three.module.min.js");
     const F = await import(base + "furniture.js");
+    const { mergeItem } = await import(base + "furniture-merge.js");
     let list = types ? types.split(",") : [];
     if (cat) list = F.FURNITURE_CATEGORIES.find(([c]) => c === cat)?.[1] ?? [];
     if (prefix) list = Object.keys(F.FURNITURE).filter((k) => k.startsWith(prefix));
@@ -49,6 +53,7 @@ const res = await pg.evaluate(
       const [, w, d, h] = def;
       const item = { id: type, type, x: 0, z: 0, rotation: 0, w, d, h, ...extra };
       const obj = F.buildFurniture(item, M, 0, 2.5);
+      if (merge) mergeItem(obj, { edges: M.edge, item });
       scene.add(obj);
       const box = new THREE.Box3().setFromObject(obj);
       const size = box.getSize(new THREE.Vector3());
@@ -87,7 +92,7 @@ const res = await pg.evaluate(
     }
     return { png: sheet.toDataURL("image/png"), report };
   },
-  { types: opt("types"), cat: opt("cat"), prefix: opt("prefix"), style: opt("style", "standard"), extra: JSON.parse(opt("item", "{}")), cols: Number(opt("cols", 4)), cell: Number(opt("cell", 320)), view: opt("view", "front") },
+  { types: opt("types"), cat: opt("cat"), prefix: opt("prefix"), style: opt("style", "standard"), extra: JSON.parse(opt("item", "{}")), cols: Number(opt("cols", 4)), cell: Number(opt("cell", 320)), view: opt("view", "front"), merge },
 );
 writeFileSync(out, Buffer.from(res.png.split(",")[1], "base64"));
 console.log(JSON.stringify(res.report, null, 0));

@@ -5,19 +5,21 @@ import * as THREE from "./vendor/three.module.min.js";
 import { buildLightWell } from "./well.js";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
+import { mergeItem } from "./furniture-merge.js";
 import { angleBetween, sunLook, sunVector } from "./sun.js";
 import { presetPose, roundPose } from "./camera.js";
 import { mergeHoles, roomHole, slabOpenings } from "./stairs.js";
 import { colorKey } from "./light.js";
 import { floorColor, textureFor, textureRotation } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
-import { ambientInterval, lodState, resolveQuality, shouldRender } from "./perf.js";
+import { RENDER_REASONS, lodState, perfFlags, renderReason, resolveQuality } from "./perf.js";
 import { atticKnee, findPvShed, freeEdges, roofModel, scatter, seeded } from "./exterior.js";
 import { atticModels, roofUnits } from "./roofunits.js";
 import { atticGables, atticOpenings, atticTop, gableFaces } from "./gable.js";
 import { centroid, computeWalls, labelPoint, pointInPolygon } from "./walls.js";
 import { SceneFx } from "./scene-fx.js";
 import { SceneWalk } from "./scene-walk.js";
+import { SceneLoop } from "./scene-loop.js";
 import { ScenePipes } from "./scene-pipes.js";
 import { PanelBatch, flatOrExtruded } from "./scene-geo.js";
 import { SceneRoof } from "./scene-roof.js";
@@ -27,6 +29,7 @@ import { addAreaKerb, buildKerbArea } from "./scene-kerb.js";
 import { SceneWalls } from "./wallmesh.js";
 import { hiddenBehind, inGarden, markOpening, wallBlockers, withInfo } from "./scene-pick.js";
 import { floorPrisms } from "./wallcull.js";
+import { stateSignature } from "./scene-state.js";
 
 const OUTDOOR = {
   lawn: { color: 0x6aa84f, y: -0.035, h: 0 },
@@ -76,12 +79,19 @@ function solarTexture() {
 }
 
 export class HouseScene {
-  constructor(container, { dark = false, onCameraChange = () => {}, onContextLost = () => {}, onContextRestored = () => {} } = {}) {
+  /**
+   * live: die Szene wird laufend aus dem Grundriss neu gebaut (Editor, Vorgabe); die Hauptansicht übergibt
+   * live: false und darf ihren Aufbau dafür zusammenfassen. flags: Schalter aus perf.js:perfFlags (Messungen).
+   */
+  constructor(container, { dark = false, live = true, flags = null, onCameraChange = () => {}, onContextLost = () => {}, onContextRestored = () => {} } = {}) {
     this.container = container;
+    this.live = live !== false;
+    this.flags = { ...perfFlags(""), ...(flags ?? {}) };
     this.onCameraChange = onCameraChange;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // Zähler leert _draw() am Bildanfang selbst: three.js setzte sie erst nach dem Schattenpass zurück (Aufrufe ohne ihn)
+    this.renderer.info.autoReset = false;
     container.appendChild(this.renderer.domElement);
     this.renderer.domElement.style.display = "block";
     this.renderer.domElement.style.width = "100%";
@@ -115,7 +125,7 @@ export class HouseScene {
     this.controls.minDistance = 2;
     this.controls.maxDistance = 120;
     this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
-    this.controls.addEventListener("change", () => this._cameraMoved());
+    this.controls.addEventListener("change", () => this._viewMoved());
 
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x8a7f70, 1.6);
     this.sun = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -148,11 +158,15 @@ export class HouseScene {
     this.filter = "all";
     this._dirty = true;
     this._camDirty = true;
-    this._clock = new THREE.Clock();
+    this._shadowDirty = true; // Schatten-Marke: Schattenkarte vor dem nächsten Bild neu (invalidate, _cameraMoved …)
+    this._viewChanged = false; // Ansicht bewegt seit dem letzten Bild (_viewMoved)
     this._running = false;
     this.quality = resolveQuality("schoen");
-    this.stats = { renders: 0, frameMs: [] }; // für Tests und die Leistungsanzeige
+    // für Tests und die Leistungsanzeige: Bilder, davon mit Schattenpass, je Grund (perf.js:renderReason), Aufrufe und
+    // Dreiecke des letzten Bilds (mit Schattenpass, wenn es einen hatte), Auflösung zuletzt ruhend bzw. bewegt
+    this.stats = { renders: 0, shadowRenders: 0, reasons: Object.fromEntries(RENDER_REASONS.map((k) => [k, 0])), calls: 0, triangles: 0, dprStill: null, dprMove: null };
     this._frozen = false;
+    this._initLoop(); // Bildschleife (scene-loop.js)
     this.setTheme(dark);
 
     this._resize = new ResizeObserver(() => this.resize());
@@ -163,7 +177,7 @@ export class HouseScene {
   setTheme(dark) {
     this.dark = dark;
     this._applyBackground();
-    this.invalidate();
+    this.redraw();
   }
 
   /** Darstellungsstil: "standard" oder "cyber" (Cyberpunk/Neon). Baut Materialien und Szene neu. */
@@ -362,6 +376,10 @@ export class HouseScene {
   }
 
   resize() {
+    if (this._parked) {
+      this._dirty = true; // geparkt (scene-loop.js:park): 1×1 lassen, beim Ausparken neu
+      return;
+    }
     const w = this.container.clientWidth || 1;
     const h = this.container.clientHeight || 1;
     this.renderer.setSize(w, h);
@@ -371,7 +389,7 @@ export class HouseScene {
     // ersetzt ein ohnehin anstehendes (_dirty zurück); nur Overlays und Detailstufen brauchen danach noch einen Durchlauf.
     const drawn = this._running && !this.contextLost;
     if (drawn) {
-      this.renderer.render(this.scene, this.camera);
+      this._draw(renderReason({ dirty: true, shadow: this._shadowDirty }));
       this._dirty = false;
     }
     this._camDirty = true;
@@ -398,6 +416,7 @@ export class HouseScene {
     this.lampBulbs.clear();
     this.heatParts = [];
     this.stateParts = [];
+    this._stateSig = null; // nächstes applyStates zeichnet (neue Materialien)
     this.infoTap.clear();
     this.pvFields = new Map(); // PV-Feld-ID → {mesh, solar, …} (Dach-Ebene)
     // Deckenöffnungen (Treppen von unten, Treppenlöcher) einmal je Etage
@@ -544,6 +563,7 @@ export class HouseScene {
     }
     this._syncDeviceVisibility();
     this._dirty = true;
+    this._shadowDirty = true; // Geräte je Etage ein- oder ausgeblendet
   }
 
   _syncDeviceVisibility() {
@@ -687,7 +707,11 @@ export class HouseScene {
     this._applySelection();
   }
 
-  _applySelection() {
+  /**
+   * Auswahl einfärben; draw: false aus applyStates (das entscheidet selbst, ob gezeichnet wird). Von außen: Fingerabdruck
+   * zurücksetzen, denn die Hervorhebung eines abgewählten Raums nimmt erst das nächste applyStates zurück.
+   */
+  _applySelection(draw = true) {
     for (const entry of this.floors.values()) {
       for (const r of entry.rooms.values()) {
         if (r.selected) {
@@ -696,7 +720,9 @@ export class HouseScene {
         }
       }
     }
-    this.invalidate();
+    if (!draw) return;
+    this._stateSig = null;
+    this.redraw();
   }
 
   _animateCamera(target, position, duration = 450) {
@@ -707,7 +733,7 @@ export class HouseScene {
       this.controls.target.copy(target);
       this.camera.position.copy(position);
       this.controls.update();
-      this._cameraMoved();
+      this._viewMoved();
       return;
     }
     const step = () => {
@@ -716,7 +742,7 @@ export class HouseScene {
       this.controls.target.lerpVectors(t0, target, e);
       this.camera.position.lerpVectors(p0, position, e);
       this.controls.update();
-      this._cameraMoved();
+      this._viewMoved(k < 1); // letzter Schritt nicht als Fahrt: gleich scharf
       if (k < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
@@ -842,6 +868,8 @@ export class HouseScene {
       (floor.outdoor ?? []).some((o) => o.type === "balcony" && pointInPolygon(p, o.points));
     for (const item of floor.furniture ?? []) {
       const obj = buildFurniture(item, this.furnMats, elev, floor.height ?? 2.5);
+      // Hauptansicht: Teile je Material zusammenführen (weniger Zeichenaufrufe; Editor und Katalogbilder bleiben einzeln)
+      if (!this.live && this.flags.merge) mergeItem(obj, { edges: this.furnMats.edge, item });
       if (item.type === "radiator") {
         // Heizkörper glühen beim Heizen: verknüpftes Thermostat oder das des Raums
         const meshes = [];
@@ -1402,14 +1430,11 @@ export class HouseScene {
     entry.group.add(flowGroup);
     const line = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, 0.035, 6, false), this.mats.flowLine);
     flowGroup.add(line);
-    const dots = [];
-    const dotGeo = new THREE.SphereGeometry(0.11, 12, 8);
-    for (let i = 0; i < 10; i++) {
-      const dot = new THREE.Mesh(dotGeo, this.mats.flowDot);
-      dot.visible = false;
-      flowGroup.add(dot);
-      dots.push(dot);
-    }
+    // 10 Punkte als ein InstancedMesh (scene-pipes.js:_dotMesh), anfangs alle im Ursprung der Gruppe
+    const dots = this._dotMesh(new THREE.SphereGeometry(0.11, 12, 8), this.mats.flowDot, 10);
+    this._setDots(dots, Array.from({ length: 10 }, () => new THREE.Vector3()));
+    dots.visible = false;
+    flowGroup.add(dots);
     this.flow = { floorId: shed.floor.id, curve, line, dots, phase: 0, speed: 0 };
     this.anchors.push({ key: "energy", floorId: shed.floor.id, position: start.clone().add(new THREE.Vector3(0, 0.6, 0)) });
   }
@@ -1417,6 +1442,7 @@ export class HouseScene {
   _dispose(obj) {
     obj.traverse((o) => {
       if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); // keep: Geometrie eines geladenen Modells (models.js)
+      if (o.isInstancedMesh) o.dispose(); // Puffer der Instanz-Matrizen
       const shared = [...Object.values(this.mats).flat(), ...Object.values(this.outdoorMats), ...Object.values(this.furnMats ?? {}).flat()];
       for (const m of [].concat(o.material ?? [])) if (!shared.includes(m) && !m.userData.keep) m.dispose();
     });
@@ -1484,12 +1510,29 @@ export class HouseScene {
     this._animateCamera(new THREE.Vector3(...pose.target), new THREE.Vector3(...pose.position), duration);
   }
 
+  /** Ansicht samt Sichtbarkeit geändert (Ebenen, Etagenfilter): mit Schatten-Marke (sonst blieben alte Schatten liegen). */
   _cameraMoved() {
     this._camDirty = true;
     this.invalidate();
   }
 
+  /** Kamera bewegt (Steuerung, Fahrt, fitCamera, Begehen): ohne Schatten-Marke. driven: Fahrt bzw. Begehen (scene-loop.js). */
+  _viewMoved(driven = false) {
+    this._camDirty = true;
+    this._viewChanged = true;
+    if (driven) this._viewDriven = performance.now();
+    this.redraw();
+  }
+
+  /** Neu zeichnen nach Änderung von Geometrie, Sichtbarkeit oder Lage: mit neuer Schattenkarte (Vorgabe). */
   invalidate() {
+    this._shadowDirty = true;
+    this._dirty = true;
+    this._kick();
+  }
+
+  /** Neu zeichnen nur für Farben und Materialien, ohne Schattenpass (der Tiefenpass hängt nicht davon ab). */
+  redraw() {
     this._dirty = true;
     this._kick();
   }
@@ -1497,6 +1540,8 @@ export class HouseScene {
   // ------------------------------------------------------------------ Zustände
 
   /**
+   * Zustände übertragen (immer alles); gezeichnet wird nur bei neuem Fingerabdruck (scene-state.js), laufender Bewegung
+   * oder force. setBuilding (auch über setStyle) und eine Auswahl von außen setzen den Fingerabdruck zurück.
    * @param {object} s
    * @param {Set<string>} s.lit Raum-IDs mit eingeschaltetem Licht ("floorId:roomId")
    * @param {Map<string, number|null>} s.temps Temperatur je "floorId:roomId"
@@ -1505,8 +1550,9 @@ export class HouseScene {
    * @param {Set<string>} s.open offene Öffnungen ("floorId:openingId")
    * @param {Map<string, number|null>} s.covers geschlossener Anteil je Öffnung
    * @param {number|null} s.feedIn Einspeiseleistung in W
+   * @param {{force?: boolean}} [o] force: auch bei gleichem Fingerabdruck zeichnen (setQuality)
    */
-  applyStates(s) {
+  applyStates(s, { force = false } = {}) {
     this._lastStates = s;
     // Heizkörper: glühen, solange ihr Thermostat (oder das des Raums) heizt
     for (const h of this.heatParts ?? []) {
@@ -1514,8 +1560,15 @@ export class HouseScene {
       const mat = on ? this.furnMats.heatOn : h.base;
       for (const m of h.meshes) if (m.material !== mat) m.material = mat;
     }
-    // Möbel, die ihrer Entität folgen (Zustandsobjekt oder null, wenn es die Entität nicht gibt)
-    for (const p of this.stateParts ?? []) p.fn(s.states?.[p.entity] ?? null);
+    // Möbel, die ihrer Entität folgen (Zustandsobjekt oder null, wenn es die Entität nicht gibt). Vorhang, Kamin und
+    // Whirlpool ändern dabei Sichtbarkeit oder Lage: Schatten-Marke, wenn ein Zustandsobjekt neu ist (Home Assistant
+    // ersetzt es bei jeder Änderung; andere Sensoren lösen so keinen Schattenpass aus)
+    for (const p of this.stateParts ?? []) {
+      const st = s.states?.[p.entity] ?? null;
+      if (!("last" in p) || p.last !== st) this._shadowDirty = true;
+      p.last = st;
+      p.fn(st);
+    }
     for (const [floorId, entry] of this.floors) {
       for (const [roomId, r] of entry.rooms) {
         const key = `${floorId}:${roomId}`;
@@ -1571,7 +1624,8 @@ export class HouseScene {
         for (const p of item.panes) p.material = open ? this.mats.glassAlert : glassLit ?? this.mats.glass;
         for (const solid of item.solids) solid.material = open || tilted ? frame : solid.userData.base;
         const closed = s.covers.get(key);
-        // Ziele setzen; die Bewegung macht _animate() Bild für Bild
+        // Ziele setzen; die Bewegung macht _animate() Bild für Bild (neues Ziel: Schatten-Marke)
+        const was = item.anim ? [item.anim.openTarget, item.anim.coverTarget] : null;
         item.anim = item.anim ?? { open: open ? 1 : 0, cover: null };
         item.anim.openTarget = open ? 1 : tilted ? 0.3 : 0;
         if (item.garage) {
@@ -1580,6 +1634,7 @@ export class HouseScene {
         } else if (item.blind) {
           item.anim.coverTarget = closed ?? 0;
         }
+        if (!was || was[0] !== item.anim.openTarget || was[1] !== item.anim.coverTarget) this._shadowDirty = true;
         if (item.anim.cover == null) item.anim.cover = item.anim.coverTarget ?? 0;
         this._animating = true;
       }
@@ -1595,17 +1650,26 @@ export class HouseScene {
       })) || this.furnMats.bulbOn;
       for (const b of bulbs) b.material = mat;
     }
-    this._applySelection();
-    this._animate(1 / 60);
+    this._applySelection(false);
+    this._animate(1 / 60); // zeichnet nicht selbst: setzt _dirty, wenn sich etwas bewegt
     if (this.flow) {
       const w = s.feedIn ?? 0;
       const active = w > 1;
       // 0.05 bis 0.8 Umläufe pro Sekunde, abhängig von der Einspeisung
       this.flow.speed = active ? Math.min(0.8, 0.05 + w / 1000) : 0;
       this.flow.line.material.opacity = active ? 0.45 : 0.15;
-      for (const d of this.flow.dots) d.visible = active;
+      // beim Einschalten gleich auf die Linie: die Bildschleife setzt sie nur, solange der Fluss läuft (nicht in der
+      // Pause, nicht außerhalb des Bilds); erst hier, damit der Schattenbereich beim Bau gleich bleibt (Ursprung)
+      const { dots, curve, phase } = this.flow;
+      if (active && !dots.visible) this._setDots(dots, Array.from({ length: dots.count }, (_, i) => curve.getPointAt((phase + i / dots.count) % 1)));
+      dots.visible = active;
     }
-    this.invalidate();
+    // nur Farben und Materialien (Räume, Lampen, Heizkörper, Rahmen, Glas, LEDs): ohne Schattenpass, außer oben kam die
+    // Schatten-Marke; reine Leistungswerte (gleicher Fingerabdruck) zeichnen nicht
+    const sig = stateSignature(s, { entities: this.stateParts.map((p) => p.entity), style: this.style, dark: this.dark, glow: this.quality?.glow });
+    const changed = force || sig !== this._stateSig;
+    this._stateSig = sig;
+    if (changed || this._animating || this._dirty) this.redraw();
   }
 
   // ------------------------------------------------------------------ Overlays
@@ -1627,123 +1691,52 @@ export class HouseScene {
 
   /** Liegt zwischen Kamera und Punkt Geometrie einer anderen sichtbaren Etage (z. B. EG über KG)? */
   occluded(v, floorId = null) {
-    const dir = v.clone().sub(this.camera.position);
-    const dist = dir.length();
-    this.raycaster.set(this.camera.position, dir.normalize());
-    this.raycaster.far = dist - 0.15;
-    const targets = [];
-    for (const [id, entry] of this.floors) if (entry.group.visible && id !== floorId) targets.push(...entry.occluders);
-    if (this._roofShown()) targets.push(...this.roofMeshes);
+    return this.occludedAll([{ position: v, floorId }]).next().value;
+  }
+
+  /**
+   * Verdeckung vieler Punkte ({position, floorId}) in einem Durchlauf: die Zielliste (Verdecker der anderen sichtbaren
+   * Etagen und Dächer) entsteht beim ersten Punkt, je Etage einmal. Generator mit true/false je Punkt, damit der Aufrufer
+   * in Häppchen prüfen kann (haus3d-panel.js:_checkOcclusion).
+   */
+  *occludedAll(list) {
+    const roofs = this._roofShown() ? [...this.roofMeshes] : [];
     // Dächer der Einheiten (auch nach „Umwandeln“) verdecken wie das Hausdach; Sichtbarkeit je Schlüssel einmal prüfen
     const shown = new Map();
     for (const { key, mesh } of this.roofUnitMeshes ?? []) {
       if (!shown.has(key)) shown.set(key, this.roofKeyShown(key));
-      if (shown.get(key)) targets.push(mesh);
+      if (shown.get(key)) roofs.push(mesh);
     }
-    return this.raycaster.intersectObjects(targets, false).length > 0;
+    const byFloor = new Map();
+    const dir = new THREE.Vector3();
+    for (const { position: v, floorId = null } of list) {
+      if (!byFloor.has(floorId)) {
+        const targets = [];
+        for (const [id, entry] of this.floors) if (entry.group.visible && id !== floorId) targets.push(...entry.occluders);
+        byFloor.set(floorId, targets.concat(roofs));
+      }
+      dir.copy(v).sub(this.camera.position);
+      const dist = dir.length();
+      this.raycaster.set(this.camera.position, dir.normalize());
+      this.raycaster.far = dist - 0.15;
+      yield this.raycaster.intersectObjects(byFloor.get(floorId), false).length > 0;
+    }
   }
 
   _roofShown() {
     return !!this.roofHolder?.visible && this.layers.roof !== false && this.roofMeshes?.length > 0;
   }
 
-  // ------------------------------------------------------------------ Schleife
-
-  start() {
-    if (this._running) return;
-    this._running = true;
-    this._clock.getDelta();
-    this._kick();
-  }
-
-  stop() {
-    this._running = false;
-    if (this._raf) cancelAnimationFrame(this._raf);
-    this._raf = null;
-    clearTimeout(this._timer);
-    this._timer = null;
-  }
-
-  _kick() {
-    if (this._timer) {
-      clearTimeout(this._timer);
-      this._timer = null;
-    }
-    if (!this._running || this._raf) return;
-    this._raf = requestAnimationFrame(() => this._frame());
-  }
-
-  _frame() {
-    this._raf = null;
-    if (!this._running) return;
-    const dt = Math.min(0.1, this._clock.getDelta());
-    const moving = this.controls.update();
-    // Animationen nach echter Zeit (bei wenigen Bildern pro Sekunde nicht langsamer, nur ruckeliger)
-    const now = performance.now();
-    const animDt = Math.min(0.5, (now - (this._lastAnim ?? now)) / 1000);
-    this._lastAnim = now;
-    const animating = this._animating && this._animate(animDt);
-    // Hintergrund-Animationen nur, wenn sichtbar (Ebene an) und die Ansicht nicht ruht
-    const flowing = !this._frozen && this.flow && this.flow.speed > 0 && this.layers.flow !== false && this.isFloorVisible(this.flow.floorId);
-    const weatherOn = !this._frozen && !!this._weather && this.layers.weather !== false;
-    const houseFlow = this._houseFlowActive();
-    const pipesOn = this._pipesActive();
-    const ambient = flowing || weatherOn || houseFlow || pipesOn;
-    const interval = ambientInterval(this.quality.ambientFps);
-    const render = shouldRender({ dirty: this._dirty, moving, animating, ambient, now, lastRender: this._lastRender ?? -Infinity, interval });
-    if (render) {
-      // Fluss und Wetter nur weiterrechnen, wenn auch gezeichnet wird (nach echter Zeit)
-      const ambDt = Math.min(0.5, (now - (this._lastAmbient ?? now)) / 1000);
-      this._lastAmbient = now;
-      if (flowing) {
-        this.flow.phase = (this.flow.phase + ambDt * this.flow.speed) % 1;
-        const n = this.flow.dots.length;
-        this.flow.dots.forEach((d, i) => d.position.copy(this.flow.curve.getPointAt((this.flow.phase + i / n) % 1)));
-      }
-      if (weatherOn) this._stepWeather(ambDt);
-      if (houseFlow) this._stepHouseFlow(ambDt);
-      if (pipesOn) this._stepPipes(ambDt);
-      const t0 = performance.now();
-      this.renderer.render(this.scene, this.camera);
-      this.stats.renders++;
-      if (moving) {
-        // Bildabstand beim Drehen messen (für die automatische Auflösung)
-        if (this._lastMoveFrame) this.stats.frameMs.push(t0 - this._lastMoveFrame);
-        if (this.stats.frameMs.length > 120) this.stats.frameMs.shift();
-        this._lastMoveFrame = t0;
-      } else this._lastMoveFrame = null;
-      this._dirty = false;
-      this._lastRender = now;
-    }
-    if (this._camDirty || moving) {
-      this._camDirty = false;
-      this.onCameraChange();
-      this._lodCheck();
-    }
-    // weiter: sofort bei Bewegung, sonst Hintergrund-Animation im gedrosselten Takt, sonst schlafen
-    if (moving || animating || this._dirty) this._kick();
-    else if (ambient) {
-      const wait = Math.max(0, interval - (performance.now() - this._lastRender));
-      clearTimeout(this._timer);
-      this._timer = setTimeout(() => {
-        this._timer = null;
-        this._kick();
-      }, wait);
-    }
-  }
+  // ------------------------------------------------------------------ Schleife: scene-loop.js
 
   /** Qualitätsstufe zur Laufzeit (perf.js): Auflösung, Glühen, Wetter-Dichte, Möbel innen. */
   setQuality(profile) {
     const prev = this.quality;
     this.quality = profile;
     this._applyShadows();
-    const dpr = Math.min(window.devicePixelRatio || 1, profile.dpr ?? profile.maxDpr);
-    if (Math.abs(this.renderer.getPixelRatio() - dpr) > 1e-3) {
-      this.renderer.setPixelRatio(dpr);
-      this.resize();
-    }
+    this._applyDpr();
     if (prev && this._weather && prev.weatherScale !== profile.weatherScale && this.building) this.setWeather(this._weather, { force: true });
-    if (this._lastStates) this.applyStates(this._lastStates);
+    if (this._lastStates) this.applyStates(this._lastStates, { force: true });
     this._lodCheck(true);
     this.invalidate();
   }
@@ -1751,7 +1744,7 @@ export class HouseScene {
   /** Hintergrund-Animationen anhalten (Ruhemodus). */
   setPerf({ frozen = false } = {}) {
     this._frozen = !!frozen;
-    this.invalidate();
+    this.redraw();
   }
 
   /** Möbel innen ausblenden, wenn das Dach drauf ist und man von oben schaut (perf.js:lodState). */
@@ -1764,15 +1757,24 @@ export class HouseScene {
     if (hideInterior === this._hideInterior && !force) return;
     this._hideInterior = hideInterior;
     const on = this.layers.furniture !== false;
-    for (const entry of this.floors.values()) if (entry.furn) entry.furn.visible = on && !hideInterior;
+    for (const entry of this.floors.values()) {
+      if (!entry.furn || entry.furn.visible === (on && !hideInterior)) continue;
+      entry.furn.visible = on && !hideInterior;
+      this._shadowDirty = true; // Möbel innen ein- oder ausgeblendet
+    }
     this._dirty = true;
   }
 
-  /** Bewegt Türen, Fensterflügel, Rollläden und Tore Richtung Ziel; true, solange sich etwas bewegt. */
+  /**
+   * Bewegt Türen, Fensterflügel, Rollläden und Tore Richtung Ziel; true, solange sich etwas bewegt. Jede Bewegung bis
+   * zum Ziel (auch der letzte kleine Rest) zeichnet mit Schatten-Marke.
+   */
   _animate(dt) {
     let busy = false;
+    let moved = false;
     const step = (cur, target, speed) => {
       const d = target - cur;
+      if (d !== 0) moved = true;
       if (Math.abs(d) < 0.002) return target;
       busy = true;
       return cur + Math.sign(d) * Math.min(Math.abs(d), speed * dt);
@@ -1798,7 +1800,10 @@ export class HouseScene {
       }
     }
     this._animating = busy;
-    if (busy) this._dirty = true;
+    if (moved) {
+      this._dirty = true;
+      this._shadowDirty = true;
+    }
     return busy;
   }
 
@@ -1892,20 +1897,10 @@ export class HouseScene {
     this._stepWeather(0);
   }
 
-  /** Bewegt Regen/Schnee; true, solange Wetter angezeigt wird. */
+  /** Bewegt Regen/Schnee (Blitz: scene-loop.js:_stepBolt); true, solange Niederschlag angezeigt wird. */
   _stepWeather(dt) {
     const wx = this.weather;
-    if (this._weather?.lightning) {
-      // Blitz: ab und zu kurz hell
-      if (this._flash > 0) {
-        this._flash -= dt;
-        if (this._flash <= 0) this._applyBackground();
-      } else if (Math.random() < dt / 6) {
-        this._flash = 0.12;
-        this.hemi.intensity += 2.5;
-      }
-    }
-    if (!wx) return !!this._weather?.lightning;
+    if (!wx) return false;
     wx.t += dt;
     const pos = wx.obj.geometry.attributes.position.array;
     const fall = wx.speed * dt;
@@ -1990,4 +1985,4 @@ function outline(points, y, material, heights = null) {
   return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), material);
 }
 
-Object.assign(HouseScene.prototype, SceneFx, SceneWalk, ScenePipes, SceneRoof, SceneRoofParts, SceneWalls);
+Object.assign(HouseScene.prototype, SceneFx, SceneWalk, ScenePipes, SceneRoof, SceneRoofParts, SceneWalls, SceneLoop);

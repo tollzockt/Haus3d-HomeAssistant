@@ -244,9 +244,10 @@ export const DialogMethods = {
     this._popup = el;
   },
 
-  /** Wandtablet: Kopfzeile, Bildschirm anlassen, Startetage, Ruhe und Dimmen (nur dieses Gerät). */
+  /** Wandtablet: Kopfzeile, Bildschirm anlassen, Startetage, Ruhe, Pause der Animationen und Dimmen (nur dieses Gerät). */
   _renderKioskConfig(box) {
     const k = { ...(this._settings.kiosk ?? {}) };
+    const coarse = !!window.matchMedia?.("(pointer: coarse)").matches;
     const wakeOk = "wakeLock" in navigator && window.isSecureContext;
     const floors = [["", "zuletzt gewählte"], ["all", "Alle"], ...[...(this._building?.floors ?? [])].sort((a, b) => b.elevation - a.elevation).map((f) => [f.id, f.name])];
     box.innerHTML = `<label class="en-row" title="Für die Dienste haus3d.show/notify/highlight (Feld „Ziel“)"><span>Name dieses Geräts</span><input data-kname maxlength="40" placeholder="z. B. flur-tablet" value="${esc(k.name ?? "")}"></label>
@@ -255,8 +256,10 @@ export const DialogMethods = {
       ${wakeOk ? `<label class="chkrow"><input type="checkbox" data-k="wakeLock"${k.wakeLock ? " checked" : ""}> Bildschirm anlassen</label>` : `<p class="hint">„Bildschirm anlassen“ geht nur über https – in der HA-App bzw. Fully Kiosk dort einstellen.</p>`}
       <label class="en-row"><span>Startetage</span><select data-k="startFloor">${floors.map(([id, n]) => `<option value="${esc(id)}"${(k.startFloor ?? "") === id ? " selected" : ""}>${esc(n)}</option>`).join("")}</select></label>
       <label class="en-row"><span>Ruhe nach (min)</span><input type="number" data-k="idleMin" min="0" max="240" step="1" value="${k.idleMin ?? ""}" placeholder="${this.hasAttribute("kiosk") ? "5" : "aus"}"></label>
+      <label class="en-row" title="Hintergrund-Animationen pausieren"><span>Pause nach (min)</span><input type="number" data-k="pauseMin" min="0" max="240" step="1" value="${k.pauseMin ?? ""}" placeholder="${coarse ? "10" : "aus"}"></label>
       <div class="en-row"><span>Dimmen</span><input type="time" data-k="dimFrom" value="${esc(k.dimFrom ?? "")}"><span class="to">bis</span><input type="time" data-k="dimTo" value="${esc(k.dimTo ?? "")}"></div>
       <p class="hint">In Ruhe schließen sich Fenster und Menüs, die Startetage erscheint; im Dimm-Zeitraum wird es dunkel, der erste Tipp weckt nur.</p>
+      <p class="hint">Pause (ohne Wandtablet-Modus; Touch-Geräte ab Werk 10 min, 0 = nie): Energiefluss, Leitungen und Wetter halten an, Werte bleiben aktuell. Die nächste Berührung weckt.</p>
       <p class="hint">Direkt als Wandtablet öffnen: /haus3d?kiosk&amp;etage=eg</p>`;
     const save = () => {
       this._settings.kiosk = k;
@@ -277,10 +280,10 @@ export const DialogMethods = {
       k.name = ev.target.value.trim() || undefined;
       save();
     });
-    box.querySelector("[data-k=idleMin]").addEventListener("change", (ev) => {
-      k.idleMin = ev.target.value === "" ? undefined : Math.max(0, Number(ev.target.value) || 0);
+    box.querySelectorAll("input[type=number][data-k]").forEach((i) => i.addEventListener("change", () => {
+      k[i.dataset.k] = i.value === "" ? undefined : Math.max(0, Number(i.value) || 0);
       save();
-    });
+    }));
   },
 
   /** Dach (Form, Neigung, Überstand, Firstrichtung) und Wetter-Entität. */

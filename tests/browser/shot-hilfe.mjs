@@ -18,12 +18,16 @@ pg.on("request", (r) => {
   if (!r.url().startsWith(`http://localhost:${t.port}/`) && !r.url().startsWith("data:") && !r.url().startsWith("blob:")) outside.push(r.url());
 });
 
-/** Zustand des aktuellen Tour-Schritts: Titel, Zähler, Knöpfe, Karte und Ausschnitt (Rechtecke im Fenster). */
+/**
+ * Zustand des aktuellen Tour-Schritts: Titel, Zähler, Knöpfe, Karte und Ausschnitt (Rechtecke im Fenster). Erst nach dem
+ * Ende der Übergänge (0,25 s) gelesen: unter Last laufen sie länger als die Wartezeit nach „Weiter“.
+ */
 const step = () =>
-  E(() => {
+  E(async () => {
     const root = window.panel.shadowRoot;
     const box = root.querySelector(".tour");
     if (!box) return null;
+    await Promise.all(box.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
     const rect = (el) => {
       const r = el.getBoundingClientRect();
       return { l: Math.round(r.left), t: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };

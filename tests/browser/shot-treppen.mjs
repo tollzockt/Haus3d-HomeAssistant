@@ -3,7 +3,8 @@
 import { start } from "./lib.mjs";
 
 const t = await start(process.argv[2]);
-const pg = await t.page("treppen", "?stairs", { width: 1280, height: 800 });
+// Aufbau der Treppen-Modelle (Handläufe als eigene Rohre): ohne Zusammenführen der Teile in der Hauptansicht (furniture-merge.js)
+const pg = await t.page("treppen", "?stairs&zusammenfuehren=aus", { width: 1280, height: 800 });
 
 /** Treppe im KG (und Treppenlöcher im EG) setzen, Szene neu bauen und messen. */
 const build = (patch) => pg.evaluate(async (patch) => {

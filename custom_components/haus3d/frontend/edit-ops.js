@@ -6,6 +6,8 @@ import { EXTRA_FREE } from "./catalog-extra.js";
 import { MORE_FREE } from "./catalog-more.js";
 import { hasPose, planSize } from "./pose.js";
 import { isCabinet, isRackable } from "./rack.js";
+// Wandflächen liegen in wallfaces.js (auch für die Szene, ohne die Editor-Logik); hier für bisherige Importe
+export { wallFaces } from "./wallfaces.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
@@ -484,27 +486,6 @@ export function cleanPoints(points, eps = 0.005) {
     }
   }
   return pts;
-}
-
-/**
- * Wandflächen einer Etage zum Einrasten: je Wandsegment die Seiten, an denen ein Raum liegt.
- * @param {object[]} segments aus computeWalls
- * @returns {{p: number[], u: number[], n: number[], t0: number, t1: number}[]} n zeigt von der Wand weg in den Raum
- */
-export function wallFaces(segments) {
-  const faces = [];
-  for (const s of segments) {
-    for (const side of [1, -1]) {
-      // nur Seiten zum Raum hin (bei Außenwänden die Innenseite), freie Wände beidseitig
-      const roomSide = side > 0 ? s.roomLeft : s.roomRight;
-      if (!roomSide && s.kind !== "free") continue;
-      const extra = roomSide && s.flush > 0 ? s.flush : 0; // bündiger Streifen (walls.js)
-      const off = side > 0 ? s.left + extra : -(s.right + extra);
-      const n = [s.n[0] * side, s.n[1] * side];
-      faces.push({ p: [s.a[0] + s.n[0] * off, s.a[1] + s.n[1] * off], u: s.u, n, t0: 0, t1: s.length });
-    }
-  }
-  return faces;
 }
 
 /** Möbeltypen, die nicht an Wänden einrasten (liegen frei im Raum oder hängen an der Decke). */

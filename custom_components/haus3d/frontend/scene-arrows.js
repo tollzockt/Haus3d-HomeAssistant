@@ -279,5 +279,6 @@ export function moveLive(sc, live, d, rotationDeg = null) {
   for (const g of live.subs ?? []) g.o.updateMatrixWorld(true);
   if (sc?._mark && sc._mark.object === obj) sc._mark.update(); // Rahmen der Möbel-Auswahl folgt
   sc?.invalidate?.();
+  sc?._partsMoved?.(); // zählt als Bewegung: Bewegungs-Auflösung während des Zugs
   return true;
 }

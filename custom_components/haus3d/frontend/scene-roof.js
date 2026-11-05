@@ -137,7 +137,7 @@ export const SceneRoof = {
       f.solar.emissiveIntensity = want;
       changed = true;
     }
-    if (changed) this.invalidate();
+    if (changed) this.redraw(); // nur Material: ohne Schattenpass
   },
 
   /**

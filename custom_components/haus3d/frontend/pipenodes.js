@@ -46,7 +46,7 @@ const angDiff = (a, b) => {
 };
 
 /**
- * Platz an der nächsten Wandfläche (edit-ops.wallFaces: p, u, n zum Raum, t0/t1): Punkt im Abstand WALL_GAP
+ * Platz an der nächsten Wandfläche (wallfaces.js:wallFaces: p, u, n zum Raum, t0/t1): Punkt im Abstand WALL_GAP
  * vor der Wand, Drehung mit der Vorderseite (lokal +z) zum Raum. half > 0: halbe Gehäusebreite, die neben
  * der Fläche Platz haben muss (bleibt aus der Ecke heraus).
  * @returns {{x: number, z: number, rotation: number, dist: number}|null}

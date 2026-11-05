@@ -153,6 +153,7 @@ button.hololine:hover b { text-decoration: underline; }
 :host([cyber]) .holocard { border-color: rgba(255, 64, 200, .75); box-shadow: 0 0 16px rgba(255, 64, 200, .45), inset 0 0 18px rgba(0, 240, 255, .2); }
 :host([cyber]) .holohead { color: #ff8be0; }
 .holo.hidden-behind { opacity: .35 !important; }
+.moving .holocard { backdrop-filter: none; } /* beim Drehen: Weichzeichnen kostet je Bild (will-change bleibt unverändert) */
 @keyframes holo-in { from { opacity: 0; transform: translateX(-50%) scale(.85) translateY(6px); } to { opacity: 1; transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) { .holocard { animation: none; } }
 `;

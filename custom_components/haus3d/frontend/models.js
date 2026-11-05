@@ -430,6 +430,23 @@ function edgesOf(geometry) {
   return e;
 }
 
+/**
+ * Alles, was Szenen gemeinsam nutzen: Vorlagen samt Kanten, Platzhalter-Stoffe und der Ersatzstoff (für
+ * scene-release.js: beim Entsorgen einer Szene die Listener ihres Renderers abnehmen).
+ */
+export function sharedModelParts() {
+  const out = [PLAIN, ...Object.values(phMats).flatMap((m) => [m.fill, m.line])];
+  for (const e of entries.values()) {
+    if (!e.tpl) continue;
+    out.push(e.tpl.object);
+    e.tpl.object.traverse((o) => {
+      const edges = o.geometry && edgeCache.get(o.geometry);
+      if (edges) out.push(edges);
+    });
+  }
+  return out;
+}
+
 /** Eingepasste Kopie der Vorlage (teilt Geometrie und Stoffe) im Einheitsrahmen der Möbel. */
 export function instantiate(tpl, w, d, h, fit, M) {
   const [sx, sy, sz] = fitScale(tpl.size, [w, d, h], fit);

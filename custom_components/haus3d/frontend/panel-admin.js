@@ -40,7 +40,7 @@ const CATEGORIES = [
   ["routines", "mdi:shield-home-outline", "Abläufe & Sicherheit", "Gute Nacht, Schlösser"],
   ["quick", "mdi:gesture-tap", "Kurzwahl & Funktionsrad", "Einträge der beiden Räder"],
   ["display", "mdi:layers-outline", "Anzeige", "weitere Ebenen, Leistungsanzeige"],
-  ["kiosk", "mdi:tablet", "Wandtablet", "dieses Gerät"],
+  ["kiosk", "mdi:tablet", "Wandtablet", "dieses Gerät, Ruhe, Pause"],
   ["data", "mdi:database-outline", "Daten & Verlauf", "Export, Import, Stände"],
   ["houses", "mdi:home-group", "Häuser", "Mein Haus, Testhäuser, Demo"],
   ["pin", "mdi:key-variant", "PIN & Zugang", "PINs für Bearbeiten, Admin und Türen"],

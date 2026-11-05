@@ -204,14 +204,23 @@ export const PrintMethods = {
     return ok(this._scene) ? this._scene : null;
   },
 
-  /** 3D-Ansicht der Szene als PNG-Daten-URL (sofort nach dem Zeichnen gelesen; kurz mit mindestens doppelter Auflösung). */
+  /**
+   * 3D-Ansicht der Szene als PNG-Daten-URL (sofort nach dem Zeichnen gelesen; kurz mit mindestens doppelter Auflösung).
+   * Geparkte Hauptansicht (Editor offen, scene-loop.js:park): für die Aufnahme kurz in voller Größe, danach wieder 1×1.
+   */
   _capture3d(scene) {
     const r = scene?.renderer;
     if (!r || scene.contextLost) return null;
+    const parked = !!scene._parked;
+    if (parked) {
+      scene._parked = false;
+      scene.resize(); // angehalten: nur Größe und Seitenverhältnis, kein Bild
+    }
     const prev = r.getPixelRatio();
     const boost = prev < 2;
     try {
       if (boost) r.setPixelRatio(2); // setzt die Größe der Zeichenfläche neu (und leert sie)
+      if (scene._shadowDirty) r.shadowMap.needsUpdate = true; // z. B. nach dem Speichern im Editor (Ansicht angehalten)
       r.render(scene.scene, scene.camera);
       const src = r.domElement;
       if (src.width <= MAX_SHOT_PX) return src.toDataURL("image/png");
@@ -228,6 +237,7 @@ export const PrintMethods = {
         r.setPixelRatio(prev);
         scene.invalidate?.(); // die Zeichenfläche ist wieder leer: beim nächsten Bild neu zeichnen
       }
+      if (parked) scene.park(true);
     }
   },
 

@@ -4,6 +4,7 @@
 // = nur Kamera (drehen, schieben, zoomen), nichts wird ausgewählt oder verschoben.
 
 import { HouseScene } from "./scene.js";
+import { disposeScene } from "./scene-release.js";
 import { normalize } from "./model.js";
 import { AxisArrows, targetObject, liveTarget, liveRestore, moveLive } from "./scene-arrows.js";
 import { AXIS_DIR, AXIS_LABEL, applyAxis, arrowAnchor, axisParam, axisValue, hint3d, orbitButtons, viewOnly } from "./arrows3d.js";
@@ -63,7 +64,8 @@ export const Editor3dMethods = {
   },
 
   _create3d() {
-    const sc = new HouseScene(this.box3d, { dark: this.dark });
+    const sc = new HouseScene(this.box3d, { dark: this.dark, flags: this.perfFlags }); // live (Vorgabe): folgt jeder Änderung
+    if (this.quality) sc.setQuality(this.quality); // wie die Hauptansicht (Auflösung, Schattenkarte)
     sc.setStyle(this.sceneStyle === "cyber" ? "cyber" : this.sceneStyle === "night" ? "night" : "standard");
     sc.setLayers({ roof: false, weather: false });
     sc.start();
@@ -428,7 +430,8 @@ export const Editor3dMethods = {
     }
     this._arrows?.dispose();
     this._arrows = null;
-    this.scene3d?.dispose();
+    // nicht nur dispose(): geteilte Texturen und Modell-Vorlagen hielten sonst den ganzen Renderer fest (je Öffnen einer)
+    if (this.scene3d) disposeScene(this.scene3d);
     this.scene3d = null;
   },
 };

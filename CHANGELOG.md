@@ -1,5 +1,31 @@
 # Änderungen
 
+## 0.24.0b2 (Vorabversion)
+
+- **Flüssiger am Tablet**: Ruhend bleibt das Bild scharf, beim Drehen und Ziehen wird es kurz weicher (geringere
+  Auflösung, auf langsamen Geräten angepasst) und ist kurz nach dem Loslassen wieder scharf. Die Sonnenschatten
+  entstehen nur nach Änderungen neu (Etage, Ebene, Tür, Vorhang, Sonne, Stufe), nicht beim Drehen, Begehen, bei
+  Hintergrund-Animationen, Lampen oder Sensorwerten.
+- **Weniger Zeichenaufrufe**: Möbel ohne Entität und eigenen Zustand werden in der Hauptansicht je Stück und Material
+  zusammengefasst, Kontaktschatten, Energiefluss- und Leitungspunkte gebündelt gezeichnet. Große Häuser brauchen
+  weniger Speicher; Editor und Katalogbilder bleiben unverändert.
+- **Hintergrund-Animationen sparsamer**: am Tablet in „Ausgewogen“ 15 Bilder/s (langsame Geräte 12), Blitz ohne
+  Niederschlag 8; Energiefluss und Leitungen laufen nur, wenn sie sichtbar sind. Neue Werte zeichnen nur ein Bild,
+  wenn sich sichtbar etwas ändert (eine reine Leistungsänderung nicht).
+- **Ruhemodus am Tablet**: Auf Touch-Geräten halten die Hintergrund-Animationen nach 10 min ohne Berührung an, auch
+  ohne Wandtablet-Modus; Werte bleiben aktuell, die nächste Berührung weckt. Einstellbar unter Admin-Einstellungen →
+  Wandtablet → „Pause nach (min)“ (0 = nie).
+- **Editor**: folgt der Qualitätsstufe der Hauptansicht (am Tablet ruhend Auflösung 1,5, Schattenkarte 1.024); die
+  Hauptansicht ruht, solange er offen ist, und gibt ihren Bildspeicher frei. Beim Schließen gibt er seinen Speicher
+  ganz frei (wichtig fürs Wandtablet). Schlägt das Laden des Editors fehl (z. B. kurzer Netzausfall), holt ihn der
+  nächste Versuch neu ab.
+- **Beschriftungen** beim Drehen günstiger (Verdeckung in kleinen Häppchen, Stil nur bei Änderung); der Start lädt
+  die Planlogik des Editors nicht mehr mit.
+- **Leistungsanzeige** (Admin-Einstellungen → Anzeige): Bilder/s, Auflösung ruhend und in Bewegung, Zeichenaufrufe
+  mit Schattenpass und Schattenpässe je Sekunde.
+- **Energie-Karte**: Die Mini-Kurven nutzen ihren 5-min-Zwischenspeicher wieder (vorher eine neue Abfrage nach jedem
+  Schließen des Editors).
+
 ## 0.24.0b1 (Vorabversion)
 
 - **Demo-Modus (Vorführhaus)**: Weitere Häuser gibt es jetzt für alle mit Admin-PIN – Admin-Einstellungen →

@@ -63,6 +63,7 @@ const calls = await pg.evaluate(() => {
   const sc = p._scene;
   const count = (solar) => {
     sc.setLayers({ ...p._settings.layers, solar });
+    sc.renderer.info.reset(); // die Szene leert die Zähler selbst am Bildanfang (info.autoReset aus)
     sc.renderer.render(sc.scene, sc.camera);
     return sc.renderer.info.render.calls;
   };

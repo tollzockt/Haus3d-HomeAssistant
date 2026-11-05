@@ -137,7 +137,7 @@ export class FloorEditor {
    * @param {(b: object) => Promise<void>} o.onSave
    * @param {() => void} o.onClose
    */
-  constructor({ container, building, hass, floorId, onSave, onClose, confirm = async (text) => window.confirm(text), sceneStyle = "standard", dark = false, revision = null, draftKey = undefined, sim = false, demo = false }) {
+  constructor({ container, building, hass, floorId, onSave, onClose, confirm = async (text) => window.confirm(text), sceneStyle = "standard", dark = false, revision = null, draftKey = undefined, sim = false, demo = false, perfFlags = null, quality = null }) {
     this.b = structuredClone(building);
     // leeres Haus (z. B. neues Testhaus): ein Erdgeschoss zum Loslegen – nicht im Verlauf, erst „Speichern“ übernimmt es
     if (!this.b.floors?.length) {
@@ -164,6 +164,8 @@ export class FloorEditor {
     this.view = null;
     this.sceneStyle = sceneStyle;
     this.dark = dark;
+    this.perfFlags = perfFlags; // Mess-Schalter des Panels (perf.js:perfFlags) für die 3D-Ansicht
+    this.quality = quality; // Stufe der Hauptansicht (perf.js:resolveQuality), gilt auch für die 3D-Ansicht
     this.magnet = true;
     this.nudgeStep = 0.05;
     this.furnSearch = "";

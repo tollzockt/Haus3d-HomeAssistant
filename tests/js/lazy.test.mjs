@@ -41,6 +41,18 @@ test("loadOnce: ein Fehlschlag wird nicht gemerkt, der nächste Aufruf lädt neu
   await assert.rejects(() => loadOnce("t-fehler", load), /kurz weg/);
   assert.equal(await loadOnce("t-fehler", load), "da");
   assert.equal(n, 2);
+  // load(n): n = Fehlschläge davor (für eine neue Adresse beim nächsten Versuch)
+  const seen = [];
+  const flaky = async (k) => {
+    seen.push(k);
+    if (k < 2) throw new Error("weg");
+    return "wieder da";
+  };
+  await assert.rejects(() => loadOnce("t-zaehler", flaky), /weg/);
+  await assert.rejects(() => loadOnce("t-zaehler", flaky), /weg/);
+  assert.equal(await loadOnce("t-zaehler", flaky), "wieder da");
+  assert.equal(await loadOnce("t-zaehler", flaky), "wieder da");
+  assert.deepEqual(seen, [0, 1, 2]);
   // auch ein sofort werfendes load() wird zum abgelehnten Versprechen
   await assert.rejects(() => loadOnce("t-wirft", () => { throw new Error("sofort"); }), /sofort/);
   assert.ok(!isRequested("t-wirft"));
@@ -68,7 +80,7 @@ test("Die Loader für eigene Modelle werden nur per import() geladen, nicht stat
 
 test("Der Editor hängt nicht am Startbaum des Panels, sondern wird über loadEditor() nachgeladen", () => {
   const tree = staticTree("haus3d-panel.js");
-  // alles, was nur der Editor braucht (edit-ops.js ist reine Planlogik und gehört auch zur Szene)
+  // alles, was nur der Editor braucht
   const own = [...staticTree("editor.js")].filter((f) => !tree.has(f) || f === "editor.js");
   assert.ok(own.length > 25, `nur ${own.length} Module hängen allein am Editor`);
   for (const f of own) assert.ok(!tree.has(f), `${f} hängt am Startbaum des Panels`);
@@ -77,16 +89,29 @@ test("Der Editor hängt nicht am Startbaum des Panels, sondern wird über loadEd
   const panel = readFileSync(new URL("haus3d-panel.js", FRONT), "utf8");
   assert.doesNotMatch(panel, /from\s+"\.\/editor\.js"/);
   assert.doesNotMatch(panel, /\$\{EDITOR_STYLE\}/);
-  assert.match(readFileSync(new URL("lazy.js", FRONT), "utf8"), /loadOnce\("editor", \(\) => import\("\.\/editor\.js"\)\)/);
+  // erster Versuch unter der festen Adresse, danach unter neuer (der Browser merkt sich den Fehlschlag je Adresse)
+  assert.match(readFileSync(new URL("lazy.js", FRONT), "utf8"), /loadOnce\("editor", \(n\) => import\(n \? `\.\/editor\.js\?versuch=\$\{n\}` : "\.\/editor\.js"\)\)/);
   // _openEditor ist asynchron und lädt, bevor er baut
   assert.match(panel, /async _openEditor\(\)[\s\S]*?await loadEditor\(\)[\s\S]*?this\._buildEditor\(mod\.FloorEditor\)/);
+});
+
+test("edit-ops.js hängt nicht am Startbaum: die Szene holt die Wandflächen aus wallfaces.js (Re-Export für alte Importe)", async () => {
+  const tree = staticTree("haus3d-panel.js");
+  assert.ok(!tree.has("edit-ops.js"), "edit-ops.js hängt am Startbaum des Panels");
+  assert.ok(tree.has("wallfaces.js"));
+  assert.ok(staticTree("editor.js").has("edit-ops.js"));
+  const ops = await import("../../custom_components/haus3d/frontend/edit-ops.js");
+  const own = await import("../../custom_components/haus3d/frontend/wallfaces.js");
+  assert.equal(ops.wallFaces, own.wallFaces);
+  assert.match(readFileSync(new URL("scene-pipes.js", FRONT), "utf8"), /import \{ wallFaces \} from "\.\/wallfaces\.js"/);
 });
 
 test("Der Start lädt nur einen kleinen Teil der Module (Obergrenze gegen schleichendes Anwachsen)", () => {
   const tree = staticTree("haus3d-panel.js");
   let kb = 0;
   for (const f of tree) kb += readFileSync(new URL(f, FRONT)).length / 1024;
-  assert.ok(tree.size <= 125, `${tree.size} Module am Startbaum`);
+  // 126 Module: Bildschleife, Zustands-Fingerabdruck, Möbel-Zusammenführen und Wandflächen sind eigene kleine Module
+  assert.ok(tree.size <= 126, `${tree.size} Module am Startbaum`);
   assert.ok(kb <= 2500, `${Math.round(kb)} KB am Startbaum`);
 });
 

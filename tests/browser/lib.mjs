@@ -16,11 +16,16 @@ export const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 export const chromiumPath = process.env.PW_CHROMIUM ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json" };
 
-export async function start(out = ".") {
+/**
+ * Testserver und Browser starten. files: zusätzliche Dateien nur im Speicher ({"/pfad.json": Inhalt}), z. B. ein
+ * erzeugtes Testhaus für ?data=/pfad.json.
+ */
+export async function start(out = ".", { files = {} } = {}) {
   const server = createServer(async (req, res) => {
     try {
-      const path = join(root, decodeURIComponent(new URL(req.url, "http://x").pathname));
-      const body = await readFile(path);
+      const url = decodeURIComponent(new URL(req.url, "http://x").pathname);
+      const path = join(root, url);
+      const body = Object.hasOwn(files, url) ? Buffer.from(files[url]) : await readFile(path);
       res.writeHead(200, { "content-type": types[extname(path)] ?? "application/octet-stream" });
       res.end(body);
     } catch {
@@ -36,11 +41,14 @@ export async function start(out = ".") {
   const errors = [];
   const results = {};
 
-  /** Seite mit dem Harness öffnen (query z. B. "?roof=gable&lock"), optional Touch-Gerät. */
-  async function page(name, query = "", { width = 1280, height = 800, touch = false, scale = 1, wait = 2500 } = {}) {
+  /**
+   * Seite mit dem Harness öffnen (query z. B. "?roof=gable&lock"), optional Touch-Gerät. context: weitere Optionen
+   * für den Browser-Kontext (z. B. timezoneId); setup(pg, ctx): läuft vor dem Laden (Init-Skripte, CDP-Drosselung).
+   */
+  async function page(name, query = "", { width = 1280, height = 800, touch = false, scale = 1, wait = 2500, context = {}, setup = null } = {}) {
     // vorherige Seiten schließen: offene Seiten rendern weiter und bremsen SwiftShader aus
     for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close();
-    const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: scale, hasTouch: touch, isMobile: touch });
+    const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: scale, hasTouch: touch, isMobile: touch, ...context });
     const pg = await ctx.newPage();
     pg.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     pg.on("console", (m) => {
@@ -51,6 +59,7 @@ export async function start(out = ".") {
     if (!/quality=/.test(query)) query = `${query}${query ? "&" : "?"}quality=schoen`; // SwiftShader: Stufe festlegen
     if (!/schatten=/.test(query)) query += "&schatten=aus"; // Schattenkarten sind in SwiftShader sehr langsam
     const data = process.env.HARNESS_DATA ? `&data=${process.env.HARNESS_DATA}` : "";
+    if (setup) await setup(pg, ctx);
     await pg.goto(`http://localhost:${port}/tests/browser/harness.html${query}${data}`);
     // erst warten, bis das Panel da ist (bei vielen Jobs gleichzeitig dauert das Laden der Module länger)
     await pg.waitForFunction(() => window.panel, null, { timeout: 60000 }).catch(() => {});
@@ -108,4 +117,25 @@ export async function unlock(pg, scope = "edit", { pin = "0000", cat = null, arg
   await pg.waitForFunction(() => !window.panel.shadowRoot.querySelector(".pinpad"), null, { timeout: 8000 });
   await pg.evaluate(() => window.__unlocking);
   await pg.waitForTimeout(150);
+}
+
+/**
+ * Feste Uhrzeit für Messungen und Bildvergleiche (Init-Skript: pg.addInitScript(fixedTimeInit, startMs)): Date beginnt
+ * bei startMs und läuft von dort normal weiter (Timer, requestAnimationFrame und performance.now bleiben echt). So
+ * hängen Sonnenstand, Jahreszeit, Demo-Uhr und Zeitangaben nicht von der Tageszeit des Testlaufs ab.
+ */
+export function fixedTimeInit(startMs) {
+  const RealDate = Date;
+  const offset = startMs - RealDate.now();
+  class FixedDate extends RealDate {
+    constructor(...a) {
+      if (a.length === 0) super(RealDate.now() + offset);
+      else super(...a);
+    }
+    static now() {
+      return RealDate.now() + offset;
+    }
+  }
+  // Date() ohne new liefert wie gewohnt einen Text
+  window.Date = new Proxy(FixedDate, { apply: () => new FixedDate().toString() });
 }

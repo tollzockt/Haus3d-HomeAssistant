@@ -11,7 +11,7 @@ const sh = await E(() => {
   let blobs = 0;
   sc.root.traverse((o) => {
     if (o.castShadow) cast++;
-    if (o.userData.blob) blobs++;
+    if (o.userData.blob) blobs += o.isInstancedMesh ? o.count : 1; // Hauptansicht: ein InstancedMesh je Möbelgruppe
   });
   return { map: sc.renderer.shadowMap.enabled, sun: sc.sun.castShadow, cast, blobs };
 });
